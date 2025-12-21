@@ -348,19 +348,9 @@ if not config.supports_create_unit():
 else:
     network_manager = get_network_manager()
     
-    # Load apps for dropdown
-    with st.spinner("Loading apps..."):
-        apps = SessionManager.get_cached_apps(current_network)
-        
-        if not apps:
-            # Try to fetch from API
-            try:
-                apps = network_manager.get_apps(current_network)
-                SessionManager.cache_apps(current_network, apps)
-            except Exception as e:
-                st.error(f"❌ Failed to load apps: {str(e)}")
-                st.info("Please create an app above first or go to 'View Lists' page to load apps")
-                apps = []
+    # Load apps from cache (from Create App POST responses)
+    # Note: get_apps() API will be implemented later
+    apps = SessionManager.get_cached_apps(current_network)
     
     if not apps:
         st.warning("No apps found. Please create an app above first.")
@@ -388,6 +378,10 @@ else:
                 "platformStr": "android" if platform == "Android" else "ios"
             }
         
+        # Add "Manual Entry" option
+        manual_entry_option = "✏️ Enter manually"
+        app_options.append(manual_entry_option)
+        
         # Get last created app code and info
         last_created_app_code = SessionManager.get_last_created_app_code(current_network)
         last_app_info = SessionManager.get_last_created_app_info(current_network)
@@ -407,10 +401,22 @@ else:
             app_label,
             options=app_options,
             index=default_index,
-            help="Select the app for the slots. Recently created apps are pre-selected." if current_network != "pangle" else "Select the site for the ad placements. Recently created sites are pre-selected.",
+            help="Select the app for the slots or enter manually. Recently created apps are pre-selected." if current_network != "pangle" else "Select the site for the ad placements or enter manually. Recently created sites are pre-selected.",
             key="slot_app_select"
         )
-        selected_app_code = app_code_map.get(selected_app_display, "")
+        
+        # Check if manual entry is selected
+        if selected_app_display == manual_entry_option:
+            # Show manual input field
+            manual_app_code = st.text_input(
+                f"Enter {app_label.lower()}",
+                value="",
+                help="Enter the app code manually",
+                key="manual_app_code_input"
+            )
+            selected_app_code = manual_app_code.strip() if manual_app_code else ""
+        else:
+            selected_app_code = app_code_map.get(selected_app_display, "")
         
         if selected_app_code:
             # Get app name from display text
@@ -804,7 +810,7 @@ else:
                                 else:
                                     # Build payload for Pangle
                                     payload = {
-                                        "site_id": selected_app_code,  # site_id from selected app
+                                        "app_id": selected_app_code,  # app_id from selected app (Pangle uses app_id parameter)
                                         "ad_placement_type": slot_config["ad_slot_type"],
                                         "bidding_type": 1,  # Default: 1
                                     }

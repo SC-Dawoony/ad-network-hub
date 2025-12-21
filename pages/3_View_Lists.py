@@ -47,20 +47,14 @@ network_manager = get_network_manager()
 if view_type == "Apps":
     st.subheader("📊 Apps List")
     
-    # Load apps
-    with st.spinner("Loading apps..."):
-        apps = SessionManager.get_cached_apps(current_network)
-        
-        if refresh_button or not apps:
-            try:
-                apps = network_manager.get_apps(current_network)
-                SessionManager.cache_apps(current_network, apps)
-                if refresh_button:
-                    st.success("✅ Apps refreshed")
-            except Exception as e:
-                st.error(f"❌ Failed to load apps: {str(e)}")
-                SessionManager.log_error(current_network, str(e))
-                apps = []
+    # Load apps from cache (from Create App POST responses)
+    # Note: get_apps() API will be implemented later
+    apps = SessionManager.get_cached_apps(current_network)
+    
+    if refresh_button:
+        # Refresh button just reruns to show latest cached data
+        st.success("✅ Display refreshed (showing cached apps from Create App responses)")
+        st.rerun()
     
     if apps:
         st.info(f"**Total:** {len(apps)} apps")
@@ -86,18 +80,9 @@ if view_type == "Apps":
                 
                 st.divider()
                 
-                # Load and display units for this app
+                # Load and display units for this app from cache (from Create Unit POST responses)
+                # Note: get_units() API will be implemented later
                 units = SessionManager.get_cached_units(current_network, app_code)
-                
-                # Try to load units if not cached or refresh button clicked
-                if refresh_button or not units:
-                    try:
-                        units = network_manager.get_units(current_network, app_code)
-                        SessionManager.cache_units(current_network, app_code, units)
-                    except Exception as e:
-                        # If get_units fails, use cached units or empty list
-                        if not units:
-                            units = []
                 
                 if units:
                     st.write(f"**Units ({len(units)}):**")
@@ -152,20 +137,11 @@ if view_type == "Apps":
 else:  # Slots
     st.subheader("📊 Slots List")
     
-    # Load apps first for selection
-    with st.spinner("Loading apps..."):
-        apps = SessionManager.get_cached_apps(current_network)
-        
-        if not apps:
-            try:
-                apps = network_manager.get_apps(current_network)
-                SessionManager.cache_apps(current_network, apps)
-            except Exception as e:
-                st.error(f"❌ Failed to load apps: {str(e)}")
-                apps = []
+    # Load apps from cache (from Create App POST responses)
+    apps = SessionManager.get_cached_apps(current_network)
     
     if not apps:
-        st.warning("No apps found. Please create an app first.")
+        st.warning("No apps found. Please create an app first using 'Create App & Unit' page.")
         st.stop()
     
     # App selection
@@ -191,20 +167,14 @@ else:  # Slots
     
     st.divider()
     
-    # Load slots
-    with st.spinner("Loading slots..."):
-        units = SessionManager.get_cached_units(current_network, selected_app_code)
-        
-        if refresh_button or not units:
-            try:
-                units = network_manager.get_units(current_network, selected_app_code)
-                SessionManager.cache_units(current_network, selected_app_code, units)
-                if refresh_button:
-                    st.success("✅ Slots refreshed")
-            except Exception as e:
-                st.error(f"❌ Failed to load slots: {str(e)}")
-                SessionManager.log_error(current_network, str(e))
-                units = []
+    # Load slots from cache (from Create Unit POST responses)
+    # Note: get_units() API will be implemented later
+    units = SessionManager.get_cached_units(current_network, selected_app_code)
+    
+    if refresh_button:
+        # Refresh button just reruns to show latest cached data
+        st.success("✅ Display refreshed (showing cached units from Create Unit responses)")
+        st.rerun()
     
     if units:
         # Convert to DataFrame
