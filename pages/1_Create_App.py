@@ -254,8 +254,31 @@ with st.form("create_app_form"):
                     result = handle_api_response(response)
                     
                     if result:
-                        # IronSource returns appKey, Pangle may return site_id or app_id, Mintegral returns app_id, others return appCode
-                        app_code = result.get("appKey") or result.get("site_id") or result.get("app_id") or result.get("appCode", "N/A")
+                        # Extract app code from actual API response based on network
+                        # result is already the normalized response from network_manager
+                        app_code = None
+                        app_id = None
+                        
+                        if current_network == "ironsource":
+                            # IronSource: result contains appKey directly
+                            app_code = result.get("appKey")
+                        elif current_network == "pangle":
+                            # Pangle: result.data contains site_id, or result itself
+                            app_code = result.get("site_id") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("site_id")
+                        elif current_network == "mintegral":
+                            # Mintegral: result.data contains app_id, or result itself
+                            # Try multiple possible field names
+                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                            app_id = data.get("app_id") or data.get("id") or data.get("appId") or result.get("app_id") or result.get("id")
+                            app_code = str(app_id) if app_id else None
+                        else:
+                            # BigOAds: result.data contains appCode, or result itself
+                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                            app_code = data.get("appCode") or result.get("appCode")
+                        
+                        if not app_code:
+                            app_code = "N/A"
+                        
                         app_name = form_data.get("app_name") or form_data.get("appName") or form_data.get("name", "Unknown")
                         
                         # For IronSource and Pangle, we don't have platform/pkgName in the same way
@@ -273,7 +296,7 @@ with st.form("create_app_form"):
                             "appCode": app_code,  # For IronSource, this is actually appKey
                             "appKey": app_code if current_network == "ironsource" else None,  # Store appKey separately for IronSource
                             "siteId": app_code if current_network == "pangle" else None,  # Store siteId separately for Pangle
-                            "app_id": result.get("app_id") or app_code if current_network == "mintegral" else None,  # Store app_id separately for Mintegral
+                            "app_id": app_id if current_network == "mintegral" else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral
                             "name": app_name,
                             "pkgName": pkg_name,
                             "platform": platform,
@@ -620,12 +643,22 @@ else:
                                             result = handle_api_response(response)
                                 
                                             if result:
-                                                SessionManager.add_created_unit(current_network, {
+                                                unit_data = {
                                                     "slotCode": result.get("adUnitId", "N/A"),
                                                     "name": mediation_ad_unit_name,
                                                     "appCode": selected_app_code,
-                                                    "slotType": slot_config['adFormat']
-                                                })
+                                                    "slotType": slot_config['adFormat'],
+                                                    "adType": slot_config['adFormat'],
+                                                    "auctionType": "N/A"
+                                                }
+                                                SessionManager.add_created_unit(current_network, unit_data)
+                                                
+                                                # Add to cache
+                                                cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                                if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                    cached_units.append(unit_data)
+                                                    SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                                
                                                 st.success(f"✅ {slot_key} placement created successfully!")
                                                 st.rerun()
                                         except Exception as e:
@@ -807,12 +840,22 @@ else:
                                             result = handle_api_response(response)
                                             
                                             if result:
-                                                SessionManager.add_created_unit(current_network, {
+                                                unit_data = {
                                                     "slotCode": result.get("code_id", result.get("ad_unit_id", "N/A")),
                                                     "name": slot_name,
                                                     "appCode": selected_app_code,
-                                                    "slotType": slot_config["ad_slot_type"]
-                                                })
+                                                    "slotType": slot_config["ad_slot_type"],
+                                                    "adType": f"Type {slot_config['ad_slot_type']}",
+                                                    "auctionType": "N/A"
+                                                }
+                                                SessionManager.add_created_unit(current_network, unit_data)
+                                                
+                                                # Add to cache
+                                                cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                                if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                    cached_units.append(unit_data)
+                                                    SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                                
                                                 st.success(f"✅ {slot_key} placement created successfully!")
                                                 st.rerun()
                                         except Exception as e:
@@ -994,12 +1037,22 @@ else:
                                             result = handle_api_response(response)
                                             
                                             if result:
-                                                SessionManager.add_created_unit(current_network, {
+                                                unit_data = {
                                                     "slotCode": result.get("placement_id", result.get("id", "N/A")),
                                                     "name": placement_name,
                                                     "appCode": str(app_id),
-                                                    "slotType": slot_config["ad_type"]
-                                                })
+                                                    "slotType": slot_config["ad_type"],
+                                                    "adType": slot_config["ad_type"],
+                                                    "auctionType": "N/A"
+                                                }
+                                                SessionManager.add_created_unit(current_network, unit_data)
+                                                
+                                                # Add to cache
+                                                cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                                if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                    cached_units.append(unit_data)
+                                                    SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                                
                                                 st.success(f"✅ {slot_key} placement created successfully!")
                                                 st.rerun()
                                         except Exception as e:
@@ -1124,12 +1177,22 @@ else:
                                         result = handle_api_response(response)
                                     
                                         if result:
-                                            SessionManager.add_created_unit(current_network, {
+                                            unit_data = {
                                                 "slotCode": result.get("slotCode", "N/A"),
                                                 "name": slot_name,
                                                 "appCode": selected_app_code,
-                                                "slotType": slot_key
-                                            })
+                                                "slotType": slot_key,
+                                                "adType": slot_config.get('adType', slot_key),
+                                                "auctionType": slot_config.get('auctionType', "N/A")
+                                            }
+                                            SessionManager.add_created_unit(current_network, unit_data)
+                                            
+                                            # Add to cache
+                                            cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                cached_units.append(unit_data)
+                                                SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                            
                                             st.success(f"✅ {slot_key} slot created successfully!")
                                             st.rerun()
                                     except Exception as e:

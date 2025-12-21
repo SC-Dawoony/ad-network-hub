@@ -942,15 +942,39 @@ def get_network_manager():
 
 def handle_api_response(response: Dict) -> Optional[Dict]:
     """Handle API response and display result"""
+    import sys
+    
+    # Log full response to console
+    logger.info(f"API Response: {json.dumps(_mask_sensitive_data(response), indent=2)}")
+    print(f"[API Response] {json.dumps(_mask_sensitive_data(response), indent=2)}", file=sys.stderr)
+    
     if response.get('status') == 0 or response.get('code') == 0:
         st.success("✅ Success!")
+        
+        # Display full response in expander
+        with st.expander("📥 Full API Response", expanded=False):
+            st.json(_mask_sensitive_data(response))
+        
         result = response.get('result', {})
         if result:
-            st.json(result)
+            # Display result separately for clarity
+            st.subheader("📝 Result Data")
+            st.json(_mask_sensitive_data(result))
+        
         return result
     else:
         error_msg = response.get('msg', 'Unknown error')
         error_code = response.get('code', 'N/A')
+        
+        # Log error to console
+        logger.error(f"API Error: {error_code} - {error_msg}")
+        print(f"[API Error] {error_code} - {error_msg}", file=sys.stderr)
+        
         st.error(f"❌ Error: {error_code} - {error_msg}")
+        
+        # Display full error response in expander
+        with st.expander("📥 Full Error Response", expanded=False):
+            st.json(_mask_sensitive_data(response))
+        
         return None
 

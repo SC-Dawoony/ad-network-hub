@@ -63,7 +63,60 @@ if view_type == "Apps":
                 apps = []
     
     if apps:
-        # Convert to DataFrame
+        st.info(f"**Total:** {len(apps)} apps")
+        
+        # Display apps with expandable units
+        for idx, app in enumerate(apps):
+            app_code = app.get("appCode", "N/A")
+            app_name = app.get("name", "Unknown")
+            platform = app.get("platform", "N/A")
+            status = app.get("status", "N/A")
+            
+            # App header with expander
+            with st.expander(f"📱 **{app_name}** ({app_code}) - {platform} - {status}", expanded=False):
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.write(f"**App Code:** {app_code}")
+                with col2:
+                    st.write(f"**Name:** {app_name}")
+                with col3:
+                    st.write(f"**Platform:** {platform}")
+                with col4:
+                    st.write(f"**Status:** {status}")
+                
+                st.divider()
+                
+                # Load and display units for this app
+                units = SessionManager.get_cached_units(current_network, app_code)
+                
+                # Try to load units if not cached or refresh button clicked
+                if refresh_button or not units:
+                    try:
+                        units = network_manager.get_units(current_network, app_code)
+                        SessionManager.cache_units(current_network, app_code, units)
+                    except Exception as e:
+                        # If get_units fails, use cached units or empty list
+                        if not units:
+                            units = []
+                
+                if units:
+                    st.write(f"**Units ({len(units)}):**")
+                    units_df_data = []
+                    for unit in units:
+                        units_df_data.append({
+                            "Slot Code": unit.get("slotCode", "N/A"),
+                            "Name": unit.get("name", "Unknown"),
+                            "Ad Type": unit.get("adType", unit.get("slotType", "N/A")),
+                            "Auction Type": unit.get("auctionType", "N/A")
+                        })
+                    
+                    units_df = pd.DataFrame(units_df_data)
+                    st.dataframe(units_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"No units found for this app. Create a unit first.")
+        
+        # Export options for all apps
+        st.divider()
         df_data = []
         for app in apps:
             df_data.append({
@@ -74,15 +127,11 @@ if view_type == "Apps":
             })
         
         df = pd.DataFrame(df_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.info(f"**Total:** {len(apps)} apps")
-        
-        # Export options
         col1, col2 = st.columns(2)
         with col1:
             csv = df.to_csv(index=False)
             st.download_button(
-                label="📥 Export CSV",
+                label="📥 Export Apps CSV",
                 data=csv,
                 file_name=f"{current_network}_apps.csv",
                 mime="text/csv",
@@ -91,7 +140,7 @@ if view_type == "Apps":
         with col2:
             json_str = df.to_json(orient="records", indent=2)
             st.download_button(
-                label="📥 Export JSON",
+                label="📥 Export Apps JSON",
                 data=json_str,
                 file_name=f"{current_network}_apps.json",
                 mime="application/json",
