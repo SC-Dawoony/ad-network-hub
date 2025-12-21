@@ -92,30 +92,47 @@ with st.sidebar:
         config = get_network_config(network)
         display_name = display_names.get(network, network.title())
         
+        # Helper function to get env vars from Streamlit secrets or .env
+        def get_env(key: str) -> Optional[str]:
+            try:
+                if hasattr(st, 'secrets') and st.secrets and key in st.secrets:
+                    return st.secrets[key]
+            except:
+                pass
+            return os.getenv(key)
+        
         # Check if network credentials are set
         if network == "ironsource":
             # Check IronSource credentials
-            bearer_token = os.getenv("IRONSOURCE_BEARER_TOKEN") or os.getenv("IRONSOURCE_API_TOKEN")
-            refresh_token = os.getenv("IRONSOURCE_REFRESH_TOKEN")
-            secret_key = os.getenv("IRONSOURCE_SECRET_KEY")
+            bearer_token = get_env("IRONSOURCE_BEARER_TOKEN") or get_env("IRONSOURCE_API_TOKEN")
+            refresh_token = get_env("IRONSOURCE_REFRESH_TOKEN")
+            secret_key = get_env("IRONSOURCE_SECRET_KEY")
             if bearer_token or (refresh_token and secret_key):
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
         elif network == "pangle":
             # Check Pangle credentials
-            security_key = os.getenv("PANGLE_SECURITY_KEY")
-            user_id = os.getenv("PANGLE_USER_ID")
-            role_id = os.getenv("PANGLE_ROLE_ID")
+            security_key = get_env("PANGLE_SECURITY_KEY")
+            user_id = get_env("PANGLE_USER_ID")
+            role_id = get_env("PANGLE_ROLE_ID")
             if security_key and user_id and role_id:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
         elif network == "bigoads":
             # Check for BigOAds credentials
-            developer_id = os.getenv("BIGOADS_DEVELOPER_ID")
-            token = os.getenv("BIGOADS_TOKEN")
+            developer_id = get_env("BIGOADS_DEVELOPER_ID")
+            token = get_env("BIGOADS_TOKEN")
             if developer_id and token:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
+        elif network == "mintegral":
+            # Check for Mintegral credentials
+            skey = get_env("MINTEGRAL_SKEY")
+            secret = get_env("MINTEGRAL_SECRET")
+            if skey and secret:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"

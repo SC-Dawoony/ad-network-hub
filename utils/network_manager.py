@@ -11,6 +11,27 @@ import logging
 import base64
 from dotenv import load_dotenv
 
+
+def _get_env_var(key: str) -> Optional[str]:
+    """
+    Get environment variable from Streamlit secrets (if available) or .env file
+    
+    Args:
+        key: Environment variable key
+        
+    Returns:
+        Environment variable value or None
+    """
+    try:
+        # Try Streamlit secrets first (for Streamlit Cloud)
+        if hasattr(st, 'secrets') and st.secrets and key in st.secrets:
+            return st.secrets[key]
+    except:
+        pass
+    
+    # Fallback to environment variables (from .env file or system env)
+    return os.getenv(key)
+
 # Load environment variables (override to get latest values)
 # Streamlit Cloud에서는 st.secrets 사용, 로컬에서는 .env 파일 사용
 try:
@@ -96,13 +117,13 @@ class MockNetworkManager:
     def _get_ironsource_token(self) -> Optional[str]:
         """Get IronSource bearer token, refreshing if needed"""
         # Try bearer token first
-        bearer_token = os.getenv("IRONSOURCE_BEARER_TOKEN") or os.getenv("IRONSOURCE_API_TOKEN")
+        bearer_token = _get_env_var("IRONSOURCE_BEARER_TOKEN") or _get_env_var("IRONSOURCE_API_TOKEN")
         if bearer_token:
             return bearer_token
         
         # If no bearer token, try to get from refresh token
-        refresh_token = os.getenv("IRONSOURCE_REFRESH_TOKEN")
-        secret_key = os.getenv("IRONSOURCE_SECRET_KEY")
+        refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
+        secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
         
         if refresh_token and secret_key:
             # Try to refresh the token
@@ -150,13 +171,13 @@ class MockNetworkManager:
     
     def _create_pangle_app(self, payload: Dict) -> Dict:
         """Create app via Pangle API"""
-        security_key = os.getenv("PANGLE_SECURITY_KEY")
+        security_key = _get_env_var("PANGLE_SECURITY_KEY")
         
         if not security_key:
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
-                "msg": "PANGLE_SECURITY_KEY must be set in .env file"
+                "msg": "PANGLE_SECURITY_KEY must be set in .env file or Streamlit secrets"
             }
         
         # Get user_id and role_id from payload (set in Create App page from .env)
@@ -165,8 +186,8 @@ class MockNetworkManager:
         
         if not user_id or not role_id:
             # Fallback to .env if not in payload
-            user_id = os.getenv("PANGLE_USER_ID")
-            role_id = os.getenv("PANGLE_ROLE_ID")
+            user_id = _get_env_var("PANGLE_USER_ID")
+            role_id = _get_env_var("PANGLE_ROLE_ID")
             if not user_id or not role_id:
                 return {
                     "status": 1,
@@ -479,8 +500,8 @@ class MockNetworkManager:
         url = "https://dev.mintegral.com/app/open_api_create"
         
         # Mintegral API 인증: SKEY와 SECRET 필요
-        skey = os.getenv("MINTEGRAL_SKEY")
-        secret = os.getenv("MINTEGRAL_SECRET")
+        skey = _get_env_var("MINTEGRAL_SKEY")
+        secret = _get_env_var("MINTEGRAL_SECRET")
         
         if not skey or not secret:
             return {
@@ -555,8 +576,8 @@ class MockNetworkManager:
         url = "https://dev.mintegral.com/v2/placement/open_api_create"
         
         # Mintegral API 인증: skey, timestamp, sign
-        skey = os.getenv("MINTEGRAL_SKEY")
-        secret = os.getenv("MINTEGRAL_SECRET")
+        skey = _get_env_var("MINTEGRAL_SKEY")
+        secret = _get_env_var("MINTEGRAL_SECRET")
         
         if not skey or not secret:
             return {
@@ -630,8 +651,8 @@ class MockNetworkManager:
         url = "https://www.bigossp.com/open/app/add"
         
         # BigOAds API 인증: developerId와 token 필요
-        developer_id = os.getenv("BIGOADS_DEVELOPER_ID")
-        token = os.getenv("BIGOADS_TOKEN")
+        developer_id = _get_env_var("BIGOADS_DEVELOPER_ID")
+        token = _get_env_var("BIGOADS_TOKEN")
         
         if not developer_id or not token:
             return {
@@ -759,18 +780,18 @@ class MockNetworkManager:
     
     def _create_pangle_unit(self, payload: Dict) -> Dict:
         """Create ad placement (unit) via Pangle API"""
-        security_key = os.getenv("PANGLE_SECURITY_KEY")
+        security_key = _get_env_var("PANGLE_SECURITY_KEY")
         
         if not security_key:
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
-                "msg": "PANGLE_SECURITY_KEY must be set in .env file"
+                "msg": "PANGLE_SECURITY_KEY must be set in .env file or Streamlit secrets"
             }
         
         # Get user_id and role_id from .env
-        user_id = os.getenv("PANGLE_USER_ID")
-        role_id = os.getenv("PANGLE_ROLE_ID")
+        user_id = _get_env_var("PANGLE_USER_ID")
+        role_id = _get_env_var("PANGLE_ROLE_ID")
         
         if not user_id or not role_id:
             return {
