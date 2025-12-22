@@ -1166,22 +1166,28 @@ else:
                             # BigOAds and other networks
                             # Slot name input
                             slot_name_key = f"custom_slot_{slot_key}_name"
-                            if slot_name_key not in st.session_state:
-                                # Generate default name
-                                # For BigOAds, try to get pkgNameDisplay from app_info_to_use or last_app_info
-                                pkg_name = ""
-                                if current_network == "bigoads" and app_info_to_use:
-                                    pkg_name = app_info_to_use.get("pkgNameDisplay", app_info_to_use.get("pkgName", ""))
-                                else:
-                                    last_app_info = SessionManager.get_last_created_app_info(current_network)
-                                    if last_app_info:
-                                        pkg_name = last_app_info.get("pkgName", "")
-                                
-                                if pkg_name:
-                                    platform_str = app_info_to_use.get("platformStr", "android") if app_info_to_use else "android"
-                                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower())
-                                else:
-                                    default_name = f"slot_{slot_key.lower()}"
+                            
+                            # Generate default name when app is selected
+                            # For BigOAds, try to get pkgNameDisplay from app_info_to_use or last_app_info
+                            pkg_name = ""
+                            if current_network == "bigoads" and app_info_to_use:
+                                pkg_name = app_info_to_use.get("pkgNameDisplay", app_info_to_use.get("pkgName", ""))
+                            elif app_info_to_use:
+                                pkg_name = app_info_to_use.get("pkgName", "")
+                            else:
+                                last_app_info = SessionManager.get_last_created_app_info(current_network)
+                                if last_app_info:
+                                    pkg_name = last_app_info.get("pkgNameDisplay", last_app_info.get("pkgName", ""))
+                            
+                            # Update slot name if app is selected and we have pkg_name
+                            if selected_app_code and pkg_name:
+                                platform_str = app_info_to_use.get("platformStr", "android") if app_info_to_use else "android"
+                                default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower())
+                                # Always update when app is selected (even if key exists)
+                                st.session_state[slot_name_key] = default_name
+                            elif slot_name_key not in st.session_state:
+                                # Only set default if key doesn't exist and no app selected
+                                default_name = f"slot_{slot_key.lower()}"
                                 st.session_state[slot_name_key] = default_name
                             
                             slot_name = st.text_input(
