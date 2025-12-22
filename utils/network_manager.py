@@ -1038,17 +1038,19 @@ class MockNetworkManager:
             }
         
         # Generate timestamp and signature
-        timestamp = int(time.time())
-        signature = self._generate_mintegral_signature(secret, timestamp)
+        # Reference code uses 'time' (string) instead of 'timestamp' (int)
+        current_time = int(time.time())
+        signature = self._generate_mintegral_signature(secret, current_time)
         
         # Add authentication parameters to payload
+        # Reference code pattern: use 'time' as string parameter
         request_params = payload.copy()
         request_params["skey"] = skey
-        request_params["timestamp"] = timestamp
+        request_params["time"] = str(current_time)  # Use 'time' as string, not 'timestamp'
         request_params["sign"] = signature
         
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json"  # Create App may use JSON, but try both if needed
         }
         
         # Print to console for debugging
