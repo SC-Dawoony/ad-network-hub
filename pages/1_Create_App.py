@@ -784,6 +784,8 @@ else:
             "RV": {
                 "name": "Reward Video",
                 "adFormat": "rewarded",
+                "rewardItemName": "Reward",
+                "rewardAmount": 1,
             },
             "IS": {
                 "name": "Interstitial",
@@ -898,6 +900,14 @@ else:
                             settings_html = '<div style="min-height: 120px; margin-bottom: 10px;">'
                             settings_html += f'<ul style="margin: 0; padding-left: 20px;">'
                             settings_html += f'<li>Ad Format: {slot_config["adFormat"].title()}</li>'
+                            
+                            # For Reward Video, add reward information
+                            if slot_key == "RV" and slot_config.get("adFormat") == "rewarded":
+                                reward_item_name = slot_config.get("rewardItemName", "Reward")
+                                reward_amount = slot_config.get("rewardAmount", 1)
+                                settings_html += f'<li>Reward Item Name: {reward_item_name}</li>'
+                                settings_html += f'<li>Reward Amount: {reward_amount}</li>'
+                            
                             settings_html += '</ul></div>'
                             st.markdown(settings_html, unsafe_allow_html=True)
                             
@@ -911,32 +921,55 @@ else:
                                         "mediationAdUnitName": mediation_ad_unit_name,
                                         "adFormat": slot_config['adFormat'],
                                     }
+                                    
+                                    # For Reward Video, add reward object (required)
+                                    if slot_key == "RV" and slot_config.get("adFormat") == "rewarded":
+                                        reward_item_name = slot_config.get("rewardItemName", "Reward")
+                                        reward_amount = slot_config.get("rewardAmount", 1)
+                                        payload["reward"] = {
+                                            "rewardItemName": reward_item_name,
+                                            "rewardAmount": reward_amount
+                                        }
                                 
                                     # Make API call
                                     with st.spinner(f"Creating {slot_key} placement..."):
                                         try:
                                             response = network_manager.create_unit(current_network, payload, app_key=selected_app_code)
-                                            result = handle_api_response(response)
-                                
-                                            if result:
-                                                unit_data = {
-                                                    "slotCode": result.get("adUnitId", "N/A"),
-                                                    "name": mediation_ad_unit_name,
-                                                    "appCode": selected_app_code,
-                                                    "slotType": slot_config['adFormat'],
-                                                    "adType": slot_config['adFormat'],
-                                                    "auctionType": "N/A"
-                                                }
-                                                SessionManager.add_created_unit(current_network, unit_data)
-                                                
-                                                # Add to cache
-                                                cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
-                                                if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
-                                                    cached_units.append(unit_data)
-                                                    SessionManager.cache_units(current_network, selected_app_code, cached_units)
-                                                
-                                                st.success(f"✅ {slot_key} placement created successfully!")
-                                                st.rerun()
+                                            
+                                            # Check if response is None or invalid
+                                            if not response:
+                                                st.error("❌ No response from API")
+                                                SessionManager.log_error(current_network, "No response from API")
+                                            else:
+                                                result = handle_api_response(response)
+                                        
+                                                if result and isinstance(result, dict):
+                                                    unit_data = {
+                                                        "slotCode": result.get("adUnitId") or result.get("id") or result.get("adUnitId", "N/A"),
+                                                        "name": mediation_ad_unit_name,
+                                                        "appCode": selected_app_code,
+                                                        "slotType": slot_config['adFormat'],
+                                                        "adType": slot_config['adFormat'],
+                                                        "auctionType": "N/A"
+                                                    }
+                                                    SessionManager.add_created_unit(current_network, unit_data)
+                                                    
+                                                    # Add to cache
+                                                    cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                                    if not cached_units:
+                                                        cached_units = []
+                                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                        cached_units.append(unit_data)
+                                                        SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                                    
+                                                    st.success(f"✅ {slot_key} placement created successfully!")
+                                                    st.rerun()
+                                                elif result is None:
+                                                    # handle_api_response already displayed error
+                                                    pass
+                                                else:
+                                                    st.error(f"❌ Unexpected response format: {type(result)}")
+                                                    SessionManager.log_error(current_network, f"Unexpected response format: {type(result)}")
                                         except Exception as e:
                                             st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
                                             SessionManager.log_error(current_network, str(e))
