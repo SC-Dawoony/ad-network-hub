@@ -246,12 +246,8 @@ with st.form("create_app_form"):
         # Show fixed values
         st.info("**Version:** 1.0 (fixed) | **Status:** 2 - Live (fixed)")
         
-        # Show auto-generated fields info
-        import time
-        import random
-        timestamp = int(time.time())
-        nonce = random.randint(100000, 999999)
-        st.info(f"**Auto-generated:** Timestamp={timestamp}, Nonce={nonce}, Sign (from security_key + timestamp + nonce)")
+        # Show auto-generated fields info (values will be generated when Create App is clicked)
+        st.info("**Auto-generated (on submit):** Timestamp, Nonce, Sign (from security_key + timestamp + nonce)")
         st.divider()
     
     # Render form without sections for all networks

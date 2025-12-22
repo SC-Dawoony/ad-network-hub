@@ -419,13 +419,22 @@ class MockNetworkManager:
             }
         
         # Build request parameters
-        timestamp = int(time.time())  # Posix timestamp (seconds)
-        nonce = random.randint(1, 2147483647)  # Random integer (1 to 2^31-1)
+        # IMPORTANT: Generate timestamp and nonce immediately before API call
+        # to ensure they are fresh and signature matches
+        timestamp = int(time.time())  # Posix timestamp (seconds) - generated fresh
+        nonce = random.randint(1, 2147483647)  # Random integer (1 to 2^31-1) - generated fresh
         version = "1.0"  # Fixed version
         status = 2  # Fixed status (Live)
         
-        # Generate signature (only security_key, timestamp, nonce)
+        # Generate signature immediately after timestamp/nonce generation
+        # This ensures signature is calculated with the exact same timestamp/nonce used in request
         sign = self._generate_pangle_signature(security_key, timestamp, nonce)
+        
+        # Log timestamp age (should be very recent, < 1 second)
+        current_time_check = int(time.time())
+        timestamp_age = current_time_check - timestamp
+        if timestamp_age > 1:
+            logger.warning(f"[Pangle] WARNING: Timestamp is {timestamp_age} seconds old! This may cause validation failure.")
         
         # Prepare all request parameters
         request_params = {
@@ -500,6 +509,23 @@ class MockNetworkManager:
         logger.info(f"[Pangle]   - Status value: {request_params.get('status')}")
         
         try:
+            # Verify timestamp is still fresh (re-check right before API call)
+            current_time_before_request = int(time.time())
+            timestamp_age_seconds = current_time_before_request - timestamp
+            logger.info(f"[Pangle] Timestamp age before request: {timestamp_age_seconds} seconds")
+            
+            if timestamp_age_seconds > 5:
+                logger.warning(f"[Pangle] WARNING: Timestamp is {timestamp_age_seconds} seconds old! Regenerating...")
+                # Regenerate timestamp and nonce if too old
+                timestamp = int(time.time())
+                nonce = random.randint(1, 2147483647)
+                sign = self._generate_pangle_signature(security_key, timestamp, nonce)
+                # Update request_params with fresh values
+                request_params["timestamp"] = timestamp
+                request_params["nonce"] = nonce
+                request_params["sign"] = sign
+                logger.info(f"[Pangle] Regenerated: timestamp={timestamp}, nonce={nonce}, sign={sign[:20]}...")
+            
             # Log actual JSON being sent (for debugging)
             logger.info(f"[Pangle] Sending JSON request:")
             logger.info(f"[Pangle] {json.dumps(request_params, indent=2, ensure_ascii=False)}")
