@@ -1119,7 +1119,12 @@ class MockNetworkManager:
         """Get IronSource applications list from API
         
         API: GET https://platform.ironsrc.com/partners/publisher/applications/v6
-        Headers: Authorization: Bearer {token}
+        Headers:
+            Authorization: Bearer {token}
+            Content-Type: application/json
+        Query Parameters (optional):
+            platform: "ios" or "android" (from IRONSOURCE_PLATFORM env var)
+            appStatus: "Active" or "archived" (from IRONSOURCE_APP_STATUS env var)
         """
         try:
             headers = self._get_ironsource_headers()
@@ -1129,11 +1134,23 @@ class MockNetworkManager:
             
             url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
             
+            # Build query parameters (optional)
+            params = {}
+            platform = _get_env_var("IRONSOURCE_PLATFORM")
+            if platform:
+                params['platform'] = platform  # "ios" or "android"
+            
+            app_status = _get_env_var("IRONSOURCE_APP_STATUS")
+            if app_status:
+                params['appStatus'] = app_status  # "Active" or "archived"
+            
             logger.info(f"[IronSource] API Request: GET {url}")
+            if params:
+                logger.info(f"[IronSource] Query Parameters: {json.dumps(params, indent=2)}")
             masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
             logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, params=params if params else None)
             
             logger.info(f"[IronSource] Response Status: {response.status_code}")
             
