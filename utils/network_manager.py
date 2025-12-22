@@ -465,25 +465,15 @@ class MockNetworkManager:
     
     def _create_ironsource_app(self, payload: Dict) -> Dict:
         """Create app via IronSource API"""
-        token = self._get_ironsource_token()
-        if not token:
+        headers = self._get_ironsource_headers()
+        if not headers:
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
                 "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
             }
         
-        # Validate token format (should be a JWT)
-        if not token or len(token) < 20:
-            logger.error(f"[IronSource] Invalid token format. Token length: {len(token) if token else 0}")
-            return {
-                "status": 1,
-                "code": "AUTH_ERROR",
-                "msg": f"Invalid bearer token format. Token length: {len(token) if token else 0}. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY."
-            }
-        
-            url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
-            # headers already set by _get_ironsource_headers()
+        url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
         
         # Log request
         logger.info(f"[IronSource] API Request: POST {url}")
@@ -492,7 +482,7 @@ class MockNetworkManager:
         logger.info(f"[IronSource] Request Body: {json.dumps(payload, indent=2)}")
         
         try:
-            response = requests.post(url, json=payload, headers=headers)
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
             
             # Log response status
             logger.info(f"[IronSource] Response Status: {response.status_code}")
@@ -511,7 +501,7 @@ class MockNetworkManager:
                         # Retry request with new token
                         logger.info("[IronSource] Retrying request with refreshed token...")
                         headers["Authorization"] = f"Bearer {new_token}"
-                        response = requests.post(url, json=payload, headers=headers)
+                        response = requests.post(url, json=payload, headers=headers, timeout=30)
                         logger.info(f"[IronSource] Retry Response Status: {response.status_code}")
                     else:
                         logger.error("[IronSource] Token refresh failed. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY")
