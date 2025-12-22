@@ -445,7 +445,10 @@ class MockNetworkManager:
             logger.warning(f"[Pangle] WARNING: Timestamp is {timestamp_age} seconds old! This may cause validation failure.")
         
         # Check if sandbox mode is enabled (before building request_params)
-        sandbox = _get_env_var("PANGLE_SANDBOX", "false").lower() == "true"
+        # Default to Production (false) if not set
+        sandbox_env = _get_env_var("PANGLE_SANDBOX")
+        sandbox = sandbox_env and sandbox_env.lower() == "true" if sandbox_env else False
+        logger.info(f"[Pangle] PANGLE_SANDBOX: {sandbox_env if sandbox_env else 'not set (default: Production)'}")
         
         if sandbox:
             # Sandbox URL (HTTP, not HTTPS)

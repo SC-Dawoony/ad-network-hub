@@ -267,8 +267,8 @@ class BigOAdsConfig(NetworkConfig):
                 required=True,
                 label="Auto Refresh",
                 condition=lambda data: data.get("adType") == 2,  # Banner
-                options=[("Yes", 1), ("No", 0)],
-                default=0
+                options=[("Yes", 1), ("No", 2)],  # API expects 1: Yes, 2: No
+                default=2
             ),
             ConditionalField(
                 name="refreshSec",
