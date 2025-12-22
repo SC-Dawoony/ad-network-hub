@@ -124,22 +124,23 @@ class BigOAdsConfig(NetworkConfig):
                 label="Package Name",
                 placeholder="com.example.app"
             ),
-            # 5. itunesId* (항상 활성화, validation에서 iOS일 때만 체크)
-            Field(
-                name="itunesId",
-                field_type="text",
-                required=True,
-                label="iTunes ID (iOS)",
-                placeholder="Enter iTunes ID",
-                help_text="Required for iOS apps. Enter iTunes ID (e.g., 1234567890)"
-            ),
-            # 6. storeUrl (선택, * 없음)
+            # 5. storeUrl (선택, * 없음) - Moved before itunesId for auto-extraction
             Field(
                 name="storeUrl",
                 field_type="text",
                 required=False,
                 label="Store URL",
-                placeholder="https://play.google.com/store/apps/details?id=..."
+                placeholder="https://apps.apple.com/.../id1234567890 or https://play.google.com/store/apps/details?id=...",
+                help_text="For iOS apps, iTunes ID will be auto-extracted from Apple App Store URL"
+            ),
+            # 6. itunesId* (항상 활성화, validation에서 iOS일 때만 체크)
+            Field(
+                name="itunesId",
+                field_type="text",
+                required=True,
+                label="iTunes ID (iOS)",
+                placeholder="Enter iTunes ID or it will be auto-extracted from Store URL",
+                help_text="Required for iOS apps. Enter iTunes ID (e.g., 1234567890) or it will be auto-extracted from Store URL above"
             ),
             # 7. mediationPlatform*
             Field(
