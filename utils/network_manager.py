@@ -158,8 +158,19 @@ class MockNetworkManager:
         refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
         secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
         
+        # Debug: Log what we found
+        logger.info(f"[IronSource] Checking environment variables...")
+        logger.info(f"[IronSource] IRONSOURCE_REFRESH_TOKEN: {'SET' if refresh_token else 'NOT SET'} (length: {len(refresh_token) if refresh_token else 0})")
+        logger.info(f"[IronSource] IRONSOURCE_SECRET_KEY: {'SET' if secret_key else 'NOT SET'} (length: {len(secret_key) if secret_key else 0})")
+        
         if not refresh_token or not secret_key:
-            logger.error("[IronSource] IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY are required")
+            missing = []
+            if not refresh_token:
+                missing.append("IRONSOURCE_REFRESH_TOKEN")
+            if not secret_key:
+                missing.append("IRONSOURCE_SECRET_KEY")
+            logger.error(f"[IronSource] Missing required environment variables: {', '.join(missing)}")
+            logger.error("[IronSource] Please set these in .env file or Streamlit secrets")
             return None
         
         # Always fetch a new token for safety
@@ -170,7 +181,7 @@ class MockNetworkManager:
             logger.info("[IronSource] Successfully obtained fresh bearer token")
             return new_token
         else:
-            logger.error("[IronSource] Failed to obtain bearer token")
+            logger.error("[IronSource] Failed to obtain bearer token. Check logs above for details.")
             return None
     
     def _refresh_ironsource_token(self, refresh_token: str, secret_key: str) -> Optional[str]:
