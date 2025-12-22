@@ -352,13 +352,12 @@ else:
     # Note: get_apps() API will be implemented later
     apps = SessionManager.get_cached_apps(current_network)
     
-    if not apps:
-        st.warning("No apps found. Please create an app above first.")
-    else:
-        # Prepare app options for dropdown
-        app_options = []
-        app_code_map = {}
-        app_info_map = {}  # Store full app info for Quick Create
+    # Prepare app options for dropdown (always show, even if no apps)
+    app_options = []
+    app_code_map = {}
+    app_info_map = {}  # Store full app info for Quick Create
+    
+    if apps:
         for app in apps:
             app_code = app.get("appCode", "N/A")
             app_name = app.get("name", "Unknown")
@@ -377,11 +376,16 @@ else:
                 "platform": 1 if platform == "Android" else 2,
                 "platformStr": "android" if platform == "Android" else "ios"
             }
-        
-        # Add "Manual Entry" option
-        manual_entry_option = "✏️ Enter manually"
-        app_options.append(manual_entry_option)
-        
+    
+    # Always add "Manual Entry" option (even if apps exist)
+    manual_entry_option = "✏️ Enter manually"
+    app_options.append(manual_entry_option)
+    
+    # If no apps, default to manual entry
+    if not apps:
+        default_index = 0  # Manual entry will be the only option
+        st.info("💡 No apps found in cache. You can enter App Code manually below.")
+    else:
         # Get last created app code and info
         last_created_app_code = SessionManager.get_last_created_app_code(current_network)
         last_app_info = SessionManager.get_last_created_app_info(current_network)
@@ -394,29 +398,29 @@ else:
                 if app.get("appCode") == last_created_app_code:
                     default_index = idx
                     break
-        
-        # App selection (single selection for all slots)
-        app_label = "Site ID*" if current_network == "pangle" else "App Code*"
-        selected_app_display = st.selectbox(
-            app_label,
-            options=app_options,
-            index=default_index,
-            help="Select the app for the slots or enter manually. Recently created apps are pre-selected." if current_network != "pangle" else "Select the site for the ad placements or enter manually. Recently created sites are pre-selected.",
-            key="slot_app_select"
+    
+    # App selection (single selection for all slots)
+    app_label = "Site ID*" if current_network == "pangle" else "App Code*"
+    selected_app_display = st.selectbox(
+        app_label,
+        options=app_options,
+        index=default_index if apps else 0,  # Default to manual entry if no apps
+        help="Select the app for the slots or enter manually. Recently created apps are pre-selected." if current_network != "pangle" else "Select the site for the ad placements or enter manually. Recently created sites are pre-selected.",
+        key="slot_app_select"
+    )
+    
+    # Check if manual entry is selected
+    if selected_app_display == manual_entry_option:
+        # Show manual input field
+        manual_app_code = st.text_input(
+            f"Enter {app_label.lower()}",
+            value="",
+            help="Enter the app code manually",
+            key="manual_app_code_input"
         )
-        
-        # Check if manual entry is selected
-        if selected_app_display == manual_entry_option:
-            # Show manual input field
-            manual_app_code = st.text_input(
-                f"Enter {app_label.lower()}",
-                value="",
-                help="Enter the app code manually",
-                key="manual_app_code_input"
-            )
-            selected_app_code = manual_app_code.strip() if manual_app_code else ""
-        else:
-            selected_app_code = app_code_map.get(selected_app_display, "")
+        selected_app_code = manual_app_code.strip() if manual_app_code else ""
+    else:
+        selected_app_code = app_code_map.get(selected_app_display, "")
         
         if selected_app_code:
             # Get app name from display text
