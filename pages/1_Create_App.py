@@ -356,9 +356,9 @@ else:
     # Load apps from cache (from Create App POST responses)
     cached_apps = SessionManager.get_cached_apps(current_network)
     
-    # For BigOAds, also fetch from API and get latest 3 apps
+    # For BigOAds and IronSource, also fetch from API and get latest 3 apps
     api_apps = []
-    if current_network == "bigoads":
+    if current_network in ["bigoads", "ironsource"]:
         try:
             with st.spinner("Loading apps from API..."):
                 api_apps = network_manager.get_apps(current_network)
@@ -371,16 +371,25 @@ else:
             api_apps = []
     
     # Merge cached apps with API apps (prioritize cached, but add unique API apps)
-    # For BigOAds, prioritize API apps (they are more recent)
-    if current_network == "bigoads" and api_apps:
+    # For BigOAds and IronSource, prioritize API apps (they are more recent)
+    if current_network in ["bigoads", "ironsource"] and api_apps:
         # Use API apps first, then add cached apps that are not in API
         apps = api_apps.copy()
-        api_app_codes = {app.get("appCode") for app in api_apps if app.get("appCode")}
-        if cached_apps:
-            for cached_app in cached_apps:
-                cached_code = cached_app.get("appCode")
-                if cached_code and cached_code not in api_app_codes:
-                    apps.append(cached_app)
+        # For IronSource, check appKey; for BigOAds, check appCode
+        if current_network == "ironsource":
+            api_app_keys = {app.get("appKey") or app.get("appCode") for app in api_apps if app.get("appKey") or app.get("appCode")}
+            if cached_apps:
+                for cached_app in cached_apps:
+                    cached_key = cached_app.get("appKey") or cached_app.get("appCode")
+                    if cached_key and cached_key not in api_app_keys:
+                        apps.append(cached_app)
+        else:  # BigOAds
+            api_app_codes = {app.get("appCode") for app in api_apps if app.get("appCode")}
+            if cached_apps:
+                for cached_app in cached_apps:
+                    cached_code = cached_app.get("appCode")
+                    if cached_code and cached_code not in api_app_codes:
+                        apps.append(cached_app)
     else:
         # For other networks, use cached apps
         apps = cached_apps.copy() if cached_apps else []
@@ -398,7 +407,12 @@ else:
     
     if apps:
         for app in apps:
-            app_code = app.get("appCode", "N/A")
+            # For IronSource, use appKey; for others, use appCode
+            if current_network == "ironsource":
+                app_code = app.get("appKey") or app.get("appCode", "N/A")
+            else:
+                app_code = app.get("appCode", "N/A")
+            
             app_name = app.get("name", "Unknown")
             platform = app.get("platform", "")
             display_text = f"{app_code} ({app_name})"
@@ -409,6 +423,7 @@ else:
             # Store app info for Quick Create
             app_info_map[app_code] = {
                 "appCode": app_code,
+                "appKey": app_code if current_network == "ironsource" else None,  # Store appKey for IronSource
                 "name": app_name,
                 "platform": platform,
                 "pkgName": "",  # Not available from cache, will need to be provided
@@ -1235,7 +1250,13 @@ else:
                             elif selected_app_code:
                                 # Try to get from apps list directly
                                 for app in apps:
-                                    if app.get("appCode") == selected_app_code:
+                                    # For IronSource, check appKey; for others, check appCode
+                                    if current_network == "ironsource":
+                                        app_identifier = app.get("appKey") or app.get("appCode")
+                                    else:
+                                        app_identifier = app.get("appCode")
+                                    
+                                    if app_identifier == selected_app_code:
                                         if current_network == "bigoads":
                                             pkg_name = app.get("pkgNameDisplay", app.get("pkgName", ""))
                                         else:

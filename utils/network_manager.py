@@ -1115,6 +1115,89 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _get_ironsource_apps(self) -> List[Dict]:
+        """Get IronSource applications list from API
+        
+        API: GET https://platform.ironsrc.com/partners/publisher/applications/v6
+        Headers: Authorization: Bearer {token}
+        """
+        try:
+            headers = self._get_ironsource_headers()
+            if not headers:
+                logger.warning("[IronSource] Cannot get apps: authentication failed")
+                return []
+            
+            url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
+            
+            logger.info(f"[IronSource] API Request: GET {url}")
+            masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
+            logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
+            
+            response = requests.get(url, headers=headers)
+            
+            logger.info(f"[IronSource] Response Status: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            result = response.json()
+            logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            
+            # IronSource API 응답 형식에 맞게 파싱
+            # 일반적으로 applications 배열을 반환
+            apps = []
+            if isinstance(result, list):
+                apps = result
+            elif isinstance(result, dict):
+                # 응답이 객체인 경우 applications 필드 확인
+                apps = result.get("applications", result.get("data", result.get("result", [])))
+                if not isinstance(apps, list):
+                    apps = []
+            
+            # 표준 형식으로 변환
+            formatted_apps = []
+            for app in apps:
+                # IronSource app 객체에서 appKey 추출
+                app_key = app.get("appKey") or app.get("key") or app.get("id")
+                app_name = app.get("appName") or app.get("name") or app.get("title", "Unknown")
+                
+                if app_key:
+                    formatted_apps.append({
+                        "appCode": app_key,  # IronSource는 appKey 사용
+                        "appKey": app_key,  # IronSource 전용 필드
+                        "name": app_name,
+                        "platform": app.get("platform", ""),
+                        "pkgName": app.get("packageName") or app.get("package", ""),
+                        "platformStr": app.get("platform", "").upper() if app.get("platform") else ""
+                    })
+            
+            # 최신순 정렬 (appKey나 id 기준으로 정렬, 또는 timestamp가 있으면 그것으로)
+            # IronSource 응답에 timestamp가 있다면 그것으로 정렬
+            if formatted_apps:
+                # timestamp나 createdAt 필드가 있으면 사용, 없으면 appKey로 정렬
+                formatted_apps.sort(
+                    key=lambda x: (
+                        x.get("timestamp", 0) if isinstance(x.get("timestamp"), (int, float)) else 0,
+                        x.get("appKey", "")
+                    ),
+                    reverse=True
+                )
+            
+            logger.info(f"[IronSource] Found {len(formatted_apps)} apps")
+            return formatted_apps
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[IronSource] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
+            return []
+        except Exception as e:
+            logger.error(f"[IronSource] Unexpected error getting apps: {str(e)}")
+            return []
+    
     def _get_bigoads_apps(self) -> List[Dict]:
         """Get apps list from BigOAds API"""
         url = "https://www.bigossp.com/open/app/list"
