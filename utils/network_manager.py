@@ -196,21 +196,36 @@ class MockNetworkManager:
             response = requests.get(url, headers=headers)
             
             logger.info(f"[IronSource] Token response status: {response.status_code}")
+            logger.info(f"[IronSource] Token response headers: {dict(response.headers)}")
+            logger.info(f"[IronSource] Token response text (first 200 chars): {response.text[:200]}")
             
             response.raise_for_status()
             
-            # Response is the bearer token directly (JWT string)
-            bearer_token = response.text.strip()
+            # Try to parse as JSON first (in case API returns JSON)
+            bearer_token = None
+            try:
+                result = response.json()
+                # If JSON, try common field names
+                bearer_token = result.get("accessToken") or result.get("bearerToken") or result.get("token") or result.get("access_token")
+                if bearer_token:
+                    logger.info("[IronSource] Bearer token extracted from JSON response")
+            except (ValueError, json.JSONDecodeError):
+                # If not JSON, treat as plain text (JWT string)
+                bearer_token = response.text.strip()
+                logger.info("[IronSource] Bearer token extracted from text response")
             
             # Remove quotes if present
-            if bearer_token.startswith('"') and bearer_token.endswith('"'):
+            if bearer_token and bearer_token.startswith('"') and bearer_token.endswith('"'):
                 bearer_token = bearer_token[1:-1]
             
             if bearer_token:
                 logger.info("[IronSource] Bearer token obtained successfully")
-                logger.info(f"[IronSource] Token (first 20 chars): {bearer_token[:20]}...")
+                logger.info(f"[IronSource] Token length: {len(bearer_token)}")
+                logger.info(f"[IronSource] Token (first 30 chars): {bearer_token[:30]}...")
+                logger.info(f"[IronSource] Token (last 10 chars): ...{bearer_token[-10:]}")
             else:
                 logger.error("[IronSource] Empty bearer token in response")
+                logger.error(f"[IronSource] Full response text: {response.text}")
             
             return bearer_token
         except requests.exceptions.RequestException as e:
@@ -362,7 +377,16 @@ class MockNetworkManager:
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
-                "msg": "IronSource authentication token not found. Please set IRONSOURCE_BEARER_TOKEN (or IRONSOURCE_API_TOKEN) in .env file, or provide IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY for automatic token refresh."
+                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
+            }
+        
+        # Validate token format (should be a JWT)
+        if not token or len(token) < 20:
+            logger.error(f"[IronSource] Invalid token format. Token length: {len(token) if token else 0}")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": f"Invalid bearer token format. Token length: {len(token) if token else 0}. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY."
             }
         
         url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
@@ -375,6 +399,8 @@ class MockNetworkManager:
         logger.info(f"[IronSource] API Request: POST {url}")
         masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
         logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        logger.info(f"[IronSource] Token used (first 30 chars): {token[:30]}...")
+        logger.info(f"[IronSource] Token used (length): {len(token)}")
         logger.info(f"[IronSource] Request Body: {json.dumps(payload, indent=2)}")
         
         try:
