@@ -356,15 +356,17 @@ class MockNetworkManager:
         """Generate Pangle API signature
         
         Signature generation (as per Pangle documentation):
-        1. Convert security_key, timestamp, nonce to strings
-        2. Sort alphabetically
-        3. Join together
-        4. Encrypt with SHA1
+        1. Concatenate security_key + timestamp + nonce (in order, not sorted)
+        2. Encrypt with SHA1
+        3. Return lowercase hex digest
+        
+        Note: Some Pangle API versions may require alphabetical sorting,
+        but the standard is: security_key + timestamp + nonce
         """
-        keys = [security_key, str(timestamp), str(nonce)]
-        keys.sort()
-        key_str = ''.join(keys)
-        signature = hashlib.sha1(key_str.encode("utf-8")).hexdigest()
+        # Concatenate in order: security_key + timestamp + nonce
+        key_str = security_key + str(timestamp) + str(nonce)
+        signature = hashlib.sha1(key_str.encode("utf-8")).hexdigest().lower()
+        logger.debug(f"[Pangle] Signature generation: security_key length={len(security_key)}, timestamp={timestamp}, nonce={nonce}, signature={signature[:20]}...")
         return signature
     
     def _create_pangle_app(self, payload: Dict) -> Dict:
