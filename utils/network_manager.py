@@ -727,8 +727,8 @@ class MockNetworkManager:
         url = "https://www.bigossp.com/open/slot/add"
         
         # BigOAds API 인증: developerId와 token 필요
-        developer_id = os.getenv("BIGOADS_DEVELOPER_ID")
-        token = os.getenv("BIGOADS_TOKEN")
+        developer_id = _get_env_var("BIGOADS_DEVELOPER_ID")
+        token = _get_env_var("BIGOADS_TOKEN")
         
         if not developer_id or not token:
             return {
@@ -899,9 +899,89 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _get_bigoads_apps(self) -> List[Dict]:
+        """Get apps list from BigOAds API"""
+        url = "https://www.bigossp.com/open/app/list"
+        
+        # BigOAds API 인증: developerId와 token 필요
+        developer_id = _get_env_var("BIGOADS_DEVELOPER_ID")
+        token = _get_env_var("BIGOADS_TOKEN")
+        
+        if not developer_id or not token:
+            logger.error("[BigOAds] BIGOADS_DEVELOPER_ID and BIGOADS_TOKEN must be set")
+            return []
+        
+        # Generate signature
+        sign, timestamp = self._generate_bigoads_sign(developer_id, token)
+        
+        headers = {
+            "Content-Type": "application/json",
+            "X-BIGO-DeveloperId": developer_id,
+            "X-BIGO-Sign": sign
+        }
+        
+        # Request payload
+        payload = {
+            "pageNo": 1,
+            "pageSize": 10
+        }
+        
+        logger.info(f"[BigOAds] API Request: POST {url}")
+        logger.info(f"[BigOAds] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[BigOAds] Request Payload: {json.dumps(payload, indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            
+            logger.info(f"[BigOAds] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[BigOAds] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[BigOAds] Response Text: {response.text}")
+                return []
+            
+            response.raise_for_status()
+            
+            # BigOAds API 응답 형식에 맞게 처리
+            if result.get("code") == 0 or result.get("status") == 0:
+                # Extract apps from response
+                data = result.get("data", {})
+                apps_list = data.get("list", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                
+                # Convert to standard format
+                apps = []
+                for app in apps_list:
+                    apps.append({
+                        "appCode": app.get("appCode", "N/A"),
+                        "name": app.get("name", "Unknown"),
+                        "platform": "Android" if app.get("platform") == 1 else ("iOS" if app.get("platform") == 2 else "N/A"),
+                        "status": app.get("status", "N/A")
+                    })
+                
+                return apps
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                logger.error(f"[BigOAds] API Error (Get Apps): {error_msg}")
+                return []
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[BigOAds] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[BigOAds] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[BigOAds] Error Response (text): {e.response.text}")
+            return []
+    
     def get_apps(self, network: str) -> List[Dict]:
         """Get apps list from network"""
-        # Mock implementation
+        if network == "bigoads":
+            return self._get_bigoads_apps()
+        
+        # Mock implementation for other networks
         return [
             {
                 "appCode": "10*****7",

@@ -349,8 +349,29 @@ else:
     network_manager = get_network_manager()
     
     # Load apps from cache (from Create App POST responses)
-    # Note: get_apps() API will be implemented later
-    apps = SessionManager.get_cached_apps(current_network)
+    cached_apps = SessionManager.get_cached_apps(current_network)
+    
+    # For BigOAds, also fetch from API and get latest 3 apps
+    api_apps = []
+    if current_network == "bigoads":
+        try:
+            with st.spinner("Loading apps from API..."):
+                api_apps = network_manager.get_apps(current_network)
+                # Get latest 3 apps only
+                if api_apps:
+                    api_apps = api_apps[:3]
+        except Exception as e:
+            st.warning(f"⚠️ Failed to load apps from API: {str(e)}")
+            api_apps = []
+    
+    # Merge cached apps with API apps (prioritize cached, but add unique API apps)
+    apps = cached_apps.copy() if cached_apps else []
+    if api_apps:
+        cached_app_codes = {app.get("appCode") for app in apps if app.get("appCode")}
+        for api_app in api_apps:
+            api_code = api_app.get("appCode")
+            if api_code and api_code not in cached_app_codes:
+                apps.append(api_app)
     
     # Prepare app options for dropdown (always show, even if no apps)
     app_options = []
