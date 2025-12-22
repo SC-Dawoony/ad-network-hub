@@ -500,17 +500,35 @@ class MockNetworkManager:
         logger.info(f"[Pangle]   - Status value: {request_params.get('status')}")
         
         try:
+            # Log actual JSON being sent (for debugging)
+            logger.info(f"[Pangle] Sending JSON request:")
+            logger.info(f"[Pangle] {json.dumps(request_params, indent=2, ensure_ascii=False)}")
+            
             response = requests.post(url, json=request_params, headers=headers, timeout=30)
             
             # Log response status
             logger.info(f"[Pangle] Response Status: {response.status_code}")
+            logger.info(f"[Pangle] Response Headers: {dict(response.headers)}")
             
             response.raise_for_status()
             
             result = response.json()
             
             # Log response
-            logger.info(f"[Pangle] Response Body: {json.dumps(result, indent=2)}")
+            logger.info(f"[Pangle] Response Body: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            
+            # If OAuth validation failure, log more details
+            if result.get("code") == 50003 and "oauth validation failure" in str(result.get("msg", "")).lower():
+                logger.error(f"[Pangle] OAuth Validation Failure Details:")
+                logger.error(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}")
+                logger.error(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}")
+                logger.error(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}")
+                logger.error(f"[Pangle]   - Signature: {sign}")
+                logger.error(f"[Pangle]   - Request URL: {url}")
+                logger.error(f"[Pangle]   - Please verify:")
+                logger.error(f"[Pangle]     1. Security Key is correct in .env or Streamlit secrets")
+                logger.error(f"[Pangle]     2. User ID and Role ID are correct")
+                logger.error(f"[Pangle]     3. Signature generation matches guide (alphabetical sort + SHA1)")
             
             # Pangle API response format may vary, normalize it
             if result.get("code") == 0 or result.get("ret_code") == 0:
