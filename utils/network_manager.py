@@ -383,15 +383,22 @@ class MockNetworkManager:
         return signature
     
     def _create_pangle_app(self, payload: Dict) -> Dict:
-        """Create app via Pangle API"""
+        """Create app via Pangle API
+        
+        Note: payload from build_app_payload() contains only user-input fields.
+        This method adds authentication fields: timestamp, nonce, sign, version, status.
+        """
         security_key = _get_env_var("PANGLE_SECURITY_KEY")
         
         if not security_key:
+            logger.error("[Pangle] PANGLE_SECURITY_KEY not found in environment")
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
                 "msg": "PANGLE_SECURITY_KEY must be set in .env file or Streamlit secrets"
             }
+        
+        logger.info(f"[Pangle] Starting app creation with payload keys: {list(payload.keys())}")
         
         # Get user_id and role_id from payload (set in Create App page from .env)
         user_id = payload.get("user_id")
@@ -527,8 +534,16 @@ class MockNetworkManager:
                 logger.info(f"[Pangle] Regenerated: timestamp={timestamp}, nonce={nonce}, sign={sign[:20]}...")
             
             # Log actual JSON being sent (for debugging)
-            logger.info(f"[Pangle] Sending JSON request:")
-            logger.info(f"[Pangle] {json.dumps(request_params, indent=2, ensure_ascii=False)}")
+            logger.info(f"[Pangle] ========== FINAL REQUEST BEING SENT ==========")
+            logger.info(f"[Pangle] URL: {url}")
+            logger.info(f"[Pangle] Headers: {json.dumps(headers, indent=2)}")
+            logger.info(f"[Pangle] Request Body (full):")
+            # Create a copy for logging (mask sensitive data)
+            log_params = request_params.copy()
+            if "sign" in log_params:
+                log_params["sign"] = f"{log_params['sign'][:20]}... (masked, full length: {len(log_params['sign'])})"
+            logger.info(f"[Pangle] {json.dumps(log_params, indent=2, ensure_ascii=False)}")
+            logger.info(f"[Pangle] ===============================================")
             
             response = requests.post(url, json=request_params, headers=headers, timeout=30)
             
