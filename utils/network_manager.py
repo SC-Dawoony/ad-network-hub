@@ -165,14 +165,15 @@ class MockNetworkManager:
         return mock_response
     
     def _is_token_expired(self, token: str) -> bool:
-        """Check if JWT token is expired by parsing exp claim"""
+        """Check if JWT token is expired by parsing exp claim
+        
+        Returns True if token is expired or will expire within 1 hour (23 hours passed)
+        """
         try:
-            import base64
-            import json
-            
             # JWT format: header.payload.signature
             parts = token.split('.')
             if len(parts) != 3:
+                logger.warning("[IronSource] Invalid JWT format (not 3 parts)")
                 return True  # Invalid token format, consider expired
             
             # Decode payload (second part)
@@ -188,28 +189,43 @@ class MockNetworkManager:
             # Check exp claim
             exp = claims.get('exp')
             if exp:
-                import time
                 current_time = int(time.time())
-                # Consider expired if less than 5 minutes remaining (buffer)
-                return exp < (current_time + 300)
+                # Token expires in 24 hours, refresh 1 hour before (23 hours passed)
+                # So if less than 1 hour (3600 seconds) remaining, consider expired
+                time_until_expiry = exp - current_time
+                logger.info(f"[IronSource] Token expires in {time_until_expiry} seconds ({time_until_expiry // 3600} hours)")
+                
+                # Refresh if less than 1 hour remaining
+                if time_until_expiry < 3600:
+                    logger.info("[IronSource] Token will expire within 1 hour, needs refresh")
+                    return True
+                else:
+                    logger.info("[IronSource] Token is still valid")
+                    return False
             
+            logger.warning("[IronSource] No exp claim in token, considering expired")
             return True  # No exp claim, consider expired
         except Exception as e:
             logger.warning(f"[IronSource] Error checking token expiration: {str(e)}")
             return True  # On error, consider expired to be safe
     
     def _get_ironsource_token(self) -> Optional[str]:
-        """Get IronSource bearer token - always fetch fresh token for safety
+        """Get IronSource bearer token with automatic refresh
         
-        Always uses IRONSOURCE_SECRET_KEY and IRONSOURCE_REFRESH_TOKEN to get a new token.
-        This ensures we always have a valid, non-expired token.
+        Logic:
+        1. Check if bearer_token exists and is not expired (1 hour buffer)
+        2. If expired or missing, fetch new token using secret_key and refresh_token
+        3. Return valid bearer token
+        
+        Required: IRONSOURCE_SECRET_KEY, IRONSOURCE_REFRESH_TOKEN
+        Optional: IRONSOURCE_BEARER_TOKEN (if exists and valid, use it)
         """
-        # Always get fresh token using secret key and refresh token
+        # Get credentials (required)
         refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
         secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
         
-        # Debug: Log what we found
-        logger.info(f"[IronSource] Checking environment variables...")
+        # Log what we found
+        logger.info(f"[IronSource] Checking credentials...")
         logger.info(f"[IronSource] IRONSOURCE_REFRESH_TOKEN: {'SET' if refresh_token else 'NOT SET'} (length: {len(refresh_token) if refresh_token else 0})")
         logger.info(f"[IronSource] IRONSOURCE_SECRET_KEY: {'SET' if secret_key else 'NOT SET'} (length: {len(secret_key) if secret_key else 0})")
         
@@ -219,20 +235,49 @@ class MockNetworkManager:
                 missing.append("IRONSOURCE_REFRESH_TOKEN")
             if not secret_key:
                 missing.append("IRONSOURCE_SECRET_KEY")
-            logger.error(f"[IronSource] Missing required environment variables: {', '.join(missing)}")
+            logger.error(f"[IronSource] Missing required credentials: {', '.join(missing)}")
             logger.error("[IronSource] Please set these in .env file or Streamlit secrets")
             return None
         
-        # Always fetch a new token for safety
-        logger.info("[IronSource] Fetching fresh bearer token...")
+        # Check if we have a cached bearer token (optional)
+        bearer_token = _get_env_var("IRONSOURCE_BEARER_TOKEN") or _get_env_var("IRONSOURCE_API_TOKEN")
+        
+        # If bearer token exists, check if it's still valid (1 hour buffer)
+        if bearer_token:
+            logger.info("[IronSource] Found existing bearer token, checking expiration...")
+            if not self._is_token_expired(bearer_token):
+                logger.info("[IronSource] Using existing valid bearer token")
+                return bearer_token
+            else:
+                logger.info("[IronSource] Existing bearer token is expired or will expire soon, refreshing...")
+        
+        # Fetch new token using secret_key and refresh_token
+        logger.info("[IronSource] Fetching new bearer token...")
         new_token = self._refresh_ironsource_token(refresh_token, secret_key)
         
         if new_token:
-            logger.info("[IronSource] Successfully obtained fresh bearer token")
+            logger.info("[IronSource] Successfully obtained new bearer token")
             return new_token
         else:
             logger.error("[IronSource] Failed to obtain bearer token. Check logs above for details.")
             return None
+    
+    def _get_ironsource_headers(self) -> Optional[Dict[str, str]]:
+        """Get IronSource API headers with automatic token refresh
+        
+        This method is called before each API request to ensure we have a valid token.
+        Logic:
+        1. Get bearer token (with automatic refresh if needed)
+        2. Return headers with Authorization: Bearer {token}
+        """
+        token = self._get_ironsource_token()
+        if not token:
+            return None
+        
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
     
     def _refresh_ironsource_token(self, refresh_token: str, secret_key: str) -> Optional[str]:
         """Get IronSource bearer token using refresh token and secret key
@@ -450,18 +495,13 @@ class MockNetworkManager:
                 "msg": f"Invalid bearer token format. Token length: {len(token) if token else 0}. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY."
             }
         
-        url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
+            url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
+            # headers already set by _get_ironsource_headers()
         
         # Log request
         logger.info(f"[IronSource] API Request: POST {url}")
         masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
         logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
-        logger.info(f"[IronSource] Token used (first 30 chars): {token[:30]}...")
-        logger.info(f"[IronSource] Token used (length): {len(token)}")
         logger.info(f"[IronSource] Request Body: {json.dumps(payload, indent=2)}")
         
         try:
@@ -577,19 +617,15 @@ class MockNetworkManager:
             app_key: Application key from IronSource platform
             ad_units: List of ad unit objects to create
         """
-        token = self._get_ironsource_token()
-        if not token:
+        headers = self._get_ironsource_headers()
+        if not headers:
             return {
                 "status": 1,
                 "code": "AUTH_ERROR",
-                "msg": "IronSource authentication token not found. Please set IRONSOURCE_BEARER_TOKEN (or IRONSOURCE_API_TOKEN) in .env file, or provide IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY for automatic token refresh."
+                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
             }
         
         url = f"https://platform.ironsrc.com/levelPlay/adUnits/v1/{app_key}"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
         
         # Log request
         logger.info(f"[IronSource] API Request: POST {url}")
