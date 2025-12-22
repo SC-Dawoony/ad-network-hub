@@ -24,13 +24,46 @@ def _get_env_var(key: str) -> Optional[str]:
     """
     try:
         # Try Streamlit secrets first (for Streamlit Cloud)
-        if hasattr(st, 'secrets') and st.secrets and key in st.secrets:
-            return st.secrets[key]
-    except:
-        pass
+        if hasattr(st, 'secrets') and st.secrets:
+            # Debug: Log available secrets keys (masked)
+            try:
+                if hasattr(st.secrets, 'keys'):
+                    available_keys = list(st.secrets.keys())
+                    logger.debug(f"[Env] Available Streamlit secrets keys: {available_keys}")
+                elif isinstance(st.secrets, dict):
+                    available_keys = list(st.secrets.keys())
+                    logger.debug(f"[Env] Available Streamlit secrets keys: {available_keys}")
+            except:
+                pass
+            
+            # Try direct access
+            if key in st.secrets:
+                value = st.secrets[key]
+                logger.debug(f"[Env] Found {key} in Streamlit secrets (length: {len(str(value)) if value else 0})")
+                return value
+            
+            # Try nested access (e.g., st.secrets["ironsource"]["SECRET_KEY"])
+            # Check if there's a nested structure
+            try:
+                if isinstance(st.secrets, dict):
+                    for top_level_key in st.secrets.keys():
+                        if isinstance(st.secrets[top_level_key], dict):
+                            if key in st.secrets[top_level_key]:
+                                value = st.secrets[top_level_key][key]
+                                logger.debug(f"[Env] Found {key} in Streamlit secrets[{top_level_key}] (length: {len(str(value)) if value else 0})")
+                                return value
+            except:
+                pass
+    except Exception as e:
+        logger.debug(f"[Env] Error accessing Streamlit secrets: {str(e)}")
     
     # Fallback to environment variables (from .env file or system env)
-    return os.getenv(key)
+    env_value = os.getenv(key)
+    if env_value:
+        logger.debug(f"[Env] Found {key} in environment variables (length: {len(env_value)})")
+    else:
+        logger.debug(f"[Env] {key} not found in environment variables")
+    return env_value
 
 # Load environment variables (override to get latest values)
 # Streamlit Cloud에서는 st.secrets 사용, 로컬에서는 .env 파일 사용
