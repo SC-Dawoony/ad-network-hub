@@ -967,7 +967,8 @@ class MockNetworkManager:
                         "appCode": app.get("appCode", "N/A"),
                         "name": app.get("name", "Unknown"),
                         "platform": platform_str,
-                        "status": app.get("status", "N/A")
+                        "status": app.get("status", "N/A"),
+                        "pkgNameDisplay": app.get("pkgNameDisplay", "")  # For BigOAds slot name generation
                     })
                 
                 logger.info(f"[BigOAds] Converted to {len(apps)} apps in standard format")

@@ -22,8 +22,13 @@ def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str) -> str
 def _create_default_slot(network: str, app_info: dict, slot_type: str, network_manager, config):
     """Create a default slot with predefined settings"""
     app_code = app_info.get("appCode")
-    pkg_name = app_info.get("pkgName", "")
     platform_str = app_info.get("platformStr", "android")
+    
+    # For BigOAds, use pkgNameDisplay from API response; otherwise use pkgName
+    if network == "bigoads" and "pkgNameDisplay" in app_info:
+        pkg_name = app_info.get("pkgNameDisplay", "")
+    else:
+        pkg_name = app_info.get("pkgName", "")
     
     # Generate slot name
     slot_name = _generate_slot_name(pkg_name, platform_str, slot_type)
@@ -491,6 +496,9 @@ else:
             app_info_to_use = app_info_map[selected_app_code]
             if last_app_info and last_app_info.get("appCode") == selected_app_code:
                 app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
+                # For BigOAds, also get pkgNameDisplay if available
+                if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
+                    app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
         else:
             # For manual entry or API apps, create minimal app info
             app_info_to_use = {
@@ -501,7 +509,7 @@ else:
                 "platformStr": "unknown"
             }
             
-            # Try to get platform from apps list
+            # Try to get platform and pkgNameDisplay from apps list (for BigOAds)
             for app in apps:
                 if app.get("appCode") == selected_app_code:
                     platform_str = app.get("platform", "")
@@ -511,6 +519,10 @@ else:
                     elif platform_str == "iOS":
                         app_info_to_use["platform"] = 2
                         app_info_to_use["platformStr"] = "ios"
+                    
+                    # For BigOAds, get pkgNameDisplay from API response
+                    if current_network == "bigoads" and "pkgNameDisplay" in app:
+                        app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
                     break
     else:
         # Show message if no app code selected
@@ -1156,15 +1168,18 @@ else:
                             slot_name_key = f"custom_slot_{slot_key}_name"
                             if slot_name_key not in st.session_state:
                                 # Generate default name
-                                last_app_info = SessionManager.get_last_created_app_info(current_network)
-                                if last_app_info and last_app_info.get("pkgName"):
-                                    pkg_name = last_app_info.get("pkgName", "")
-                                    platform_str = last_app_info.get("platformStr", "android")
-                                    if "." in pkg_name:
-                                        last_part = pkg_name.split(".")[-1]
-                                    else:
-                                        last_part = pkg_name
-                                    default_name = f"{last_part}_{platform_str}_bigoads_{slot_key.lower()}_bidding"
+                                # For BigOAds, try to get pkgNameDisplay from app_info_to_use or last_app_info
+                                pkg_name = ""
+                                if current_network == "bigoads" and app_info_to_use:
+                                    pkg_name = app_info_to_use.get("pkgNameDisplay", app_info_to_use.get("pkgName", ""))
+                                else:
+                                    last_app_info = SessionManager.get_last_created_app_info(current_network)
+                                    if last_app_info:
+                                        pkg_name = last_app_info.get("pkgName", "")
+                                
+                                if pkg_name:
+                                    platform_str = app_info_to_use.get("platformStr", "android") if app_info_to_use else "android"
+                                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower())
                                 else:
                                     default_name = f"slot_{slot_key.lower()}"
                                 st.session_state[slot_name_key] = default_name
