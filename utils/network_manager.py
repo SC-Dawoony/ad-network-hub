@@ -355,31 +355,32 @@ class MockNetworkManager:
     def _generate_pangle_signature(self, security_key: str, timestamp: int, nonce: int) -> str:
         """Generate Pangle API signature
         
-        Signature generation (as per Pangle documentation):
-        1. Convert security_key, timestamp, nonce to strings
-        2. Sort alphabetically
-        3. Concatenate (join together)
-        4. SHA1 hash
-        5. Return lowercase hex digest (40 characters)
+        Signature generation (exact implementation as per Pangle documentation):
         
-        Example:
-          security_key = "Zes6ctYcPJoW4O16Yj85zg=="
-          timestamp = 1704067200
-          nonce = 1234567890
-          
-          keys = ["1234567890", "1704067200", "Zes6ctYcPJoW4O16Yj85zg=="]
-          keys.sort() → ["1234567890", "1704067200", "Zes6ctYcPJoW4O16Yj85zg=="]
-          key_str = "12345678901704067200Zes6ctYcPJoW4O16Yj85zg=="
-          signature = sha1(key_str) → "db29590697024fb53573a5cc0dd5f002801dc8ed"
+        import hashlib
+        keys = [security_key, str(timestamp), str(nonce)] 
+        keys.sort() 
+        keyStr = ''.join(keys) 
+        signature = hashlib.sha1(keyStr.encode("utf-8")).hexdigest()
+        
+        Returns:
+            Lowercase hex digest (40 characters)
         """
-        # Convert to strings and sort alphabetically
+        # Exact implementation as per Pangle documentation
         keys = [security_key, str(timestamp), str(nonce)]
         keys.sort()
-        key_str = ''.join(keys)
+        keyStr = ''.join(keys)
+        signature = hashlib.sha1(keyStr.encode("utf-8")).hexdigest()
         
-        # SHA1 hash and return lowercase hex digest
-        signature = hashlib.sha1(key_str.encode("utf-8")).hexdigest()
-        logger.debug(f"[Pangle] Signature generation: security_key length={len(security_key)}, timestamp={timestamp}, nonce={nonce}, signature={signature[:20]}...")
+        logger.info(f"[Pangle] Signature generation:")
+        logger.info(f"[Pangle]   security_key: {security_key[:20]}... (length: {len(security_key)})")
+        logger.info(f"[Pangle]   timestamp: {timestamp}")
+        logger.info(f"[Pangle]   nonce: {nonce}")
+        logger.info(f"[Pangle]   keys (before sort): [{security_key[:20]}..., '{timestamp}', '{nonce}']")
+        logger.info(f"[Pangle]   keys (after sort): {keys}")
+        logger.info(f"[Pangle]   keyStr: {keyStr[:50]}... (length: {len(keyStr)})")
+        logger.info(f"[Pangle]   signature: {signature} (length: {len(signature)})")
+        
         return signature
     
     def _create_pangle_app(self, payload: Dict) -> Dict:
@@ -443,7 +444,22 @@ class MockNetworkManager:
         if timestamp_age > 1:
             logger.warning(f"[Pangle] WARNING: Timestamp is {timestamp_age} seconds old! This may cause validation failure.")
         
-        # Prepare all request parameters
+        # Check if sandbox mode is enabled (before building request_params)
+        sandbox = _get_env_var("PANGLE_SANDBOX", "false").lower() == "true"
+        
+        if sandbox:
+            # Sandbox URL (HTTP, not HTTPS)
+            url = "http://open-api-sandbox.pangleglobal.com/union/media/open_api/site/create"
+            logger.info("[Pangle] Using SANDBOX environment")
+            # Sandbox requires status: 6 (test) instead of 2 (Live)
+            status = 6
+        else:
+            # Production URL
+            url = "https://open-api.pangleglobal.com/union/media/open_api/site/create"
+            logger.info("[Pangle] Using PRODUCTION environment")
+            status = 2  # Live
+        
+        # Prepare all request parameters (status is now set based on environment)
         request_params = {
             "user_id": user_id_int,
             "role_id": role_id_int,
@@ -463,10 +479,6 @@ class MockNetworkManager:
         
         if payload.get("coppa_value") is not None:
             request_params["coppa_value"] = payload.get("coppa_value")
-        
-        # Use production URL (can be changed to sandbox if needed)
-        url = "https://open-api.pangleglobal.com/union/media/open_api/site/create"
-        # Sandbox URL: "http://open-api-sandbox.pangleglobal.com/union/media/open_api/site/create"
         
         headers = {
             "Content-Type": "application/json",
