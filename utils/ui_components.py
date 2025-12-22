@@ -1,6 +1,7 @@
 """Reusable UI components for dynamic form rendering"""
 from typing import Dict, List, Any, Optional
 import streamlit as st
+import re
 from network_configs.base_config import Field, ConditionalField, NetworkConfig
 
 
@@ -31,6 +32,26 @@ class DynamicFormRenderer:
         if field.field_type == "text":
             # Get current value from form_data if exists, otherwise use default
             current_value = form_data.get(field.name, field.default if field.default else "")
+            
+            # Special handling for BigOAds iTunes ID: Check session state first
+            # (in case storeUrl was filled after itunesId field was rendered)
+            if field.name == "itunesId":
+                itunes_id_key = f"app_itunesId"
+                if itunes_id_key in st.session_state:
+                    session_value = st.session_state[itunes_id_key]
+                    if session_value and (not current_value or current_value == ""):
+                        current_value = session_value
+                        form_data[field.name] = current_value
+                # Also check storeUrl in form_data (if storeUrl was rendered before itunesId)
+                elif not current_value:
+                    store_url = form_data.get("storeUrl", "")
+                    if store_url and "apps.apple.com" in store_url:
+                        match = re.search(r'/id(\d+)', store_url)
+                        if match:
+                            current_value = match.group(1)
+                            form_data[field.name] = current_value
+                            st.session_state[itunes_id_key] = current_value
+            
             return st.text_input(
                 label,
                 value=str(current_value) if current_value is not None else "",
@@ -216,6 +237,25 @@ class DynamicFormRenderer:
                 rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type)
                 if rendered_value is not None:
                     form_data[field.name] = rendered_value
+                
+                # Special handling for BigOAds: Auto-extract iTunes ID from Store URL
+                # Note: storeUrl is rendered after itunesId, so we update form_data
+                # and session_state for the next rerun
+                if (form_type == "app" and 
+                    field.name == "storeUrl" and 
+                    config.network_name == "bigoads" and
+                    rendered_value):
+                    store_url = str(rendered_value).strip()
+                    if store_url and "apps.apple.com" in store_url:
+                        # Extract iTunes ID from URL pattern: .../id{number} or .../id{number}?
+                        match = re.search(r'/id(\d+)', store_url)
+                        if match:
+                            itunes_id = match.group(1)
+                            # Update form_data for current form processing
+                            form_data["itunesId"] = itunes_id
+                            # Update session state key for itunesId field
+                            itunes_id_key = f"app_itunesId"
+                            st.session_state[itunes_id_key] = itunes_id
         
         return form_data
     
