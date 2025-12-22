@@ -532,6 +532,32 @@ else:
     # Create Unit UI (always show, but require app code selection)
     # Show Create Unit UI even if app code is not selected (will show message)
     if True:  # Always show Create Unit UI
+        # Ensure app_info_to_use is available for slot name generation
+        if selected_app_code and not app_info_to_use:
+            # Try to get app info again if not already set
+            last_app_info = SessionManager.get_last_created_app_info(current_network)
+            if last_app_info and last_app_info.get("appCode") == selected_app_code:
+                app_info_to_use = last_app_info
+            elif selected_app_code in app_info_map:
+                app_info_to_use = app_info_map[selected_app_code]
+                if last_app_info and last_app_info.get("appCode") == selected_app_code:
+                    app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
+                    if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
+                        app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
+            else:
+                # Try to get from apps list
+                for app in apps:
+                    if app.get("appCode") == selected_app_code:
+                        platform_str = app.get("platform", "")
+                        app_info_to_use = {
+                            "appCode": selected_app_code,
+                            "name": app.get("name", "Unknown"),
+                            "platform": 1 if platform_str == "Android" else (2 if platform_str == "iOS" else None),
+                            "platformStr": "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "unknown"),
+                            "pkgName": "",
+                            "pkgNameDisplay": app.get("pkgNameDisplay", "") if current_network == "bigoads" else ""
+                        }
+                        break
         # Create All 3 Slots button at the top (for BigOAds)
         if current_network == "bigoads":
                 if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
@@ -1168,20 +1194,31 @@ else:
                             slot_name_key = f"custom_slot_{slot_key}_name"
                             
                             # Generate default name when app is selected
-                            # For BigOAds, try to get pkgNameDisplay from app_info_to_use or last_app_info
+                            # For BigOAds, try to get pkgNameDisplay from app_info_to_use or apps list
                             pkg_name = ""
-                            if current_network == "bigoads" and app_info_to_use:
-                                pkg_name = app_info_to_use.get("pkgNameDisplay", app_info_to_use.get("pkgName", ""))
-                            elif app_info_to_use:
-                                pkg_name = app_info_to_use.get("pkgName", "")
-                            else:
-                                last_app_info = SessionManager.get_last_created_app_info(current_network)
-                                if last_app_info:
-                                    pkg_name = last_app_info.get("pkgNameDisplay", last_app_info.get("pkgName", ""))
+                            platform_str = "android"
+                            
+                            if selected_app_code and app_info_to_use:
+                                # Use app_info_to_use if available
+                                if current_network == "bigoads":
+                                    pkg_name = app_info_to_use.get("pkgNameDisplay", app_info_to_use.get("pkgName", ""))
+                                else:
+                                    pkg_name = app_info_to_use.get("pkgName", "")
+                                platform_str = app_info_to_use.get("platformStr", "android")
+                            elif selected_app_code:
+                                # Try to get from apps list directly
+                                for app in apps:
+                                    if app.get("appCode") == selected_app_code:
+                                        if current_network == "bigoads":
+                                            pkg_name = app.get("pkgNameDisplay", app.get("pkgName", ""))
+                                        else:
+                                            pkg_name = app.get("pkgName", "")
+                                        platform_str_val = app.get("platform", "")
+                                        platform_str = "android" if platform_str_val == "Android" else ("ios" if platform_str_val == "iOS" else "android")
+                                        break
                             
                             # Update slot name if app is selected and we have pkg_name
                             if selected_app_code and pkg_name:
-                                platform_str = app_info_to_use.get("platformStr", "android") if app_info_to_use else "android"
                                 default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower())
                                 # Always update when app is selected (even if key exists)
                                 st.session_state[slot_name_key] = default_name
