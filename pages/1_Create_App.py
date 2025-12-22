@@ -421,22 +421,34 @@ else:
         selected_app_code = manual_app_code.strip() if manual_app_code else ""
     else:
         selected_app_code = app_code_map.get(selected_app_display, "")
+    
+    # Show UI for slot creation if app code is selected (works for both manual and dropdown selection)
+    if selected_app_code:
+        # Get app name from display text (if from dropdown) or use "Manual Entry"
+        app_name = "Manual Entry"
+        if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
+            app_name = selected_app_display.split("(")[1].split(")")[0]
         
-        if selected_app_code:
-            # Get app name from display text
-            app_name = "Unknown"
-            if "(" in selected_app_display and ")" in selected_app_display:
-                app_name = selected_app_display.split("(")[1].split(")")[0]
-            st.info(f"**Selected app:** {app_name} ({selected_app_code})")
-            
-            # Get app info for quick create all
-            app_info_to_use = None
+        st.info(f"**Selected app:** {app_name} ({selected_app_code})")
+        
+        # Get app info for quick create all
+        app_info_to_use = None
+        last_app_info = SessionManager.get_last_created_app_info(current_network)
+        if last_app_info and last_app_info.get("appCode") == selected_app_code:
+            app_info_to_use = last_app_info
+        elif selected_app_code in app_info_map:
+            app_info_to_use = app_info_map[selected_app_code]
             if last_app_info and last_app_info.get("appCode") == selected_app_code:
-                app_info_to_use = last_app_info
-            elif selected_app_code in app_info_map:
-                app_info_to_use = app_info_map[selected_app_code]
-                if last_app_info and last_app_info.get("appCode") == selected_app_code:
-                    app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
+                app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
+        else:
+            # For manual entry, create minimal app info
+            app_info_to_use = {
+                "appCode": selected_app_code,
+                "name": app_name,
+                "platform": None,
+                "pkgName": "",
+                "platformStr": "unknown"
+            }
             
             # Create All 3 Slots button at the top (for BigOAds)
             if app_info_to_use and current_network == "bigoads":
