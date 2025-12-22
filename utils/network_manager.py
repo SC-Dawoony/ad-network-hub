@@ -664,13 +664,33 @@ class MockNetworkManager:
             # Log response status
             logger.info(f"[IronSource] Response Status: {response.status_code}")
             
-            response.raise_for_status()
+            # Check response status before parsing
+            if response.status_code >= 400:
+                # Error response
+                try:
+                    error_body = response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or response.text
+                    error_code = error_body.get("code") or error_body.get("errorCode") or str(response.status_code)
+                except:
+                    error_msg = response.text or f"HTTP {response.status_code}"
+                    error_code = str(response.status_code)
+                    logger.error(f"[IronSource] Error Response (text): {error_msg}")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
             
+            # Success response
             result = response.json()
             
             # Log response
-            logger.info(f"[IronSource] Response Body: {json.dumps(result, indent=2)}")
+            logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            
             # IronSource API response format may vary, normalize it
+            # Response might be an array of created ad units or a single object
             return {
                 "status": 0,
                 "code": 0,
@@ -679,17 +699,35 @@ class MockNetworkManager:
             }
         except requests.exceptions.RequestException as e:
             logger.error(f"[IronSource] API Error (Placements): {str(e)}")
+            error_msg = str(e)
+            error_code = "API_ERROR"
+            
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_body = e.response.json()
                     logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or error_msg
+                    error_code = error_body.get("code") or error_body.get("errorCode") or error_code
                 except:
                     logger.error(f"[IronSource] Error Response (text): {e.response.text}")
-                    return {
-                        "status": 1,
-                        "code": "API_ERROR",
-                        "msg": str(e)
-                    }
+                    if e.response.text:
+                        error_msg = e.response.text
+            
+            return {
+                "status": 1,
+                "code": error_code,
+                "msg": error_msg
+            }
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"[IronSource] Unexpected Error (Placements): {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "status": 1,
+                "code": "UNEXPECTED_ERROR",
+                "msg": str(e)
+            }
     
     def _generate_bigoads_sign(self, developer_id: str, token: str) -> tuple[str, str]:
         """Generate BigOAds API signature
