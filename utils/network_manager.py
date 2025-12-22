@@ -299,41 +299,28 @@ class MockNetworkManager:
             logger.info(f"[IronSource] Token URL: GET {url}")
             logger.info(f"[IronSource] Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=30)
             
             logger.info(f"[IronSource] Token response status: {response.status_code}")
-            logger.info(f"[IronSource] Token response headers: {dict(response.headers)}")
-            logger.info(f"[IronSource] Token response text (first 200 chars): {response.text[:200]}")
             
-            response.raise_for_status()
-            
-            # Try to parse as JSON first (in case API returns JSON)
-            bearer_token = None
-            try:
-                result = response.json()
-                # If JSON, try common field names
-                bearer_token = result.get("accessToken") or result.get("bearerToken") or result.get("token") or result.get("access_token")
+            if response.status_code == 200:
+                # 응답은 따옴표로 감싸진 문자열이므로 제거 (reference code 방식)
+                bearer_token = response.text.strip().strip('"')
+                
                 if bearer_token:
-                    logger.info("[IronSource] Bearer token extracted from JSON response")
-            except (ValueError, json.JSONDecodeError):
-                # If not JSON, treat as plain text (JWT string)
-                bearer_token = response.text.strip()
-                logger.info("[IronSource] Bearer token extracted from text response")
-            
-            # Remove quotes if present
-            if bearer_token and bearer_token.startswith('"') and bearer_token.endswith('"'):
-                bearer_token = bearer_token[1:-1]
-            
-            if bearer_token:
-                logger.info("[IronSource] Bearer token obtained successfully")
-                logger.info(f"[IronSource] Token length: {len(bearer_token)}")
-                logger.info(f"[IronSource] Token (first 30 chars): {bearer_token[:30]}...")
-                logger.info(f"[IronSource] Token (last 10 chars): ...{bearer_token[-10:]}")
+                    logger.info("[IronSource] Bearer token obtained successfully")
+                    logger.info(f"[IronSource] Token length: {len(bearer_token)}")
+                    logger.info(f"[IronSource] Token (first 50 chars): {bearer_token[:50]}...")
+                    logger.info(f"[IronSource] Token valid for: 24 hours")
+                    return bearer_token
+                else:
+                    logger.error("[IronSource] Empty bearer token in response")
+                    logger.error(f"[IronSource] Full response text: {response.text}")
+                    return None
             else:
-                logger.error("[IronSource] Empty bearer token in response")
-                logger.error(f"[IronSource] Full response text: {response.text}")
-            
-            return bearer_token
+                logger.error(f"[IronSource] Token request failed with status {response.status_code}")
+                logger.error(f"[IronSource] Response: {response.text[:500]}")
+                return None
         except requests.exceptions.RequestException as e:
             logger.error(f"[IronSource] Token refresh failed: {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
@@ -1134,41 +1121,56 @@ class MockNetworkManager:
             
             url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
             
-            # Build query parameters (optional)
+            # Build query parameters (optional) - reference code 방식
             params = {}
-            platform = _get_env_var("IRONSOURCE_PLATFORM")
+            platform = _get_env_var("IRONSOURCE_PLATFORM")  # ios / android
             if platform:
-                params['platform'] = platform  # "ios" or "android"
+                params['platform'] = platform
             
-            app_status = _get_env_var("IRONSOURCE_APP_STATUS")
+            app_status = _get_env_var("IRONSOURCE_APP_STATUS")  # Active / archived
             if app_status:
-                params['appStatus'] = app_status  # "Active" or "archived"
+                params['appStatus'] = app_status
             
             logger.info(f"[IronSource] API Request: GET {url}")
             if params:
                 logger.info(f"[IronSource] Query Parameters: {json.dumps(params, indent=2)}")
+            else:
+                logger.info("[IronSource] Query Parameters: None (전체 앱 조회)")
             masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
             logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
             
-            response = requests.get(url, headers=headers, params=params if params else None)
+            response = requests.get(url, headers=headers, params=params if params else None, timeout=30)
             
             logger.info(f"[IronSource] Response Status: {response.status_code}")
             
-            response.raise_for_status()
-            
-            result = response.json()
-            logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
-            
-            # IronSource API 응답 형식에 맞게 파싱
-            # 일반적으로 applications 배열을 반환
-            apps = []
-            if isinstance(result, list):
-                apps = result
-            elif isinstance(result, dict):
-                # 응답이 객체인 경우 applications 필드 확인
-                apps = result.get("applications", result.get("data", result.get("result", [])))
-                if not isinstance(apps, list):
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                # IronSource API 응답 형식에 맞게 파싱 (reference code 방식)
+                # 응답은 JSON 배열 또는 객체일 수 있음
+                apps = []
+                if isinstance(result, list):
+                    apps = result
+                    logger.info(f"[IronSource] Apps count: {len(apps)}")
+                elif isinstance(result, dict):
+                    # 응답이 객체인 경우 applications 필드 확인
+                    apps = result.get("applications", result.get("data", result.get("result", [])))
+                    if not isinstance(apps, list):
+                        apps = []
+                    logger.info(f"[IronSource] Apps count: {len(apps)}")
+                else:
+                    logger.warning(f"[IronSource] Unexpected response format: {type(result)}")
                     apps = []
+            elif response.status_code == 401:
+                logger.error("[IronSource] Authentication failed (401 Unauthorized)")
+                logger.error(f"[IronSource] Response: {response.text[:500]}")
+                logger.error("[IronSource] Bearer Token이 만료되었거나 유효하지 않습니다.")
+                return []
+            else:
+                logger.error(f"[IronSource] API request failed with status {response.status_code}")
+                logger.error(f"[IronSource] Response: {response.text[:500]}")
+                return []
             
             # 표준 형식으로 변환
             formatted_apps = []
