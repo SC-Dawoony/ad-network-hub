@@ -280,6 +280,7 @@ with st.form("create_app_form"):
     if test_api_button and current_network == "mintegral":
         with st.spinner("Testing Mintegral Media List API..."):
             try:
+                network_manager = get_network_manager()
                 apps = network_manager.get_apps(current_network)
                 if apps:
                     st.success(f"✅ Media List API 호출 성공! {len(apps)}개의 앱을 찾았습니다.")
