@@ -2,6 +2,7 @@
 from typing import Dict, List, Optional
 import streamlit as st
 import os
+import sys
 import requests
 import time
 import random
@@ -1160,14 +1161,24 @@ class MockNetworkManager:
             "X-BIGO-Sign": sign
         }
         
-        logger.info(f"[BigOAds] ========== CREATE UNIT REQUEST ==========")
-        logger.info(f"[BigOAds] API Request: POST {url}")
+        # Print to stderr so it shows in console (Streamlit terminal)
+        print("=" * 60, file=sys.stderr)
+        print("[BigOAds] ========== CREATE UNIT REQUEST ==========", file=sys.stderr)
+        print(f"[BigOAds] API Request: POST {url}", file=sys.stderr)
         
         # Log headers (mask sensitive data)
         masked_headers = _mask_sensitive_data(headers.copy())
-        logger.info(f"[BigOAds] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        print(f"[BigOAds] Request Headers: {json.dumps(masked_headers, indent=2)}", file=sys.stderr)
         
         # Log payload WITHOUT masking for debugging (no sensitive data in unit payload)
+        print(f"[BigOAds] Request Payload (full): {json.dumps(payload, indent=2, ensure_ascii=False)}", file=sys.stderr)
+        print(f"[BigOAds] Payload keys: {list(payload.keys())}", file=sys.stderr)
+        print(f"[BigOAds] Payload values: {list(payload.values())}", file=sys.stderr)
+        
+        # Also log via logger
+        logger.info(f"[BigOAds] ========== CREATE UNIT REQUEST ==========")
+        logger.info(f"[BigOAds] API Request: POST {url}")
+        logger.info(f"[BigOAds] Request Headers: {json.dumps(masked_headers, indent=2)}")
         logger.info(f"[BigOAds] Request Payload (full): {json.dumps(payload, indent=2, ensure_ascii=False)}")
         logger.info(f"[BigOAds] Payload keys: {list(payload.keys())}")
         logger.info(f"[BigOAds] Payload values: {list(payload.values())}")
@@ -1175,20 +1186,27 @@ class MockNetworkManager:
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             
-            logger.info(f"[BigOAds] Response Status: {response.status_code}")
-            logger.info(f"[BigOAds] Response Headers: {dict(response.headers)}")
+            print(f"[BigOAds] Response Status: {response.status_code}", file=sys.stderr)
+            print(f"[BigOAds] Response Headers: {dict(response.headers)}", file=sys.stderr)
             
             # Try to parse JSON response
             try:
                 result = response.json()
-                logger.info(f"[BigOAds] Response Body (JSON): {json.dumps(result, indent=2, ensure_ascii=False)}")
+                print(f"[BigOAds] Response Body (JSON): {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
             except ValueError:
                 # If not JSON, log as text
-                logger.info(f"[BigOAds] Response Body (text): {response.text[:500]}")
+                print(f"[BigOAds] Response Body (text): {response.text[:500]}", file=sys.stderr)
                 result = {"status": 1, "code": "PARSE_ERROR", "msg": f"Non-JSON response: {response.text[:200]}"}
+            
+            # Also log via logger
+            logger.info(f"[BigOAds] Response Status: {response.status_code}")
+            logger.info(f"[BigOAds] Response Headers: {dict(response.headers)}")
+            if "result" in locals():
+                logger.info(f"[BigOAds] Response Body (JSON): {json.dumps(result, indent=2, ensure_ascii=False)}")
             
             # BigOAds API 응답 형식에 맞게 정규화
             if result.get("code") == 0 or result.get("status") == 0:
+                print(f"[BigOAds] ✅ Success: {result.get('msg', 'Success')}", file=sys.stderr)
                 logger.info(f"[BigOAds] ✅ Success: {result.get('msg', 'Success')}")
                 return {
                     "status": 0,
@@ -1199,6 +1217,8 @@ class MockNetworkManager:
             else:
                 error_msg = result.get("msg") or result.get("message") or "Unknown error"
                 error_code = result.get("code") or result.get("status") or "N/A"
+                print(f"[BigOAds] ❌ Error: {error_code} - {error_msg}", file=sys.stderr)
+                print(f"[BigOAds] Full error response: {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
                 logger.error(f"[BigOAds] ❌ Error: {error_code} - {error_msg}")
                 logger.error(f"[BigOAds] Full error response: {json.dumps(result, indent=2, ensure_ascii=False)}")
                 return {
@@ -1207,22 +1227,34 @@ class MockNetworkManager:
                     "msg": error_msg
                 }
         except requests.exceptions.RequestException as e:
-            logger.error(f"[BigOAds] ❌ API Error (Create Unit): {str(e)}")
-            logger.error(f"[BigOAds] Error type: {type(e).__name__}")
+            print(f"[BigOAds] ❌ API Error (Create Unit): {str(e)}", file=sys.stderr)
+            print(f"[BigOAds] Error type: {type(e).__name__}", file=sys.stderr)
             
             if hasattr(e, 'response') and e.response is not None:
+                print(f"[BigOAds] Response Status: {e.response.status_code}", file=sys.stderr)
+                print(f"[BigOAds] Response Headers: {dict(e.response.headers)}", file=sys.stderr)
+                try:
+                    error_body = e.response.json()
+                    print(f"[BigOAds] Error Response (JSON): {json.dumps(error_body, indent=2, ensure_ascii=False)}", file=sys.stderr)
+                except:
+                    error_text = e.response.text
+                    print(f"[BigOAds] Error Response (text, first 500 chars): {error_text[:500]}", file=sys.stderr)
+            else:
+                print(f"[BigOAds] No response object available", file=sys.stderr)
+            
+            print("=" * 60, file=sys.stderr)
+            
+            # Also log via logger
+            logger.error(f"[BigOAds] ❌ API Error (Create Unit): {str(e)}")
+            logger.error(f"[BigOAds] Error type: {type(e).__name__}")
+            if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"[BigOAds] Response Status: {e.response.status_code}")
-                logger.error(f"[BigOAds] Response Headers: {dict(e.response.headers)}")
                 try:
                     error_body = e.response.json()
                     logger.error(f"[BigOAds] Error Response (JSON): {json.dumps(error_body, indent=2, ensure_ascii=False)}")
                 except:
-                    error_text = e.response.text
-                    logger.error(f"[BigOAds] Error Response (text, first 500 chars): {error_text[:500]}")
-            else:
-                logger.error(f"[BigOAds] No response object available")
+                    logger.error(f"[BigOAds] Error Response (text): {e.response.text[:500]}")
             
-            logger.error(f"[BigOAds] ===============================================")
             return {
                 "status": 1,
                 "code": "API_ERROR",
