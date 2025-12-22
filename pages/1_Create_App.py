@@ -459,9 +459,9 @@ else:
     # Load apps from cache (from Create App POST responses)
     cached_apps = SessionManager.get_cached_apps(current_network)
     
-    # For BigOAds and IronSource, also fetch from API and get latest 3 apps
+    # For BigOAds, IronSource, and Mintegral, also fetch from API and get latest 3 apps
     api_apps = []
-    if current_network in ["bigoads", "ironsource"]:
+    if current_network in ["bigoads", "ironsource", "mintegral"]:
         try:
             with st.spinner("Loading apps from API..."):
                 api_apps = network_manager.get_apps(current_network)
@@ -474,8 +474,8 @@ else:
             api_apps = []
     
     # Merge cached apps with API apps (prioritize cached, but add unique API apps)
-    # For BigOAds and IronSource, prioritize API apps (they are more recent)
-    if current_network in ["bigoads", "ironsource"] and api_apps:
+    # For BigOAds, IronSource, and Mintegral, prioritize API apps (they are more recent)
+    if current_network in ["bigoads", "ironsource", "mintegral"] and api_apps:
         # Use API apps first, then add cached apps that are not in API
         apps = api_apps.copy()
         # For IronSource, check appKey; for BigOAds, check appCode
@@ -537,6 +537,7 @@ else:
             app_info_map[app_code] = {
                 "appCode": app_code,
                 "appKey": app_code if current_network == "ironsource" else None,  # Store appKey for IronSource
+                "app_id": app.get("app_id") if current_network == "mintegral" else None,  # Store app_id for Mintegral
                 "name": app_name,
                 "platform": platform_num,  # 1 or 2
                 "platformStr": platform_str,  # "android" or "ios"
