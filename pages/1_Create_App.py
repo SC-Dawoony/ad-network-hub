@@ -360,18 +360,31 @@ else:
                 # Get latest 3 apps only
                 if api_apps:
                     api_apps = api_apps[:3]
+                    st.success(f"✅ Loaded {len(api_apps)} apps from API")
         except Exception as e:
             st.warning(f"⚠️ Failed to load apps from API: {str(e)}")
             api_apps = []
     
     # Merge cached apps with API apps (prioritize cached, but add unique API apps)
-    apps = cached_apps.copy() if cached_apps else []
-    if api_apps:
-        cached_app_codes = {app.get("appCode") for app in apps if app.get("appCode")}
-        for api_app in api_apps:
-            api_code = api_app.get("appCode")
-            if api_code and api_code not in cached_app_codes:
-                apps.append(api_app)
+    # For BigOAds, prioritize API apps (they are more recent)
+    if current_network == "bigoads" and api_apps:
+        # Use API apps first, then add cached apps that are not in API
+        apps = api_apps.copy()
+        api_app_codes = {app.get("appCode") for app in api_apps if app.get("appCode")}
+        if cached_apps:
+            for cached_app in cached_apps:
+                cached_code = cached_app.get("appCode")
+                if cached_code and cached_code not in api_app_codes:
+                    apps.append(cached_app)
+    else:
+        # For other networks, use cached apps
+        apps = cached_apps.copy() if cached_apps else []
+        if api_apps:
+            cached_app_codes = {app.get("appCode") for app in apps if app.get("appCode")}
+            for api_app in api_apps:
+                api_code = api_app.get("appCode")
+                if api_code and api_code not in cached_app_codes:
+                    apps.append(api_app)
     
     # Prepare app options for dropdown (always show, even if no apps)
     app_options = []
@@ -384,7 +397,7 @@ else:
             app_name = app.get("name", "Unknown")
             platform = app.get("platform", "")
             display_text = f"{app_code} ({app_name})"
-            if platform:
+            if platform and platform != "N/A":
                 display_text += f" - {platform}"
             app_options.append(display_text)
             app_code_map[display_text] = app_code
@@ -405,7 +418,7 @@ else:
     # If no apps, default to manual entry
     if not apps:
         default_index = 0  # Manual entry will be the only option
-        st.info("💡 No apps found in cache. You can enter App Code manually below.")
+        st.info("💡 No apps found. You can enter App Code manually below.")
     else:
         # Get last created app code and info
         last_created_app_code = SessionManager.get_last_created_app_code(current_network)
@@ -422,10 +435,15 @@ else:
     
     # App selection (single selection for all slots)
     app_label = "Site ID*" if current_network == "pangle" else "App Code*"
+    
+    # Ensure app_options is not empty (at least manual entry should be there)
+    if not app_options:
+        app_options = [manual_entry_option]
+    
     selected_app_display = st.selectbox(
         app_label,
-        options=app_options,
-        index=default_index if apps else 0,  # Default to manual entry if no apps
+        options=app_options if app_options else [manual_entry_option],
+        index=default_index if apps and default_index < len(app_options) else 0,
         help="Select the app for the slots or enter manually. Recently created apps are pre-selected." if current_network != "pangle" else "Select the site for the ad placements or enter manually. Recently created sites are pre-selected.",
         key="slot_app_select"
     )

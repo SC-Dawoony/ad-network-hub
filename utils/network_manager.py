@@ -945,21 +945,32 @@ class MockNetworkManager:
             response.raise_for_status()
             
             # BigOAds API 응답 형식에 맞게 처리
-            if result.get("code") == 0 or result.get("status") == 0:
-                # Extract apps from response
-                data = result.get("data", {})
-                apps_list = data.get("list", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            # Response format: {"code": "100", "status": 0, "result": {"list": [...], "total": 12}}
+            code = result.get("code")
+            status = result.get("status")
+            
+            # Success: code == "100" or status == 0
+            if code == "100" or status == 0:
+                # Extract apps from result.list
+                result_data = result.get("result", {})
+                apps_list = result_data.get("list", [])
+                
+                logger.info(f"[BigOAds] Extracted {len(apps_list)} apps from API response (total: {result_data.get('total', 0)})")
                 
                 # Convert to standard format
                 apps = []
                 for app in apps_list:
+                    platform_value = app.get("platform")
+                    platform_str = "Android" if platform_value == 1 else ("iOS" if platform_value == 2 else "N/A")
+                    
                     apps.append({
                         "appCode": app.get("appCode", "N/A"),
                         "name": app.get("name", "Unknown"),
-                        "platform": "Android" if app.get("platform") == 1 else ("iOS" if app.get("platform") == 2 else "N/A"),
+                        "platform": platform_str,
                         "status": app.get("status", "N/A")
                     })
                 
+                logger.info(f"[BigOAds] Converted to {len(apps)} apps in standard format")
                 return apps
             else:
                 error_msg = result.get("msg") or result.get("message") or "Unknown error"
