@@ -976,15 +976,27 @@ def handle_api_response(response: Dict) -> Optional[Dict]:
         error_msg = response.get('msg', 'Unknown error')
         error_code = response.get('code', 'N/A')
         
+        # Parse and improve error messages for better user experience
+        user_friendly_msg = error_msg
+        if error_code == "105" or error_code == 105:
+            if "app auditing" in error_msg.lower() or "app audit" in error_msg.lower():
+                if "audit fail" in error_msg.lower():
+                    user_friendly_msg = "⚠️ App audit failed. Please ensure your app has passed the audit before creating slots."
+                else:
+                    user_friendly_msg = "⏳ App is currently under audit. Please wait for the audit to complete before creating slots."
+            else:
+                user_friendly_msg = f"System error: {error_msg}"
+        
         # Log error to console
         logger.error(f"API Error: {error_code} - {error_msg}")
         print(f"[API Error] {error_code} - {error_msg}", file=sys.stderr)
         
-        st.error(f"❌ Error: {error_code} - {error_msg}")
+        st.error(f"❌ Error: {error_code} - {user_friendly_msg}")
         
-        # Display full error response in expander
+        # Show original error message in expander for debugging
         with st.expander("📥 Full Error Response", expanded=False):
             st.json(_mask_sensitive_data(response))
+            st.info(f"**Original error message:** {error_msg}")
         
         return None
 
