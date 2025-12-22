@@ -290,9 +290,12 @@ class MintegralConfig(NetworkConfig):
     def build_app_payload(self, form_data: Dict) -> Dict:
         """Build API payload for app creation - only send specified fields"""
         # Required fields
+        # os must be uppercase: "ANDROID" or "IOS"
+        os_value = form_data.get("os", "").upper() if form_data.get("os") else ""
+        
         payload = {
             "app_name": form_data.get("app_name"),
-            "os": form_data.get("os"),
+            "os": os_value,
             "package": form_data.get("package"),
             "is_live_in_store": form_data.get("is_live_in_store", 1),
             "coppa": form_data.get("coppa", 0),

@@ -1049,8 +1049,11 @@ class MockNetworkManager:
         request_params["time"] = str(current_time)  # Use 'time' as string, not 'timestamp'
         request_params["sign"] = signature
         
+        # Reference code uses application/x-www-form-urlencoded for Media List
+        # Create App might also use the same format
+        # Try form-urlencoded first (matching Media List pattern)
         headers = {
-            "Content-Type": "application/json"  # Create App may use JSON, but try both if needed
+            "Content-Type": "application/x-www-form-urlencoded"
         }
         
         # Print to console for debugging
@@ -1059,7 +1062,15 @@ class MockNetworkManager:
         print("=" * 80, file=sys.stderr)
         print(f"[Mintegral] URL: {url}", file=sys.stderr)
         print(f"[Mintegral] Headers: {json.dumps(headers, indent=2)}", file=sys.stderr)
-        print(f"[Mintegral] Request Body (full): {json.dumps(request_params, indent=2, ensure_ascii=False)}", file=sys.stderr)
+        print(f"[Mintegral] Request Parameters (full): {json.dumps(request_params, indent=2, ensure_ascii=False)}", file=sys.stderr)
+        print(f"[Mintegral] Request Parameters Summary:", file=sys.stderr)
+        for key, value in request_params.items():
+            if key == "sign":
+                print(f"[Mintegral]   - {key}: {str(value)[:20]}... (masked)", file=sys.stderr)
+            elif key == "skey":
+                print(f"[Mintegral]   - {key}: {str(value)[:20]}... (masked)", file=sys.stderr)
+            else:
+                print(f"[Mintegral]   - {key}: {value} (type: {type(value).__name__})", file=sys.stderr)
         print("=" * 80, file=sys.stderr)
         
         # Also log via logger
@@ -1068,7 +1079,8 @@ class MockNetworkManager:
         logger.info(f"[Mintegral] Request Body: {json.dumps(_mask_sensitive_data(request_params), indent=2)}")
         
         try:
-            response = requests.post(url, json=request_params, headers=headers)
+            # Use form-urlencoded (matching Media List API pattern)
+            response = requests.post(url, data=request_params, headers=headers, timeout=30)
             
             logger.info(f"[Mintegral] Response Status: {response.status_code}")
             
@@ -1087,27 +1099,40 @@ class MockNetworkManager:
             logger.info(f"[Mintegral] Response Status: {response.status_code}")
             logger.info(f"[Mintegral] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
             
-            # Mintegral API response format: Check result.code inside result object
-            # Response structure: {"status": 0, "code": 0, "msg": "Success", "result": {"code": -2004, "msg": "..."}}
-            result_data = result.get("result", {})
-            result_code = result_data.get("code") if isinstance(result_data, dict) else None
-            
-            # Check if result contains an error code
-            if result_code is not None and result_code != 0 and result_code != 200:
-                error_msg = result_data.get("msg") or result.get("msg") or "Unknown error"
-                print(f"[Mintegral] ❌ Error in result: code={result_code}, msg={error_msg}", file=sys.stderr)
-                logger.error(f"[Mintegral] Error in result: code={result_code}, msg={error_msg}")
-                return {
-                    "status": 1,
-                    "code": result_code,
-                    "msg": error_msg
-                }
-            
-            # Check top-level code
+            # Mintegral API response format:
+            # Success: {"code": 0, "msg": "Success", ...}
+            # Error: {"code": -2007, "msg": "Invalid Params", "traceid": "..."}
+            # Check top-level code first
             top_level_code = result.get("code")
-            if top_level_code == 200 or top_level_code == 0 or response.status_code == 200:
-                print(f"[Mintegral] ✅ Success", file=sys.stderr)
-                logger.info(f"[Mintegral] ✅ Success")
+            
+            # Success: code must be 0 or 200 (positive or zero)
+            # Error: code is negative (e.g., -2007, -2004)
+            if top_level_code is not None:
+                if top_level_code == 0 or top_level_code == 200:
+                    # Success
+                    print(f"[Mintegral] ✅ Success (code: {top_level_code})", file=sys.stderr)
+                    logger.info(f"[Mintegral] ✅ Success (code: {top_level_code})")
+                    return {
+                        "status": 0,
+                        "code": 0,
+                        "msg": result.get("msg", "Success"),
+                        "result": result.get("result", result.get("data", result))
+                    }
+                else:
+                    # Error: negative code or non-zero positive code
+                    error_msg = result.get("msg") or "Unknown error"
+                    print(f"[Mintegral] ❌ Error: code={top_level_code}, msg={error_msg}", file=sys.stderr)
+                    logger.error(f"[Mintegral] ❌ Error: code={top_level_code}, msg={error_msg}")
+                    return {
+                        "status": 1,
+                        "code": top_level_code,
+                        "msg": error_msg
+                    }
+            
+            # Fallback: if code is not present, check HTTP status
+            if response.status_code == 200:
+                print(f"[Mintegral] ✅ Success (HTTP 200, no code in response)", file=sys.stderr)
+                logger.info(f"[Mintegral] ✅ Success (HTTP 200, no code in response)")
                 return {
                     "status": 0,
                     "code": 0,
@@ -1115,13 +1140,12 @@ class MockNetworkManager:
                     "result": result.get("result", result.get("data", result))
                 }
             else:
-                error_msg = result.get("message") or result.get("msg") or "Unknown error"
-                error_code = top_level_code or "N/A"
-                print(f"[Mintegral] ❌ Error: {error_code} - {error_msg}", file=sys.stderr)
-                logger.error(f"[Mintegral] ❌ Error: {error_code} - {error_msg}")
+                error_msg = result.get("msg") or "Unknown error"
+                print(f"[Mintegral] ❌ Error: HTTP {response.status_code}, msg={error_msg}", file=sys.stderr)
+                logger.error(f"[Mintegral] ❌ Error: HTTP {response.status_code}, msg={error_msg}")
                 return {
                     "status": 1,
-                    "code": error_code,
+                    "code": response.status_code,
                     "msg": error_msg
                 }
         except requests.exceptions.RequestException as e:
