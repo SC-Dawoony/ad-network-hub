@@ -8,15 +8,80 @@ from network_configs import get_network_config, get_network_display_names
 
 
 # Helper functions for Create Unit
-def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str) -> str:
-    """Generate slot name: pkgName_last_part_platform_bigoads_type_bidding"""
-    # Get last part after "."
-    if "." in pkg_name:
-        last_part = pkg_name.split(".")[-1]
-    else:
-        last_part = pkg_name
+def _extract_package_name_from_store_url(store_url: str) -> str:
+    """Extract package name from Store URL (for IronSource)
     
-    return f"{last_part}_{platform_str}_bigoads_{slot_type}_bidding"
+    Android: https://play.google.com/store/apps/details?id=io.supercent.brawlmafia
+    iOS: https://apps.apple.com/us/app/mob-hunters-idle-rpg/id6444113828
+    
+    Returns: last part after "." (e.g., "brawlmafia" or "id6444113828")
+    """
+    if not store_url:
+        return ""
+    
+    # For Android: extract id= value
+    if "play.google.com" in store_url and "id=" in store_url:
+        try:
+            id_part = store_url.split("id=")[1].split("&")[0].split("#")[0]
+            # Get last part after "."
+            if "." in id_part:
+                return id_part.split(".")[-1]
+            else:
+                return id_part
+        except:
+            pass
+    
+    # For iOS: extract last part after "/"
+    if "apps.apple.com" in store_url:
+        try:
+            last_part = store_url.rstrip("/").split("/")[-1]
+            # If it starts with "id", use as is; otherwise get last part after "."
+            if last_part.startswith("id"):
+                return last_part
+            elif "." in last_part:
+                return last_part.split(".")[-1]
+            else:
+                return last_part
+        except:
+            pass
+    
+    # Fallback: try to get last part after "."
+    if "." in store_url:
+        return store_url.split(".")[-1].split("/")[0].split("?")[0]
+    
+    return store_url.split("/")[-1].split("?")[0] if "/" in store_url else store_url
+
+
+def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None) -> str:
+    """Generate slot name based on network
+    
+    BigOAds: {last_part}_{platform}_bigoads_{slot_type}_bidding
+    IronSource: {last_part}_{os}_ironsource_{ad_type}_bidding (uses Store URL)
+    """
+    if network == "ironsource" and store_url:
+        # IronSource: extract from Store URL
+        last_part = _extract_package_name_from_store_url(store_url)
+    else:
+        # Get last part after "."
+        if "." in pkg_name:
+            last_part = pkg_name.split(".")[-1]
+        else:
+            last_part = pkg_name
+    
+    if network == "ironsource":
+        # IronSource: os is "aos" for Android, "ios" for iOS
+        os = "aos" if platform_str.lower() in ["android", "aos"] else "ios"
+        # Map slot_type to ad_type
+        ad_type_map = {
+            "rv": "rewarded",
+            "is": "interstitial",
+            "bn": "banner"
+        }
+        ad_type = ad_type_map.get(slot_type.lower(), slot_type.lower())
+        return f"{last_part}_{os}_ironsource_{ad_type}_bidding"
+    else:
+        # BigOAds format
+        return f"{last_part}_{platform_str}_bigoads_{slot_type}_bidding"
 
 
 def _create_default_slot(network: str, app_info: dict, slot_type: str, network_manager, config):
@@ -31,7 +96,7 @@ def _create_default_slot(network: str, app_info: dict, slot_type: str, network_m
         pkg_name = app_info.get("pkgName", "")
     
     # Generate slot name
-    slot_name = _generate_slot_name(pkg_name, platform_str, slot_type)
+    slot_name = _generate_slot_name(pkg_name, platform_str, slot_type, network)
     
     # Build payload based on slot type
     payload = {
@@ -305,7 +370,8 @@ with st.form("create_app_form"):
                             "name": app_name,
                             "pkgName": pkg_name,
                             "platform": platform,
-                            "platformStr": platform_str
+                            "platformStr": platform_str,
+                            "storeUrl": form_data.get("storeUrl", "") if current_network == "ironsource" else ""  # Store URL for IronSource slot name generation
                         }
                         SessionManager.add_created_app(current_network, app_data)
                         
@@ -522,7 +588,7 @@ else:
             if pkg_name:
                 for slot_key in ["rv", "is", "bn"]:
                     slot_name_key = f"custom_slot_{slot_key.upper()}_name"
-                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key)
+                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key, current_network)
                     st.session_state[slot_name_key] = default_name
     
     # Show UI for slot creation (always show, but require app code selection)
@@ -778,7 +844,21 @@ else:
                         if current_network == "ironsource":
                             # IronSource: mediationAdUnitName and adFormat only
                             slot_name_key = f"ironsource_slot_{slot_key}_name"
-                            if slot_name_key not in st.session_state:
+                            
+                            # Generate default name from Store URL if available
+                            if selected_app_code and app_info_to_use:
+                                store_url = app_info_to_use.get("storeUrl", "")
+                                platform_str = app_info_to_use.get("platformStr", "android")
+                                if store_url:
+                                    # Map slot_key to slot_type
+                                    slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                    default_name = _generate_slot_name("", platform_str, slot_type, "ironsource", store_url)
+                                    st.session_state[slot_name_key] = default_name
+                                elif slot_name_key not in st.session_state:
+                                    default_name = f"{slot_key.lower()}-1"
+                                    st.session_state[slot_name_key] = default_name
+                            elif slot_name_key not in st.session_state:
                                 default_name = f"{slot_key.lower()}-1"
                                 st.session_state[slot_name_key] = default_name
                             
