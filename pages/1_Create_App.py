@@ -70,7 +70,14 @@ def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, networ
     
     if network == "ironsource":
         # IronSource: os is "aos" for Android, "ios" for iOS
-        os = "aos" if platform_str.lower() in ["android", "aos"] else "ios"
+        # Handle None or empty platform_str
+        if platform_str and isinstance(platform_str, str):
+            platform_lower = platform_str.lower()
+            os = "aos" if platform_lower in ["android", "aos"] else "ios"
+        else:
+            # Default to "aos" if platform_str is None or invalid
+            os = "aos"
+        
         # Map slot_type to ad_type
         ad_type_map = {
             "rv": "rewarded",
@@ -356,6 +363,12 @@ with st.form("create_app_form"):
                             platform = None
                             platform_str = None
                             pkg_name = None
+                            
+                            # For IronSource, extract platform from form_data
+                            if current_network == "ironsource":
+                                platform_value = form_data.get("platform", "Android")
+                                platform_str = "android" if platform_value == "Android" else "ios"
+                                platform = 1 if platform_value == "Android" else 2
                         else:
                             platform = form_data.get("platform", 1)  # 1 = Android, 2 = iOS
                             platform_str = "android" if platform == 1 else "ios"
@@ -652,18 +665,29 @@ else:
                     app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
                     if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
                         app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
+                    # For IronSource, get storeUrl from last_app_info
+                    if current_network == "ironsource":
+                        app_info_to_use["storeUrl"] = last_app_info.get("storeUrl", "")
+                        app_info_to_use["platformStr"] = last_app_info.get("platformStr", "android")
             else:
                 # Try to get from apps list
                 for app in apps:
-                    if app.get("appCode") == selected_app_code:
+                    # For IronSource, check appKey; for others, check appCode
+                    if current_network == "ironsource":
+                        app_identifier = app.get("appKey") or app.get("appCode")
+                    else:
+                        app_identifier = app.get("appCode")
+                    
+                    if app_identifier == selected_app_code:
                         platform_str = app.get("platform", "")
                         app_info_to_use = {
                             "appCode": selected_app_code,
                             "name": app.get("name", "Unknown"),
                             "platform": 1 if platform_str == "Android" else (2 if platform_str == "iOS" else None),
-                            "platformStr": "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "unknown"),
+                            "platformStr": "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "android"),
                             "pkgName": "",
-                            "pkgNameDisplay": app.get("pkgNameDisplay", "") if current_network == "bigoads" else ""
+                            "pkgNameDisplay": app.get("pkgNameDisplay", "") if current_network == "bigoads" else "",
+                            "storeUrl": app.get("storeUrl", "") if current_network == "ironsource" else ""
                         }
                         break
         # Create All 3 Slots button at the top (for BigOAds)
