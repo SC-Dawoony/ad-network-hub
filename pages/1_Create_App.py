@@ -478,7 +478,7 @@ else:
         if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
             app_name = selected_app_display.split("(")[1].split(")")[0]
     
-    # Show UI for slot creation if app code is selected (works for both manual and dropdown selection)
+    # Show UI for slot creation (always show, but require app code selection)
     if selected_app_code:
         st.info(f"**Selected app:** {app_name} ({selected_app_code})")
         
@@ -492,7 +492,7 @@ else:
             if last_app_info and last_app_info.get("appCode") == selected_app_code:
                 app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
         else:
-            # For manual entry, create minimal app info
+            # For manual entry or API apps, create minimal app info
             app_info_to_use = {
                 "appCode": selected_app_code,
                 "name": app_name,
@@ -501,8 +501,27 @@ else:
                 "platformStr": "unknown"
             }
             
-            # Create All 3 Slots button at the top (for BigOAds)
-            if app_info_to_use and current_network == "bigoads":
+            # Try to get platform from apps list
+            for app in apps:
+                if app.get("appCode") == selected_app_code:
+                    platform_str = app.get("platform", "")
+                    if platform_str == "Android":
+                        app_info_to_use["platform"] = 1
+                        app_info_to_use["platformStr"] = "android"
+                    elif platform_str == "iOS":
+                        app_info_to_use["platform"] = 2
+                        app_info_to_use["platformStr"] = "ios"
+                    break
+    else:
+        # Show message if no app code selected
+        st.info("💡 Please select an App Code above to create units.")
+        app_info_to_use = None
+    
+    # Create Unit UI (always show, but require app code selection)
+    # Show Create Unit UI even if app code is not selected (will show message)
+    if True:  # Always show Create Unit UI
+        # Create All 3 Slots button at the top (for BigOAds)
+        if current_network == "bigoads":
                 if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
                     with st.spinner("Creating all 3 slots..."):
                         results = []
@@ -526,154 +545,154 @@ else:
                                 st.error(f"❌ {result['type']} slot failed: {result.get('error', 'Unknown error')}")
                         
                         st.rerun()
-            
-            st.divider()
-            
-            # Value mappings for display
-            AD_TYPE_MAP = {
-                1: "Native",
-                2: "Banner",
-                3: "Interstitial",
-                4: "Reward Video",
-                12: "Splash Ad",
-                20: "Pop Up"
+        
+        st.divider()
+        
+        # Value mappings for display
+        AD_TYPE_MAP = {
+            1: "Native",
+            2: "Banner",
+            3: "Interstitial",
+            4: "Reward Video",
+            12: "Splash Ad",
+            20: "Pop Up"
+        }
+        
+        AUCTION_TYPE_MAP = {
+            1: "Waterfall",
+            2: "Client Bidding",
+            3: "Server Bidding"
+        }
+        
+        MUSIC_SWITCH_MAP = {
+            1: "Sound On",
+            2: "Sound Off"
+        }
+        
+        AUTO_REFRESH_MAP = {
+            1: "Yes",
+            2: "No"
+        }
+        
+        BANNER_SIZE_MAP = {
+            1: "300x250",
+            2: "320x50"
+        }
+        
+        # Reverse maps for getting values from display
+        AD_TYPE_REVERSE = {v: k for k, v in AD_TYPE_MAP.items()}
+        AUCTION_TYPE_REVERSE = {v: k for k, v in AUCTION_TYPE_MAP.items()}
+        MUSIC_SWITCH_REVERSE = {v: k for k, v in MUSIC_SWITCH_MAP.items()}
+        AUTO_REFRESH_REVERSE = {v: k for k, v in AUTO_REFRESH_MAP.items()}
+        BANNER_SIZE_REVERSE = {v: k for k, v in BANNER_SIZE_MAP.items()}
+        
+        # Default slot configurations for BigOAds
+        slot_configs_bigoads = {
+            "RV": {
+                "name": "Reward Video",
+                "adType": 4,
+                "auctionType": 3,
+                "musicSwitch": 1,
+            },
+            "IS": {
+                "name": "Interstitial",
+                "adType": 3,
+                "auctionType": 3,
+                "musicSwitch": 1,
+            },
+            "BN": {
+                "name": "Banner",
+                "adType": 2,
+                "auctionType": 3,
+                "autoRefresh": 2,
+                "bannerSize": 2,
             }
-            
-            AUCTION_TYPE_MAP = {
-                1: "Waterfall",
-                2: "Client Bidding",
-                3: "Server Bidding"
+        }
+        
+        # Default slot configurations for IronSource
+        slot_configs_ironsource = {
+            "RV": {
+                "name": "Reward Video",
+                "adFormat": "rewarded",
+            },
+            "IS": {
+                "name": "Interstitial",
+                "adFormat": "interstitial",
+            },
+            "BN": {
+                "name": "Banner",
+                "adFormat": "banner",
             }
-            
-            MUSIC_SWITCH_MAP = {
-                1: "Sound On",
-                2: "Sound Off"
+        }
+        
+        # Default slot configurations for Pangle
+        slot_configs_pangle = {
+            "RV": {
+                "name": "Rewarded Video",
+                "ad_slot_type": 5,
+                "render_type": 1,
+                "orientation": 1,
+                "reward_is_callback": 0,
+                "reward_name": "Reward",
+                "reward_count": 1,
+            },
+            "IS": {
+                "name": "Interstitial",
+                "ad_slot_type": 6,
+                "render_type": 1,
+                "orientation": 1,
+            },
+            "BN": {
+                "name": "Banner",
+                "ad_slot_type": 2,
+                "render_type": 1,
+                "slide_banner": 1,
+                "width": 640,
+                "height": 100,
             }
-            
-            AUTO_REFRESH_MAP = {
-                1: "Yes",
-                2: "No"
+        }
+        
+        # Default slot configurations for Mintegral
+        slot_configs_mintegral = {
+            "RV": {
+                "name": "Rewarded Video",
+                "ad_type": "rewarded_video",
+                "integrate_type": "sdk",
+                "skip_time": -1,  # Non Skippable
+            },
+            "IS": {
+                "name": "Interstitial",
+                "ad_type": "new_interstitial",
+                "integrate_type": "sdk",
+                "content_type": "both",
+                "ad_space_type": 1,
+                "skip_time": -1,  # Non Skippable
+            },
+            "BN": {
+                "name": "Banner",
+                "ad_type": "banner",
+                "integrate_type": "sdk",
+                "show_close_button": 0,
+                "auto_fresh": 0,
             }
-            
-            BANNER_SIZE_MAP = {
-                1: "300x250",
-                2: "320x50"
-            }
-            
-            # Reverse maps for getting values from display
-            AD_TYPE_REVERSE = {v: k for k, v in AD_TYPE_MAP.items()}
-            AUCTION_TYPE_REVERSE = {v: k for k, v in AUCTION_TYPE_MAP.items()}
-            MUSIC_SWITCH_REVERSE = {v: k for k, v in MUSIC_SWITCH_MAP.items()}
-            AUTO_REFRESH_REVERSE = {v: k for k, v in AUTO_REFRESH_MAP.items()}
-            BANNER_SIZE_REVERSE = {v: k for k, v in BANNER_SIZE_MAP.items()}
-            
-            # Default slot configurations for BigOAds
-            slot_configs_bigoads = {
-                "RV": {
-                    "name": "Reward Video",
-                    "adType": 4,
-                    "auctionType": 3,
-                    "musicSwitch": 1,
-                },
-                "IS": {
-                    "name": "Interstitial",
-                    "adType": 3,
-                    "auctionType": 3,
-                    "musicSwitch": 1,
-                },
-                "BN": {
-                    "name": "Banner",
-                    "adType": 2,
-                    "auctionType": 3,
-                    "autoRefresh": 2,
-                    "bannerSize": 2,
-                }
-            }
-            
-            # Default slot configurations for IronSource
-            slot_configs_ironsource = {
-                "RV": {
-                    "name": "Reward Video",
-                    "adFormat": "rewarded",
-                },
-                "IS": {
-                    "name": "Interstitial",
-                    "adFormat": "interstitial",
-                },
-                "BN": {
-                    "name": "Banner",
-                    "adFormat": "banner",
-                }
-            }
-            
-            # Default slot configurations for Pangle
-            slot_configs_pangle = {
-                "RV": {
-                    "name": "Rewarded Video",
-                    "ad_slot_type": 5,
-                    "render_type": 1,
-                    "orientation": 1,
-                    "reward_is_callback": 0,
-                    "reward_name": "Reward",
-                    "reward_count": 1,
-                },
-                "IS": {
-                    "name": "Interstitial",
-                    "ad_slot_type": 6,
-                    "render_type": 1,
-                    "orientation": 1,
-                },
-                "BN": {
-                    "name": "Banner",
-                    "ad_slot_type": 2,
-                    "render_type": 1,
-                    "slide_banner": 1,
-                    "width": 640,
-                    "height": 100,
-                }
-            }
-            
-            # Default slot configurations for Mintegral
-            slot_configs_mintegral = {
-                "RV": {
-                    "name": "Rewarded Video",
-                    "ad_type": "rewarded_video",
-                    "integrate_type": "sdk",
-                    "skip_time": -1,  # Non Skippable
-                },
-                "IS": {
-                    "name": "Interstitial",
-                    "ad_type": "new_interstitial",
-                    "integrate_type": "sdk",
-                    "content_type": "both",
-                    "ad_space_type": 1,
-                    "skip_time": -1,  # Non Skippable
-                },
-                "BN": {
-                    "name": "Banner",
-                    "ad_type": "banner",
-                    "integrate_type": "sdk",
-                    "show_close_button": 0,
-                    "auto_fresh": 0,
-                }
-            }
-            
-            # Select configs based on network
-            if current_network == "ironsource":
-                slot_configs = slot_configs_ironsource
-            elif current_network == "pangle":
-                slot_configs = slot_configs_pangle
-            elif current_network == "mintegral":
-                slot_configs = slot_configs_mintegral
-            else:
-                slot_configs = slot_configs_bigoads
-            
-            # Create 3 columns for RV, IS, BN
-            col1, col2, col3 = st.columns(3)
-            
-            for idx, (slot_key, slot_config) in enumerate(slot_configs.items()):
-                with [col1, col2, col3][idx]:
-                    with st.container():
+        }
+        
+        # Select configs based on network
+        if current_network == "ironsource":
+            slot_configs = slot_configs_ironsource
+        elif current_network == "pangle":
+            slot_configs = slot_configs_pangle
+        elif current_network == "mintegral":
+            slot_configs = slot_configs_mintegral
+        else:
+            slot_configs = slot_configs_bigoads
+        
+        # Create 3 columns for RV, IS, BN
+        col1, col2, col3 = st.columns(3)
+        
+        for idx, (slot_key, slot_config) in enumerate(slot_configs.items()):
+            with [col1, col2, col3][idx]:
+                with st.container():
                         st.markdown(f"### 🎯 {slot_key} ({slot_config['name']})")
                         
                         if current_network == "ironsource":
