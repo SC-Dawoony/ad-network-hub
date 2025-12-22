@@ -1,10 +1,13 @@
 """Create App/Media and Unit page"""
 import streamlit as st
+import logging
 from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
 from utils.network_manager import get_network_manager, handle_api_response
 from utils.validators import validate_app_name, validate_package_name, validate_url, validate_slot_name
 from network_configs import get_network_config, get_network_display_names
+
+logger = logging.getLogger(__name__)
 
 
 # Helper functions for Create Unit
@@ -446,7 +449,7 @@ else:
                     api_apps = api_apps[:3]
                     st.success(f"✅ Loaded {len(api_apps)} apps from API")
         except Exception as e:
-            st.warning(f"⚠️ Failed to load apps from API: {str(e)}")
+            logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
     # Merge cached apps with API apps (prioritize cached, but add unique API apps)
