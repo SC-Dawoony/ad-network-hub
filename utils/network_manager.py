@@ -1051,7 +1051,16 @@ class MockNetworkManager:
             "Content-Type": "application/json"
         }
         
-        # Log request
+        # Print to console for debugging
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("🟢 [Mintegral] ========== CREATE APP REQUEST ==========", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        print(f"[Mintegral] URL: {url}", file=sys.stderr)
+        print(f"[Mintegral] Headers: {json.dumps(headers, indent=2)}", file=sys.stderr)
+        print(f"[Mintegral] Request Body (full): {json.dumps(request_params, indent=2, ensure_ascii=False)}", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        
+        # Also log via logger
         logger.info(f"[Mintegral] API Request: POST {url}")
         logger.info(f"[Mintegral] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
         logger.info(f"[Mintegral] Request Body: {json.dumps(_mask_sensitive_data(request_params), indent=2)}")
@@ -1065,20 +1074,49 @@ class MockNetworkManager:
             
             result = response.json()
             
+            # Print to console for debugging
+            print("\n" + "=" * 80, file=sys.stderr)
+            print("🟢 [Mintegral] ========== CREATE APP RESPONSE ==========", file=sys.stderr)
+            print("=" * 80, file=sys.stderr)
+            print(f"[Mintegral] Response Status: {response.status_code}", file=sys.stderr)
+            print(f"[Mintegral] Response Body: {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
+            
+            # Also log via logger
+            logger.info(f"[Mintegral] Response Status: {response.status_code}")
             logger.info(f"[Mintegral] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
             
-            # Mintegral API response format 확인 필요
-            # 일반적으로 성공 시 code가 200 또는 0일 수 있음
-            if result.get("code") == 200 or result.get("code") == 0 or response.status_code == 200:
+            # Mintegral API response format: Check result.code inside result object
+            # Response structure: {"status": 0, "code": 0, "msg": "Success", "result": {"code": -2004, "msg": "..."}}
+            result_data = result.get("result", {})
+            result_code = result_data.get("code") if isinstance(result_data, dict) else None
+            
+            # Check if result contains an error code
+            if result_code is not None and result_code != 0 and result_code != 200:
+                error_msg = result_data.get("msg") or result.get("msg") or "Unknown error"
+                print(f"[Mintegral] ❌ Error in result: code={result_code}, msg={error_msg}", file=sys.stderr)
+                logger.error(f"[Mintegral] Error in result: code={result_code}, msg={error_msg}")
+                return {
+                    "status": 1,
+                    "code": result_code,
+                    "msg": error_msg
+                }
+            
+            # Check top-level code
+            top_level_code = result.get("code")
+            if top_level_code == 200 or top_level_code == 0 or response.status_code == 200:
+                print(f"[Mintegral] ✅ Success", file=sys.stderr)
+                logger.info(f"[Mintegral] ✅ Success")
                 return {
                     "status": 0,
                     "code": 0,
-                    "msg": "Success",
-                    "result": result.get("data", result)
+                    "msg": result.get("msg", "Success"),
+                    "result": result.get("result", result.get("data", result))
                 }
             else:
                 error_msg = result.get("message") or result.get("msg") or "Unknown error"
-                error_code = result.get("code") or "N/A"
+                error_code = top_level_code or "N/A"
+                print(f"[Mintegral] ❌ Error: {error_code} - {error_msg}", file=sys.stderr)
+                logger.error(f"[Mintegral] ❌ Error: {error_code} - {error_msg}")
                 return {
                     "status": 1,
                     "code": error_code,
@@ -1097,6 +1135,127 @@ class MockNetworkManager:
                 "code": "API_ERROR",
                 "msg": str(e)
             }
+    
+    def _get_mintegral_apps(self) -> List[Dict]:
+        """Get media list from Mintegral API
+        
+        API: POST https://dev.mintegral.com/v2/app/open_api_list
+        """
+        url = "https://dev.mintegral.com/v2/app/open_api_list"
+        
+        # Mintegral API 인증: SKEY와 SECRET 필요
+        skey = _get_env_var("MINTEGRAL_SKEY")
+        secret = _get_env_var("MINTEGRAL_SECRET")
+        
+        if not skey or not secret:
+            logger.error("[Mintegral] MINTEGRAL_SKEY or MINTEGRAL_SECRET not found")
+            return []
+        
+        # Generate timestamp and signature
+        timestamp = int(time.time())
+        signature = self._generate_mintegral_signature(secret, timestamp)
+        
+        # Build request payload
+        request_params = {
+            "skey": skey,
+            "timestamp": timestamp,
+            "sign": signature
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Print to console for debugging
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("🟢 [Mintegral] ========== GET MEDIA LIST REQUEST ==========", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        print(f"[Mintegral] URL: {url}", file=sys.stderr)
+        print(f"[Mintegral] Headers: {json.dumps(headers, indent=2)}", file=sys.stderr)
+        print(f"[Mintegral] Request Body: {json.dumps(request_params, indent=2, ensure_ascii=False)}", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        
+        # Also log via logger
+        logger.info(f"[Mintegral] API Request: POST {url}")
+        logger.info(f"[Mintegral] Request Headers: {json.dumps(headers, indent=2)}")
+        logger.info(f"[Mintegral] Request Body: {json.dumps(_mask_sensitive_data(request_params), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=request_params, headers=headers, timeout=30)
+            
+            print(f"[Mintegral] Response Status: {response.status_code}", file=sys.stderr)
+            logger.info(f"[Mintegral] Response Status: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Print to console
+            print(f"[Mintegral] Response Body: {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
+            logger.info(f"[Mintegral] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            
+            # Check for errors in result
+            result_data = result.get("result", {})
+            result_code = result_data.get("code") if isinstance(result_data, dict) else None
+            
+            if result_code is not None and result_code != 0 and result_code != 200:
+                error_msg = result_data.get("msg") or result.get("msg") or "Unknown error"
+                print(f"[Mintegral] ❌ Error in result: code={result_code}, msg={error_msg}", file=sys.stderr)
+                logger.error(f"[Mintegral] Error in result: code={result_code}, msg={error_msg}")
+                return []
+            
+            # Check top-level code
+            top_level_code = result.get("code")
+            if top_level_code != 0 and top_level_code != 200:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                print(f"[Mintegral] ❌ Error: code={top_level_code}, msg={error_msg}", file=sys.stderr)
+                logger.error(f"[Mintegral] Error: code={top_level_code}, msg={error_msg}")
+                return []
+            
+            # Parse response - Mintegral API response format may vary
+            apps_data = result.get("data") or result.get("result") or result.get("list") or []
+            
+            if not isinstance(apps_data, list):
+                if isinstance(apps_data, dict):
+                    apps_data = apps_data.get("list", [])
+                else:
+                    apps_data = []
+            
+            # Format apps to standard format
+            formatted_apps = []
+            for app in apps_data:
+                if isinstance(app, dict):
+                    formatted_apps.append({
+                        "appCode": str(app.get("app_id", app.get("id", "N/A"))),
+                        "app_id": app.get("app_id", app.get("id")),
+                        "name": app.get("app_name", app.get("name", "Unknown")),
+                        "platform": app.get("os", "N/A"),
+                        "pkgName": app.get("package", app.get("pkg_name", "")),
+                    })
+            
+            print(f"[Mintegral] ✅ Successfully loaded {len(formatted_apps)} apps from API", file=sys.stderr)
+            logger.info(f"[Mintegral] Successfully loaded {len(formatted_apps)} apps from API")
+            
+            return formatted_apps
+            
+        except requests.exceptions.RequestException as e:
+            print(f"[Mintegral] ❌ API Error (Get Apps): {str(e)}", file=sys.stderr)
+            logger.error(f"[Mintegral] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    print(f"[Mintegral] Error Response: {json.dumps(error_body, indent=2, ensure_ascii=False)}", file=sys.stderr)
+                    logger.error(f"[Mintegral] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    print(f"[Mintegral] Error Response (text): {e.response.text[:500]}", file=sys.stderr)
+                    logger.error(f"[Mintegral] Error Response (text): {e.response.text[:500]}")
+            return []
+        except Exception as e:
+            print(f"[Mintegral] ❌ Unexpected Error (Get Apps): {str(e)}", file=sys.stderr)
+            logger.error(f"[Mintegral] Unexpected Error (Get Apps): {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
     
     def _create_mintegral_unit(self, payload: Dict) -> Dict:
         """Create ad placement (unit) via Mintegral API"""
@@ -1759,6 +1918,8 @@ class MockNetworkManager:
             return self._get_bigoads_apps()
         elif network == "ironsource":
             return self._get_ironsource_apps(app_key=app_key)
+        elif network == "mintegral":
+            return self._get_mintegral_apps()
         
         # Mock implementation for other networks
         return [

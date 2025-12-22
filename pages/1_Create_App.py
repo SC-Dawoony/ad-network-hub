@@ -261,14 +261,34 @@ with st.form("create_app_form"):
             form_data["role_id"] = existing_data["role_id"]
     
     # Form buttons
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         reset_button = st.form_submit_button("🔄 Reset", use_container_width=True)
     with col2:
         submit_button = st.form_submit_button("✅ Create App", use_container_width=True)
+    with col3:
+        # Test Media List API button for Mintegral
+        if current_network == "mintegral":
+            test_api_button = st.form_submit_button("🔍 Test Media List API", use_container_width=True, help="Test Mintegral Media List API to check permissions")
+        else:
+            test_api_button = False
     
     if reset_button:
         st.rerun()
+    
+    # Test Media List API for Mintegral
+    if test_api_button and current_network == "mintegral":
+        with st.spinner("Testing Mintegral Media List API..."):
+            try:
+                apps = network_manager.get_apps(current_network)
+                if apps:
+                    st.success(f"✅ Media List API 호출 성공! {len(apps)}개의 앱을 찾았습니다.")
+                    st.json(apps[:3])  # 최대 3개만 표시
+                else:
+                    st.warning("⚠️ Media List API 호출은 성공했지만 앱이 없습니다. 터미널 로그를 확인하세요.")
+            except Exception as e:
+                st.error(f"❌ Media List API 호출 실패: {str(e)}")
+                st.info("💡 터미널 로그를 확인하여 자세한 에러 정보를 확인하세요.")
     
     if submit_button:
         # Validate form data
