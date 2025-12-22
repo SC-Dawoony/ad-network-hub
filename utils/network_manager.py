@@ -549,21 +549,34 @@ class MockNetworkManager:
                 request_params["sign"] = sign
                 logger.info(f"[Pangle] Regenerated: timestamp={timestamp}, nonce={nonce}, sign={sign[:20]}...")
             
-            # Log actual JSON being sent (for debugging)
-            logger.info(f"[Pangle] ========== FINAL REQUEST BEING SENT ==========")
-            logger.info(f"[Pangle] URL: {url}")
-            logger.info(f"[Pangle] Headers: {json.dumps(headers, indent=2)}")
-            logger.info(f"[Pangle] Request Body (full):")
+            # Log actual JSON being sent (for debugging) - Print to console
+            print("=" * 60, file=sys.stderr)
+            print("[Pangle] ========== CREATE APP REQUEST ==========", file=sys.stderr)
+            print(f"[Pangle] URL: {url}", file=sys.stderr)
+            print(f"[Pangle] Headers: {json.dumps(headers, indent=2)}", file=sys.stderr)
+            print(f"[Pangle] Request Body (full):", file=sys.stderr)
             # Create a copy for logging (mask sensitive data)
             log_params = request_params.copy()
             if "sign" in log_params:
                 log_params["sign"] = f"{log_params['sign'][:20]}... (masked, full length: {len(log_params['sign'])})"
+            print(f"[Pangle] {json.dumps(log_params, indent=2, ensure_ascii=False)}", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+            
+            # Also log via logger
+            logger.info(f"[Pangle] ========== FINAL REQUEST BEING SENT ==========")
+            logger.info(f"[Pangle] URL: {url}")
+            logger.info(f"[Pangle] Headers: {json.dumps(headers, indent=2)}")
+            logger.info(f"[Pangle] Request Body (full):")
             logger.info(f"[Pangle] {json.dumps(log_params, indent=2, ensure_ascii=False)}")
             logger.info(f"[Pangle] ===============================================")
             
             response = requests.post(url, json=request_params, headers=headers, timeout=30)
             
-            # Log response status
+            # Log response status - Print to console
+            print(f"[Pangle] Response Status: {response.status_code}", file=sys.stderr)
+            print(f"[Pangle] Response Headers: {dict(response.headers)}", file=sys.stderr)
+            
+            # Also log via logger
             logger.info(f"[Pangle] Response Status: {response.status_code}")
             logger.info(f"[Pangle] Response Headers: {dict(response.headers)}")
             
@@ -571,21 +584,76 @@ class MockNetworkManager:
             
             result = response.json()
             
-            # Log response
+            # Log response - Print to console
+            print(f"[Pangle] Response Body: {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
+            
+            # Also log via logger
             logger.info(f"[Pangle] Response Body: {json.dumps(result, indent=2, ensure_ascii=False)}")
             
-            # If OAuth validation failure, log more details
-            if result.get("code") == 50003 and "oauth validation failure" in str(result.get("msg", "")).lower():
-                logger.error(f"[Pangle] OAuth Validation Failure Details:")
-                logger.error(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}")
-                logger.error(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}")
-                logger.error(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}")
-                logger.error(f"[Pangle]   - Signature: {sign}")
-                logger.error(f"[Pangle]   - Request URL: {url}")
-                logger.error(f"[Pangle]   - Please verify:")
-                logger.error(f"[Pangle]     1. Security Key is correct in .env or Streamlit secrets")
-                logger.error(f"[Pangle]     2. User ID and Role ID are correct")
-                logger.error(f"[Pangle]     3. Signature generation matches guide (alphabetical sort + SHA1)")
+            # If error, log more details
+            error_code = result.get("code") or result.get("ret_code")
+            error_msg = result.get("msg") or result.get("message") or "Unknown error"
+            
+            if error_code != 0 and error_code is not None:
+                print(f"[Pangle] ❌ Error: {error_code} - {error_msg}", file=sys.stderr)
+                print(f"[Pangle] Full error response: {json.dumps(result, indent=2, ensure_ascii=False)}", file=sys.stderr)
+                
+                # Parse 50003 error to extract internal_code and internal_message
+                if error_code == 50003:
+                    import re
+                    # Parse "Internal code:[50001], internal message:[API System error]"
+                    internal_code_match = re.search(r'Internal code:\[(\d+)\]', str(error_msg))
+                    internal_msg_match = re.search(r'internal message:\[([^\]]+)\]', str(error_msg))
+                    
+                    if internal_code_match:
+                        internal_code = internal_code_match.group(1)
+                        internal_message = internal_msg_match.group(1) if internal_msg_match else "Unknown internal error"
+                        
+                        print(f"[Pangle] ⚠️  Internal Error Details:", file=sys.stderr)
+                        print(f"[Pangle]   - Internal Code: {internal_code}", file=sys.stderr)
+                        print(f"[Pangle]   - Internal Message: {internal_message}", file=sys.stderr)
+                        print(f"[Pangle]   - Note: 50003 indicates an error occurred when API server calls its subordinate HTTP services", file=sys.stderr)
+                        print(f"[Pangle]   - Refer to section 5.1.3 Internal Code List for details about code {internal_code}", file=sys.stderr)
+                        
+                        logger.error(f"[Pangle] Internal Error Details:")
+                        logger.error(f"[Pangle]   - Internal Code: {internal_code}")
+                        logger.error(f"[Pangle]   - Internal Message: {internal_message}")
+                        
+                        # Handle specific internal codes
+                        if internal_code == "50001":
+                            print(f"[Pangle]   - Internal Code 50001: API System error", file=sys.stderr)
+                            print(f"[Pangle]   - This may indicate server-side issue or invalid request parameters", file=sys.stderr)
+                            print(f"[Pangle]   - Check request parameters above", file=sys.stderr)
+                            logger.error(f"[Pangle]   - Internal Code 50001: API System error")
+                            logger.error(f"[Pangle]   - This may indicate server-side issue or invalid request parameters")
+                        elif internal_code == "41001":
+                            print(f"[Pangle]   - Internal Code 41001: OAuth validation failure", file=sys.stderr)
+                            print(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}", file=sys.stderr)
+                            print(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}", file=sys.stderr)
+                            print(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}", file=sys.stderr)
+                            print(f"[Pangle]   - Signature: {sign}", file=sys.stderr)
+                            print(f"[Pangle]   - Request URL: {url}", file=sys.stderr)
+                            logger.error(f"[Pangle]   - Internal Code 41001: OAuth validation failure")
+                            logger.error(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}")
+                            logger.error(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}")
+                            logger.error(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}")
+                            logger.error(f"[Pangle]   - Signature: {sign}")
+                            logger.error(f"[Pangle]   - Request URL: {url}")
+                
+                # Legacy check for OAuth validation failure (direct in error_msg)
+                elif error_code == 50003 and "oauth validation failure" in str(error_msg).lower():
+                    print(f"[Pangle] OAuth Validation Failure Details:", file=sys.stderr)
+                    print(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}", file=sys.stderr)
+                    print(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}", file=sys.stderr)
+                    print(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}", file=sys.stderr)
+                    print(f"[Pangle]   - Signature: {sign}", file=sys.stderr)
+                    print(f"[Pangle]   - Request URL: {url}", file=sys.stderr)
+                    logger.error(f"[Pangle] OAuth Validation Failure Details:")
+                    logger.error(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}")
+                    logger.error(f"[Pangle]   - User ID: {user_id_int}, Role ID: {role_id_int}")
+                    logger.error(f"[Pangle]   - Timestamp: {timestamp}, Nonce: {nonce}")
+                    logger.error(f"[Pangle]   - Signature: {sign}")
+                    logger.error(f"[Pangle]   - Request URL: {url}")
             
             # Pangle API response format may vary, normalize it
             if result.get("code") == 0 or result.get("ret_code") == 0:
@@ -598,6 +666,19 @@ class MockNetworkManager:
             else:
                 error_msg = result.get("message") or result.get("msg") or "Unknown error"
                 error_code = result.get("code") or result.get("ret_code") or "N/A"
+                
+                # Extract internal_code from 50003 error messages for better error reporting
+                if error_code == 50003:
+                    import re
+                    internal_code_match = re.search(r'Internal code:\[(\d+)\]', str(error_msg))
+                    internal_msg_match = re.search(r'internal message:\[([^\]]+)\]', str(error_msg))
+                    
+                    if internal_code_match:
+                        internal_code = internal_code_match.group(1)
+                        internal_message = internal_msg_match.group(1) if internal_msg_match else "Unknown internal error"
+                        # Include internal_code in the error message for user visibility
+                        error_msg = f"{error_msg} (Internal Code: {internal_code})"
+                
                 return {
                     "status": 1,
                     "code": error_code,
