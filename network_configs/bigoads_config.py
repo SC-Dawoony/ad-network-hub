@@ -14,27 +14,30 @@ class BigOAdsConfig(NetworkConfig):
     def display_name(self) -> str:
         return "BigOAds"
     
-    def _get_categories(self) -> List[Tuple[str, int]]:
-        """Get category options"""
+    def _get_categories(self) -> List[Tuple[str, str]]:
+        """Get category options from BigOAds API
+        
+        Returns: List of (display_name, api_code) tuples
+        Display name is the part before parentheses (e.g., "Casino" from "Casino / 赌场")
+        """
         return [
-            ("Action", 1),
-            ("Adventure", 2),
-            ("Arcade", 3),
-            ("Board", 4),
-            ("Card", 5),
-            ("Casino", 6),
-            ("Casual", 7),
-            ("Educational", 8),
-            ("Music", 9),
-            ("Puzzle", 10),
-            ("Racing", 11),
-            ("Role Playing", 12),
-            ("Simulation", 13),
-            ("Sports", 14),
-            ("Strategy", 15),
-            ("Trivia", 16),
-            ("Word", 17),
-            ("Other", 18),
+            ("Casino", "GAME_CASINO"),
+            ("Sports", "GAME_SPORTS"),
+            ("Educational", "GAME_EDUCATIONAL"),
+            ("Music", "GAME_MUSIC"),
+            ("Simulation", "GAME_SIMULATION"),
+            ("Role playing", "GAME_ROLE_PLAYING"),
+            ("Action", "GAME_ACTION"),
+            ("Adventure", "GAME_ADVENTURE"),
+            ("Racing", "GAME_RACING"),
+            ("Strategy", "GAME_STRATEGY"),
+            ("Card", "GAME_CARD"),
+            ("Board", "GAME_BOARD"),
+            ("Trivia", "GAME_TRIVIA"),
+            ("Word", "GAME_WORD"),
+            ("Puzzle", "GAME_PUZZLE"),
+            ("Arcade", "GAME_ARCADE"),
+            ("Casual", "GAME_CASUAL"),
         ]
     
     def _get_mediation_platforms(self) -> List[Tuple[str, int]]:
@@ -164,7 +167,7 @@ class BigOAdsConfig(NetworkConfig):
                 required=True,
                 label="Category",
                 options=self._get_categories(),
-                default=7  # Casual
+                default="GAME_CASUAL"  # Default: Casual
             ),
             # 9. coppaOption*
             Field(
@@ -454,38 +457,32 @@ class BigOAdsConfig(NetworkConfig):
     def build_app_payload(self, form_data: Dict) -> Dict:
         """Build API payload for app creation
         
-        API Parameters:
-        - name: string, Yes
-        - mediaType: int, Yes (항상 1:application)
-        - platform: int, Yes (1:Android, 2:iOS)
-        - pkgName: string, Yes
-        - itunesId: int, iOS app required
-        - storeUrl: string, No
-        - mediationPlatform: int[], Yes (배열)
-        - mediationPlatformName: string, No (required when mediationPlatform includes 99)
-        - category: string, Yes (value from API /open/app/dict/category)
-        - coppaOption: int, Yes (1=no, 2=yes)
-        - screenDirection: int, Yes (0:Vertical, 1:Horizontal)
-        """
-        # Ensure mediationPlatform is a list
-        mediation_platform = form_data.get("mediationPlatform", [])
-        if not isinstance(mediation_platform, list):
-            mediation_platform = [mediation_platform] if mediation_platform is not None else []
+        Based on API documentation example:
+        {
+            "name": "t-open-app-111",
+            "platform": 1,
+            "pkgName": "t-open-app-111-pkg",
+            "category": "GAME_PUZZLE",
+            "coppaOption": 1,
+            "screenDirection": 0
+        }
         
+        Note: mediationPlatform and mediaType are optional based on API example
+        """
+        # Category is already in API code format (e.g., "GAME_CASUAL")
+        category_code = form_data.get("category")
+        
+        # Build base payload (required fields only based on API example)
         payload = {
             "name": form_data.get("name"),
             "pkgName": form_data.get("pkgName"),
             "platform": int(form_data.get("platform")),
-            "mediaType": 1,  # 항상 1 (Application)
-            "category": str(form_data.get("category")),  # API 문서에 따르면 string
-            "mediationPlatform": mediation_platform,  # int[] 배열
+            "category": category_code,  # API expects string code like "GAME_PUZZLE"
             "coppaOption": int(form_data.get("coppaOption")),
             "screenDirection": int(form_data.get("screenDirection")),
         }
         
-        # Remove None values to avoid sending null
-        payload = {k: v for k, v in payload.items() if v is not None}
-        
+        # Optional fields
         if form_data.get("storeUrl"):
             payload["storeUrl"] = form_data.get("storeUrl")
         
@@ -498,9 +495,25 @@ class BigOAdsConfig(NetworkConfig):
                 # If conversion fails, still include it (validation should catch this)
                 payload["itunesId"] = itunes_id
         
-        # mediationPlatform에 99(others)가 포함되어 있으면 mediationPlatformName 필수
-        if 99 in mediation_platform and form_data.get("mediationPlatformName"):
-            payload["mediationPlatformName"] = form_data.get("mediationPlatformName")
+        # mediationPlatform is optional (not in API example)
+        mediation_platform = form_data.get("mediationPlatform", [])
+        if mediation_platform:
+            if not isinstance(mediation_platform, list):
+                mediation_platform = [mediation_platform] if mediation_platform is not None else []
+            if mediation_platform:  # Only include if not empty
+                payload["mediationPlatform"] = mediation_platform
+                
+                # mediationPlatform에 99(others)가 포함되어 있으면 mediationPlatformName 필수
+                if 99 in mediation_platform and form_data.get("mediationPlatformName"):
+                    payload["mediationPlatformName"] = form_data.get("mediationPlatformName")
+        
+        # mediaType is optional (not in API example, but might be required)
+        # Include it if explicitly provided, otherwise omit
+        if form_data.get("mediaType") is not None:
+            payload["mediaType"] = int(form_data.get("mediaType"))
+        
+        # Remove None values to avoid sending null
+        payload = {k: v for k, v in payload.items() if v is not None}
         
         return payload
     
