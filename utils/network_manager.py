@@ -1160,20 +1160,36 @@ class MockNetworkManager:
             "X-BIGO-Sign": sign
         }
         
+        logger.info(f"[BigOAds] ========== CREATE UNIT REQUEST ==========")
         logger.info(f"[BigOAds] API Request: POST {url}")
-        logger.info(f"[BigOAds] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
-        logger.info(f"[BigOAds] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        # Log headers (mask sensitive data)
+        masked_headers = _mask_sensitive_data(headers.copy())
+        logger.info(f"[BigOAds] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        
+        # Log payload WITHOUT masking for debugging (no sensitive data in unit payload)
+        logger.info(f"[BigOAds] Request Payload (full): {json.dumps(payload, indent=2, ensure_ascii=False)}")
+        logger.info(f"[BigOAds] Payload keys: {list(payload.keys())}")
+        logger.info(f"[BigOAds] Payload values: {list(payload.values())}")
         
         try:
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
             
-            result = response.json()
             logger.info(f"[BigOAds] Response Status: {response.status_code}")
-            logger.info(f"[BigOAds] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            logger.info(f"[BigOAds] Response Headers: {dict(response.headers)}")
+            
+            # Try to parse JSON response
+            try:
+                result = response.json()
+                logger.info(f"[BigOAds] Response Body (JSON): {json.dumps(result, indent=2, ensure_ascii=False)}")
+            except ValueError:
+                # If not JSON, log as text
+                logger.info(f"[BigOAds] Response Body (text): {response.text[:500]}")
+                result = {"status": 1, "code": "PARSE_ERROR", "msg": f"Non-JSON response: {response.text[:200]}"}
             
             # BigOAds API 응답 형식에 맞게 정규화
             if result.get("code") == 0 or result.get("status") == 0:
+                logger.info(f"[BigOAds] ✅ Success: {result.get('msg', 'Success')}")
                 return {
                     "status": 0,
                     "code": 0,
@@ -1183,23 +1199,34 @@ class MockNetworkManager:
             else:
                 error_msg = result.get("msg") or result.get("message") or "Unknown error"
                 error_code = result.get("code") or result.get("status") or "N/A"
+                logger.error(f"[BigOAds] ❌ Error: {error_code} - {error_msg}")
+                logger.error(f"[BigOAds] Full error response: {json.dumps(result, indent=2, ensure_ascii=False)}")
                 return {
                     "status": 1,
                     "code": error_code,
                     "msg": error_msg
                 }
         except requests.exceptions.RequestException as e:
-            logger.error(f"[BigOAds] API Error (Create Unit): {str(e)}")
+            logger.error(f"[BigOAds] ❌ API Error (Create Unit): {str(e)}")
+            logger.error(f"[BigOAds] Error type: {type(e).__name__}")
+            
             if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"[BigOAds] Response Status: {e.response.status_code}")
+                logger.error(f"[BigOAds] Response Headers: {dict(e.response.headers)}")
                 try:
                     error_body = e.response.json()
-                    logger.error(f"[BigOAds] Error Response: {json.dumps(error_body, indent=2)}")
+                    logger.error(f"[BigOAds] Error Response (JSON): {json.dumps(error_body, indent=2, ensure_ascii=False)}")
                 except:
-                    logger.error(f"[BigOAds] Error Response (text): {e.response.text}")
+                    error_text = e.response.text
+                    logger.error(f"[BigOAds] Error Response (text, first 500 chars): {error_text[:500]}")
+            else:
+                logger.error(f"[BigOAds] No response object available")
+            
+            logger.error(f"[BigOAds] ===============================================")
             return {
                 "status": 1,
                 "code": "API_ERROR",
-                "msg": str(e)
+                "msg": f"Error creating unit: {str(e)}"
             }
     
     def _create_pangle_unit(self, payload: Dict) -> Dict:

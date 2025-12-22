@@ -133,12 +133,12 @@ def _create_default_slot(network: str, app_info: dict, slot_type: str, network_m
             "musicSwitch": 1
         })
     elif slot_type == "bn":
-        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2, bannerSize = 2
+        # Banner: adType = 2, auctionType = 3, autoRefresh = 2, bannerSize = 2
         payload.update({
             "adType": 2,
             "auctionType": 3,
             "autoRefresh": 2,
-            "bannerSize": 2
+            "bannerSize": 2  # Numeric value (1 or 2) for API
         })
     
     # Make API call
@@ -1609,7 +1609,7 @@ else:
                                 
                                 if slot_key == "BN":
                                     payload["autoRefresh"] = slot_config['autoRefresh']
-                                    payload["bannerSize"] = slot_config['bannerSize']  # Already numeric (1 or 2)
+                                    payload["bannerSize"] = slot_config['bannerSize']  # Numeric value (1 or 2) for API
                                 else:
                                     payload["musicSwitch"] = slot_config['musicSwitch']
                                 
