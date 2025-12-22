@@ -114,44 +114,116 @@ class MockNetworkManager:
         logger.info(f"[{network.title()}] Response (Mock): {json.dumps(mock_response, indent=2)}")
         return mock_response
     
+    def _is_token_expired(self, token: str) -> bool:
+        """Check if JWT token is expired by parsing exp claim"""
+        try:
+            import base64
+            import json
+            
+            # JWT format: header.payload.signature
+            parts = token.split('.')
+            if len(parts) != 3:
+                return True  # Invalid token format, consider expired
+            
+            # Decode payload (second part)
+            payload = parts[1]
+            # Add padding if needed
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += '=' * padding
+            
+            decoded = base64.urlsafe_b64decode(payload)
+            claims = json.loads(decoded)
+            
+            # Check exp claim
+            exp = claims.get('exp')
+            if exp:
+                import time
+                current_time = int(time.time())
+                # Consider expired if less than 5 minutes remaining (buffer)
+                return exp < (current_time + 300)
+            
+            return True  # No exp claim, consider expired
+        except Exception as e:
+            logger.warning(f"[IronSource] Error checking token expiration: {str(e)}")
+            return True  # On error, consider expired to be safe
+    
     def _get_ironsource_token(self) -> Optional[str]:
-        """Get IronSource bearer token, refreshing if needed"""
-        # Try bearer token first
-        bearer_token = _get_env_var("IRONSOURCE_BEARER_TOKEN") or _get_env_var("IRONSOURCE_API_TOKEN")
-        if bearer_token:
-            return bearer_token
+        """Get IronSource bearer token - always fetch fresh token for safety
         
-        # If no bearer token, try to get from refresh token
+        Always uses IRONSOURCE_SECRET_KEY and IRONSOURCE_REFRESH_TOKEN to get a new token.
+        This ensures we always have a valid, non-expired token.
+        """
+        # Always get fresh token using secret key and refresh token
         refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
         secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
         
-        if refresh_token and secret_key:
-            # Try to refresh the token
-            new_token = self._refresh_ironsource_token(refresh_token, secret_key)
-            if new_token:
-                return new_token
+        if not refresh_token or not secret_key:
+            logger.error("[IronSource] IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY are required")
+            return None
         
-        return None
+        # Always fetch a new token for safety
+        logger.info("[IronSource] Fetching fresh bearer token...")
+        new_token = self._refresh_ironsource_token(refresh_token, secret_key)
+        
+        if new_token:
+            logger.info("[IronSource] Successfully obtained fresh bearer token")
+            return new_token
+        else:
+            logger.error("[IronSource] Failed to obtain bearer token")
+            return None
     
     def _refresh_ironsource_token(self, refresh_token: str, secret_key: str) -> Optional[str]:
-        """Refresh IronSource bearer token using refresh token"""
-        # IronSource token refresh endpoint (if available)
-        # Note: This may vary depending on IronSource API version
+        """Get IronSource bearer token using refresh token and secret key
+        
+        API: GET https://platform.ironsrc.com/partners/publisher/auth
+        Headers:
+            secretkey: IRONSOURCE_SECRET_KEY value
+            refreshToken: IRONSOURCE_REFRESH_TOKEN value
+        Response: Bearer Token (JWT string, 24 hours valid)
+        """
         try:
-            url = "https://platform.ironsrc.com/partners/publisher/auth/refresh"
+            url = "https://platform.ironsrc.com/partners/publisher/auth"
             headers = {
-                "Content-Type": "application/json"
+                "secretkey": secret_key,
+                "refreshToken": refresh_token
             }
-            payload = {
-                "refreshToken": refresh_token,
-                "secretKey": secret_key
-            }
-            response = requests.post(url, json=payload, headers=headers)
+            
+            logger.info(f"[IronSource] Attempting to get bearer token...")
+            logger.info(f"[IronSource] Token URL: GET {url}")
+            logger.info(f"[IronSource] Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+            
+            response = requests.get(url, headers=headers)
+            
+            logger.info(f"[IronSource] Token response status: {response.status_code}")
+            
             response.raise_for_status()
-            result = response.json()
-            return result.get("accessToken") or result.get("bearerToken")
-        except Exception:
-            # If refresh fails, return None
+            
+            # Response is the bearer token directly (JWT string)
+            bearer_token = response.text.strip()
+            
+            # Remove quotes if present
+            if bearer_token.startswith('"') and bearer_token.endswith('"'):
+                bearer_token = bearer_token[1:-1]
+            
+            if bearer_token:
+                logger.info("[IronSource] Bearer token obtained successfully")
+                logger.info(f"[IronSource] Token (first 20 chars): {bearer_token[:20]}...")
+            else:
+                logger.error("[IronSource] Empty bearer token in response")
+            
+            return bearer_token
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[IronSource] Token refresh failed: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[IronSource] Token error response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[IronSource] Token error response (text): {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"[IronSource] Token refresh exception: {str(e)}")
             return None
     
     def _generate_pangle_signature(self, security_key: str, timestamp: int, nonce: int) -> str:
@@ -310,6 +382,27 @@ class MockNetworkManager:
             
             # Log response status
             logger.info(f"[IronSource] Response Status: {response.status_code}")
+            
+            # Check for 401 Unauthorized - token might be expired
+            if response.status_code == 401:
+                logger.warning("[IronSource] Received 401 Unauthorized. Token may be expired. Attempting to refresh...")
+                
+                # Try to refresh token
+                refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
+                secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
+                
+                if refresh_token and secret_key:
+                    new_token = self._refresh_ironsource_token(refresh_token, secret_key)
+                    if new_token:
+                        # Retry request with new token
+                        logger.info("[IronSource] Retrying request with refreshed token...")
+                        headers["Authorization"] = f"Bearer {new_token}"
+                        response = requests.post(url, json=payload, headers=headers)
+                        logger.info(f"[IronSource] Retry Response Status: {response.status_code}")
+                    else:
+                        logger.error("[IronSource] Token refresh failed. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY")
+                else:
+                    logger.error("[IronSource] No refresh token available. Please set IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file")
             
             response.raise_for_status()
             
