@@ -441,20 +441,44 @@ class MockNetworkManager:
             "app_category_code": payload.get("app_category_code"),
         }
         
+        # Add optional fields if present
+        if payload.get("mask_rule_ids"):
+            request_params["mask_rule_ids"] = payload.get("mask_rule_ids")
+        
+        if payload.get("coppa_value") is not None:
+            request_params["coppa_value"] = payload.get("coppa_value")
+        
         # Use production URL (can be changed to sandbox if needed)
         url = "https://open-api.pangleglobal.com/union/media/open_api/site/create"
         # Sandbox URL: "http://open-api-sandbox.pangleglobal.com/union/media/open_api/site/create"
         
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
         
-        # Log request
+        # Log request with detailed signature information
         logger.info(f"[Pangle] API Request: POST {url}")
-        logger.info(f"[Pangle] Request Params: {json.dumps(_mask_sensitive_data(request_params), indent=2)}")
+        logger.info(f"[Pangle] Security Key: {'SET' if security_key else 'NOT SET'} (length: {len(security_key) if security_key else 0})")
+        logger.info(f"[Pangle] User ID: {user_id_int}, Role ID: {role_id_int}")
+        logger.info(f"[Pangle] Timestamp: {timestamp}, Nonce: {nonce}")
+        logger.info(f"[Pangle] Signature: {sign} (length: {len(sign)})")
+        
+        # Log signature generation details for debugging
+        keys_for_signature = [security_key, str(timestamp), str(nonce)]
+        keys_for_signature.sort()
+        key_str_for_signature = ''.join(keys_for_signature)
+        logger.debug(f"[Pangle] Signature input (sorted): {keys_for_signature}")
+        logger.debug(f"[Pangle] Signature input (concatenated): {key_str_for_signature[:50]}...")
+        
+        masked_params = _mask_sensitive_data(request_params.copy())
+        # Also mask sign in logging
+        if "sign" in masked_params:
+            masked_params["sign"] = "***MASKED***"
+        logger.info(f"[Pangle] Request Params: {json.dumps(masked_params, indent=2)}")
         
         try:
-            response = requests.post(url, json=request_params, headers=headers)
+            response = requests.post(url, json=request_params, headers=headers, timeout=30)
             
             # Log response status
             logger.info(f"[Pangle] Response Status: {response.status_code}")
