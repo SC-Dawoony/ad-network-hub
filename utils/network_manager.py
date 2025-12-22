@@ -464,18 +464,40 @@ class MockNetworkManager:
         logger.info(f"[Pangle] Timestamp: {timestamp}, Nonce: {nonce}")
         logger.info(f"[Pangle] Signature: {sign} (length: {len(sign)})")
         
-        # Log signature generation details for debugging
+        # Log signature generation details for debugging (INFO level for troubleshooting)
         keys_for_signature = [security_key, str(timestamp), str(nonce)]
         keys_for_signature.sort()
         key_str_for_signature = ''.join(keys_for_signature)
-        logger.debug(f"[Pangle] Signature input (sorted): {keys_for_signature}")
-        logger.debug(f"[Pangle] Signature input (concatenated): {key_str_for_signature[:50]}...")
+        logger.info(f"[Pangle] Signature generation details:")
+        logger.info(f"[Pangle]   - Security Key: {security_key[:10]}... (length: {len(security_key)})")
+        logger.info(f"[Pangle]   - Timestamp: {timestamp}")
+        logger.info(f"[Pangle]   - Nonce: {nonce}")
+        logger.info(f"[Pangle]   - Sorted keys: {keys_for_signature}")
+        logger.info(f"[Pangle]   - Concatenated string: {key_str_for_signature}")
+        logger.info(f"[Pangle]   - Generated signature: {sign}")
+        logger.info(f"[Pangle]   - Signature length: {len(sign)} (expected: 40)")
+        
+        # Verify signature is lowercase
+        if sign != sign.lower():
+            logger.warning(f"[Pangle] WARNING: Signature contains uppercase characters!")
         
         masked_params = _mask_sensitive_data(request_params.copy())
         # Also mask sign in logging
         if "sign" in masked_params:
             masked_params["sign"] = "***MASKED***"
-        logger.info(f"[Pangle] Request Params: {json.dumps(masked_params, indent=2)}")
+        logger.info(f"[Pangle] Full Request Params (masked): {json.dumps(masked_params, indent=2)}")
+        
+        # Log actual request params structure (without sensitive data)
+        logger.info(f"[Pangle] Request structure check:")
+        logger.info(f"[Pangle]   - Has user_id: {('user_id' in request_params)}")
+        logger.info(f"[Pangle]   - Has role_id: {('role_id' in request_params)}")
+        logger.info(f"[Pangle]   - Has timestamp: {('timestamp' in request_params)}")
+        logger.info(f"[Pangle]   - Has nonce: {('nonce' in request_params)}")
+        logger.info(f"[Pangle]   - Has sign: {('sign' in request_params)}")
+        logger.info(f"[Pangle]   - Has version: {('version' in request_params)}")
+        logger.info(f"[Pangle]   - Version value: {request_params.get('version')}")
+        logger.info(f"[Pangle]   - Has status: {('status' in request_params)}")
+        logger.info(f"[Pangle]   - Status value: {request_params.get('status')}")
         
         try:
             response = requests.post(url, json=request_params, headers=headers, timeout=30)

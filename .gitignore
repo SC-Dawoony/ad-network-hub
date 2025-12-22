@@ -31,3 +31,6 @@ Thumbs.db
 # Logs
 *.log
 
+# Documentation (may contain sensitive info)
+PANGLE_AUTH_GUIDE.md
+
