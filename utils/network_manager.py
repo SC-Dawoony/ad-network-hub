@@ -1185,18 +1185,30 @@ class MockNetworkManager:
                 result = response.json()
                 logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
                 
-                # IronSource API 응답 형식에 맞게 파싱 (reference code 방식)
+                # IronSource API 응답 형식에 맞게 파싱
                 # 응답은 JSON 배열 또는 객체일 수 있음
+                # 예시 응답: [{"appKey": "22449a47d", "appName": "-", "platform": "iOS", ...}, ...]
                 apps = []
                 if isinstance(result, list):
+                    # 응답이 직접 배열인 경우
                     apps = result
-                    logger.info(f"[IronSource] Apps count: {len(apps)}")
+                    logger.info(f"[IronSource] Apps count (array): {len(apps)}")
                 elif isinstance(result, dict):
                     # 응답이 객체인 경우 applications 필드 확인
-                    apps = result.get("applications", result.get("data", result.get("result", [])))
+                    if "applications" in result:
+                        apps = result["applications"]
+                    elif "data" in result:
+                        apps = result["data"]
+                    elif "result" in result:
+                        apps = result["result"]
+                    else:
+                        # 단일 앱 객체인 경우 배열로 감싸기
+                        if "appKey" in result:
+                            apps = [result]
+                    
                     if not isinstance(apps, list):
                         apps = []
-                    logger.info(f"[IronSource] Apps count: {len(apps)}")
+                    logger.info(f"[IronSource] Apps count (object): {len(apps)}")
                 else:
                     logger.warning(f"[IronSource] Unexpected response format: {type(result)}")
                     apps = []
@@ -1218,14 +1230,49 @@ class MockNetworkManager:
                 app_name = app.get("appName") or app.get("name") or app.get("title", "Unknown")
                 
                 if app_key:
+                    # Platform 변환: API 응답은 "iOS" 또는 "Android" (대문자 시작)
+                    platform_raw = app.get("platform", "")
+                    if isinstance(platform_raw, str):
+                        platform_raw_lower = platform_raw.lower()
+                    else:
+                        platform_raw_lower = ""
+                    
+                    if platform_raw_lower == "android":
+                        platform_display = "Android"
+                        platform_str = "android"
+                        platform_num = 1
+                    elif platform_raw_lower == "ios":
+                        platform_display = "iOS"
+                        platform_str = "ios"
+                        platform_num = 2
+                    else:
+                        # 기본값은 Android
+                        platform_display = "Android"
+                        platform_str = "android"
+                        platform_num = 1
+                    
+                    # appName이 "-"인 경우 "Unknown"으로 표시
+                    if app_name == "-" or not app_name or app_name.strip() == "":
+                        app_name = "Unknown"
+                    
+                    # Store URL 추출 (여러 가능한 필드명 확인)
+                    store_url = app.get("storeUrl") or app.get("store_url") or app.get("storeUrl") or ""
+                    
+                    # Package name 추출
+                    pkg_name = app.get("packageName") or app.get("package") or app.get("bundleId") or ""
+                    
                     formatted_apps.append({
                         "appCode": app_key,  # IronSource는 appKey 사용
                         "appKey": app_key,  # IronSource 전용 필드
                         "name": app_name,
-                        "platform": app.get("platform", ""),
-                        "pkgName": app.get("packageName") or app.get("package", ""),
-                        "platformStr": app.get("platform", "").upper() if app.get("platform") else ""
+                        "platform": platform_display,  # "Android" or "iOS"
+                        "platformNum": platform_num,  # 1 or 2
+                        "platformStr": platform_str,  # "android" or "ios"
+                        "pkgName": pkg_name,
+                        "storeUrl": store_url  # Store URL for slot name generation
                     })
+                    
+                    logger.debug(f"[IronSource] Parsed app: appKey={app_key}, name={app_name}, platform={platform_display}, storeUrl={store_url[:50] if store_url else 'N/A'}")
             
             # 최신순 정렬 (appKey나 id 기준으로 정렬, 또는 timestamp가 있으면 그것으로)
             # IronSource 응답에 timestamp가 있다면 그것으로 정렬

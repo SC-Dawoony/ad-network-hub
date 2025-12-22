@@ -503,14 +503,25 @@ else:
             app_options.append(display_text)
             app_code_map[display_text] = app_code
             # Store app info for Quick Create
+            # For IronSource, use platformNum and platformStr from API response
+            if current_network == "ironsource":
+                platform_num = app.get("platformNum", 1 if platform == "Android" else 2)
+                platform_str = app.get("platformStr", "android" if platform == "Android" else "ios")
+                store_url = app.get("storeUrl", "")
+            else:
+                platform_num = 1 if platform == "Android" else 2
+                platform_str = "android" if platform == "Android" else "ios"
+                store_url = ""
+            
             app_info_map[app_code] = {
                 "appCode": app_code,
                 "appKey": app_code if current_network == "ironsource" else None,  # Store appKey for IronSource
                 "name": app_name,
-                "platform": platform,
-                "pkgName": "",  # Not available from cache, will need to be provided
-                "platform": 1 if platform == "Android" else 2,
-                "platformStr": "android" if platform == "Android" else "ios"
+                "platform": platform_num,  # 1 or 2
+                "platformStr": platform_str,  # "android" or "ios"
+                "pkgName": app.get("pkgName", ""),  # From API response
+                "storeUrl": store_url,  # Store URL for slot name generation
+                "platformDisplay": platform  # "Android" or "iOS" for display
             }
     
     # Always add "Manual Entry" option (even if apps exist)
@@ -585,7 +596,9 @@ else:
         # Get pkgNameDisplay/pkgName and platform from apps list
         selected_app_data = None
         for app in apps:
-            if app.get("appCode") == selected_app_code:
+            # For IronSource, check appKey; for others, check appCode
+            app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
+            if app_identifier == selected_app_code:
                 selected_app_data = app
                 break
         
@@ -635,7 +648,9 @@ else:
             
             # Try to get platform and pkgNameDisplay from apps list (for BigOAds)
             for app in apps:
-                if app.get("appCode") == selected_app_code:
+                # For IronSource, check appKey; for others, check appCode
+                app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
+                if app_identifier == selected_app_code:
                     platform_str = app.get("platform", "")
                     if platform_str == "Android":
                         app_info_to_use["platform"] = 1
@@ -643,6 +658,12 @@ else:
                     elif platform_str == "iOS":
                         app_info_to_use["platform"] = 2
                         app_info_to_use["platformStr"] = "ios"
+                    
+                    # For IronSource, get storeUrl and platformStr from API response
+                    if current_network == "ironsource":
+                        app_info_to_use["storeUrl"] = app.get("storeUrl", "")
+                        app_info_to_use["platformStr"] = app.get("platformStr", "android")
+                        app_info_to_use["platform"] = app.get("platformNum", 1)
                     
                     # For BigOAds, get pkgNameDisplay from API response
                     if current_network == "bigoads" and "pkgNameDisplay" in app:
@@ -676,18 +697,27 @@ else:
                 # Try to get from apps list
                 for app in apps:
                     # For IronSource, check appKey; for others, check appCode
-                    if current_network == "ironsource":
-                        app_identifier = app.get("appKey") or app.get("appCode")
-                    else:
-                        app_identifier = app.get("appCode")
+                    app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
                     
                     if app_identifier == selected_app_code:
                         platform_str = app.get("platform", "")
+                        # For IronSource, use platformNum and platformStr from API response
+                        if current_network == "ironsource":
+                            platform_num = app.get("platformNum", 1)
+                            platform_str_val = app.get("platformStr", "android")
+                            store_url = app.get("storeUrl", "")
+                        else:
+                            platform_num = 1 if platform_str == "Android" else (2 if platform_str == "iOS" else 1)
+                            platform_str_val = "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "android")
+                            store_url = ""
+                        
                         app_info_to_use = {
                             "appCode": selected_app_code,
+                            "appKey": selected_app_code if current_network == "ironsource" else None,
                             "name": app.get("name", "Unknown"),
-                            "platform": 1 if platform_str == "Android" else (2 if platform_str == "iOS" else None),
-                            "platformStr": "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "android"),
+                            "platform": platform_num,
+                            "platformStr": platform_str_val,
+                            "storeUrl": store_url,
                             "pkgName": "",
                             "pkgNameDisplay": app.get("pkgNameDisplay", "") if current_network == "bigoads" else "",
                             "storeUrl": app.get("storeUrl", "") if current_network == "ironsource" else ""
