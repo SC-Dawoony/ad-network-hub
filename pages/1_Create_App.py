@@ -458,16 +458,28 @@ else:
             key="manual_app_code_input"
         )
         selected_app_code = manual_app_code.strip() if manual_app_code else ""
+        app_name = "Manual Entry"
     else:
+        # Get app code from map
         selected_app_code = app_code_map.get(selected_app_display, "")
+        
+        # If not found in map, try to extract from display text
+        if not selected_app_code and selected_app_display != manual_entry_option:
+            # Try to extract appCode from display text: "appCode (name)" or "appCode (name) - platform"
+            if "(" in selected_app_display:
+                # Extract appCode (part before the first parenthesis)
+                selected_app_code = selected_app_display.split("(")[0].strip()
+            else:
+                # If no parenthesis, use the whole string as appCode
+                selected_app_code = selected_app_display.strip()
+        
+        # Extract app name from display text
+        app_name = "Unknown"
+        if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
+            app_name = selected_app_display.split("(")[1].split(")")[0]
     
     # Show UI for slot creation if app code is selected (works for both manual and dropdown selection)
     if selected_app_code:
-        # Get app name from display text (if from dropdown) or use "Manual Entry"
-        app_name = "Manual Entry"
-        if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
-            app_name = selected_app_display.split("(")[1].split(")")[0]
-        
         st.info(f"**Selected app:** {app_name} ({selected_app_code})")
         
         # Get app info for quick create all
