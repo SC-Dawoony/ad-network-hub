@@ -55,15 +55,19 @@ def _extract_package_name_from_store_url(store_url: str) -> str:
     return store_url.split("/")[-1].split("?")[0] if "/" in store_url else store_url
 
 
-def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None) -> str:
+def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None) -> str:
     """Generate slot name based on network
     
     BigOAds: {last_part}_{platform}_bigoads_{slot_type}_bidding
-    IronSource: {last_part}_{os}_ironsource_{ad_type}_bidding (uses Store URL)
+    IronSource: {last_part}_{os}_ironsource_{ad_type}_bidding (uses bundleId)
     """
-    if network == "ironsource" and store_url:
-        # IronSource: extract from Store URL
-        last_part = _extract_package_name_from_store_url(store_url)
+    if network == "ironsource":
+        # IronSource: use bundleId (preferred) or pkg_name, extract last part after "."
+        source = bundle_id if bundle_id else pkg_name
+        if "." in source:
+            last_part = source.split(".")[-1]
+        else:
+            last_part = source
     else:
         # Get last part after "."
         if "." in pkg_name:
@@ -520,7 +524,8 @@ else:
                 "platform": platform_num,  # 1 or 2
                 "platformStr": platform_str,  # "android" or "ios"
                 "pkgName": app.get("pkgName", ""),  # From API response
-                "storeUrl": store_url,  # Store URL for slot name generation
+                "bundleId": app.get("bundleId", ""),  # IronSource bundleId (for Mediation Ad Unit Name)
+                "storeUrl": store_url,  # Store URL (optional)
                 "platformDisplay": platform  # "Android" or "iOS" for display
             }
     
@@ -572,6 +577,72 @@ else:
         )
         selected_app_code = manual_app_code.strip() if manual_app_code else ""
         app_name = "Manual Entry"
+        
+        # If appKey is entered manually, fetch app info from API
+        if selected_app_code and current_network == "ironsource":
+            try:
+                with st.spinner(f"Loading app info for {selected_app_code}..."):
+                    # Fetch specific app using appKey as filter
+                    fetched_apps = network_manager.get_apps(current_network, app_key=selected_app_code)
+                    if fetched_apps:
+                        # Add fetched app to apps list if not already present
+                        fetched_app = fetched_apps[0]
+                        fetched_app_key = fetched_app.get("appKey") or fetched_app.get("appCode")
+                        
+                        # Check if app already exists in apps list
+                        existing_app = None
+                        for app in apps:
+                            app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
+                            if app_identifier == fetched_app_key:
+                                existing_app = app
+                                break
+                        
+                        if not existing_app:
+                            # Add to apps list
+                            apps.append(fetched_app)
+                            # Update app_options and maps
+                            fetched_app_name = fetched_app.get("name", "Unknown")
+                            fetched_platform = fetched_app.get("platform", "")
+                            display_text = f"{fetched_app_key} ({fetched_app_name})"
+                            if fetched_platform and fetched_platform != "N/A":
+                                display_text += f" - {fetched_platform}"
+                            
+                            # Insert at the beginning (before manual entry option)
+                            app_options.insert(-1, display_text)
+                            app_code_map[display_text] = fetched_app_key
+                            
+                            # Store app info
+                            if current_network == "ironsource":
+                                platform_num = fetched_app.get("platformNum", 1 if fetched_platform == "Android" else 2)
+                                platform_str = fetched_app.get("platformStr", "android" if fetched_platform == "Android" else "ios")
+                                bundle_id = fetched_app.get("bundleId", "")
+                                store_url = fetched_app.get("storeUrl", "")
+                            else:
+                                platform_num = 1 if fetched_platform == "Android" else 2
+                                platform_str = "android" if fetched_platform == "Android" else "ios"
+                                bundle_id = ""
+                                store_url = ""
+                            
+                            app_info_map[fetched_app_key] = {
+                                "appCode": fetched_app_key,
+                                "appKey": fetched_app_key if current_network == "ironsource" else None,
+                                "name": fetched_app_name,
+                                "platform": platform_num,
+                                "platformStr": platform_str,
+                                "pkgName": fetched_app.get("pkgName", ""),
+                                "bundleId": bundle_id,
+                                "storeUrl": store_url,
+                                "platformDisplay": fetched_platform
+                            }
+                            
+                            st.success(f"✅ Found app: {fetched_app_name}")
+                        else:
+                            st.info(f"ℹ️ App {fetched_app_key} already in list")
+                    else:
+                        st.warning(f"⚠️ App with key '{selected_app_code}' not found")
+            except Exception as e:
+                logger.warning(f"[{current_network}] Failed to fetch app info: {str(e)}")
+                st.warning(f"⚠️ Failed to load app info: {str(e)}")
     else:
         # Get app code from map
         selected_app_code = app_code_map.get(selected_app_display, "")
@@ -603,9 +674,12 @@ else:
                 break
         
         if selected_app_data:
-            # Get pkgNameDisplay (for BigOAds) or pkgName
+            # Get pkgNameDisplay (for BigOAds) or pkgName/bundleId
             if current_network == "bigoads":
                 pkg_name = selected_app_data.get("pkgNameDisplay", selected_app_data.get("pkgName", ""))
+            elif current_network == "ironsource":
+                # IronSource: use bundleId for Mediation Ad Unit Name generation
+                pkg_name = selected_app_data.get("bundleId", selected_app_data.get("pkgName", ""))
             else:
                 pkg_name = selected_app_data.get("pkgName", "")
             
@@ -613,11 +687,14 @@ else:
             platform_str_val = selected_app_data.get("platform", "")
             platform_str = "android" if platform_str_val == "Android" else ("ios" if platform_str_val == "iOS" else "android")
             
+            # Get bundleId for IronSource
+            bundle_id = selected_app_data.get("bundleId", "") if current_network == "ironsource" else None
+            
             # Update all slot names immediately when app is selected
-            if pkg_name:
+            if pkg_name or bundle_id:
                 for slot_key in ["rv", "is", "bn"]:
                     slot_name_key = f"custom_slot_{slot_key.upper()}_name"
-                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key, current_network)
+                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key, current_network, store_url=None, bundle_id=bundle_id)
                     st.session_state[slot_name_key] = default_name
     
     # Show UI for slot creation (always show, but require app code selection)
@@ -659,8 +736,9 @@ else:
                         app_info_to_use["platform"] = 2
                         app_info_to_use["platformStr"] = "ios"
                     
-                    # For IronSource, get storeUrl and platformStr from API response
+                    # For IronSource, get bundleId, storeUrl and platformStr from API response
                     if current_network == "ironsource":
+                        app_info_to_use["bundleId"] = app.get("bundleId", "")
                         app_info_to_use["storeUrl"] = app.get("storeUrl", "")
                         app_info_to_use["platformStr"] = app.get("platformStr", "android")
                         app_info_to_use["platform"] = app.get("platformNum", 1)
@@ -689,8 +767,9 @@ else:
                     app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
                     if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
                         app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
-                    # For IronSource, get storeUrl from last_app_info
+                    # For IronSource, get bundleId, storeUrl from last_app_info
                     if current_network == "ironsource":
+                        app_info_to_use["bundleId"] = last_app_info.get("bundleId", app_info_to_use.get("bundleId", ""))
                         app_info_to_use["storeUrl"] = last_app_info.get("storeUrl", "")
                         app_info_to_use["platformStr"] = last_app_info.get("platformStr", "android")
             else:
@@ -906,13 +985,13 @@ else:
                             
                             # Generate default name from Store URL if available
                             if selected_app_code and app_info_to_use:
-                                store_url = app_info_to_use.get("storeUrl", "")
+                                bundle_id = app_info_to_use.get("bundleId", "")
                                 platform_str = app_info_to_use.get("platformStr", "android")
-                                if store_url:
+                                if bundle_id:
                                     # Map slot_key to slot_type
                                     slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                                     slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                    default_name = _generate_slot_name("", platform_str, slot_type, "ironsource", store_url)
+                                    default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id)
                                     st.session_state[slot_name_key] = default_name
                                 elif slot_name_key not in st.session_state:
                                     default_name = f"{slot_key.lower()}-1"

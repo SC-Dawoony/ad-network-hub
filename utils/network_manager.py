@@ -1140,7 +1140,7 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
-    def _get_ironsource_apps(self) -> List[Dict]:
+    def _get_ironsource_apps(self, app_key: Optional[str] = None) -> List[Dict]:
         """Get IronSource applications list from API
         
         API: GET https://platform.ironsrc.com/partners/publisher/applications/v6
@@ -1150,6 +1150,10 @@ class MockNetworkManager:
         Query Parameters (optional):
             platform: "ios" or "android" (from IRONSOURCE_PLATFORM env var)
             appStatus: "Active" or "archived" (from IRONSOURCE_APP_STATUS env var)
+            appKey: Specific app key to filter (if provided)
+        
+        Args:
+            app_key: Optional app key to filter by. If provided, only returns that app.
         """
         try:
             headers = self._get_ironsource_headers()
@@ -1168,6 +1172,11 @@ class MockNetworkManager:
             app_status = _get_env_var("IRONSOURCE_APP_STATUS")  # Active / archived
             if app_status:
                 params['appStatus'] = app_status
+            
+            # If app_key is provided, use it as filter parameter
+            if app_key:
+                params['appKey'] = app_key
+                logger.info(f"[IronSource] Filtering by appKey: {app_key}")
             
             logger.info(f"[IronSource] API Request: GET {url}")
             if params:
@@ -1256,10 +1265,13 @@ class MockNetworkManager:
                         app_name = "Unknown"
                     
                     # Store URL 추출 (여러 가능한 필드명 확인)
-                    store_url = app.get("storeUrl") or app.get("store_url") or app.get("storeUrl") or ""
+                    store_url = app.get("storeUrl") or app.get("store_url") or ""
                     
-                    # Package name 추출
-                    pkg_name = app.get("packageName") or app.get("package") or app.get("bundleId") or ""
+                    # Bundle ID 추출 (IronSource API 응답에서 bundleId 필드 사용)
+                    bundle_id = app.get("bundleId") or ""
+                    
+                    # Package name은 bundleId와 동일 (IronSource의 경우)
+                    pkg_name = bundle_id
                     
                     formatted_apps.append({
                         "appCode": app_key,  # IronSource는 appKey 사용
@@ -1268,8 +1280,9 @@ class MockNetworkManager:
                         "platform": platform_display,  # "Android" or "iOS"
                         "platformNum": platform_num,  # 1 or 2
                         "platformStr": platform_str,  # "android" or "ios"
-                        "pkgName": pkg_name,
-                        "storeUrl": store_url  # Store URL for slot name generation
+                        "pkgName": pkg_name,  # bundleId와 동일
+                        "bundleId": bundle_id,  # IronSource bundleId (Mediation Ad Unit Name 생성에 사용)
+                        "storeUrl": store_url  # Store URL (optional)
                     })
                     
                     logger.debug(f"[IronSource] Parsed app: appKey={app_key}, name={app_name}, platform={platform_display}, storeUrl={store_url[:50] if store_url else 'N/A'}")
@@ -1391,10 +1404,17 @@ class MockNetworkManager:
                     logger.error(f"[BigOAds] Error Response (text): {e.response.text}")
             return []
     
-    def get_apps(self, network: str) -> List[Dict]:
-        """Get apps list from network"""
+    def get_apps(self, network: str, app_key: Optional[str] = None) -> List[Dict]:
+        """Get apps list from network
+        
+        Args:
+            network: Network name (e.g., "bigoads", "ironsource")
+            app_key: Optional app key to filter by (for IronSource)
+        """
         if network == "bigoads":
             return self._get_bigoads_apps()
+        elif network == "ironsource":
+            return self._get_ironsource_apps(app_key=app_key)
         
         # Mock implementation for other networks
         return [
