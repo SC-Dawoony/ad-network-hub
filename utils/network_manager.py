@@ -619,13 +619,44 @@ class MockNetworkManager:
                         logger.error(f"[Pangle]   - Internal Code: {internal_code}")
                         logger.error(f"[Pangle]   - Internal Message: {internal_message}")
                         
-                        # Handle specific internal codes
-                        if internal_code == "50001":
-                            print(f"[Pangle]   - Internal Code 50001: API System error", file=sys.stderr)
+                        # Handle specific internal codes based on Pangle API documentation
+                        # Internal Code List (5.1.3) mappings
+                        internal_code_descriptions = {
+                            "0": "Success - Operation successful",
+                            "SY_1000": "System error - Unknown system error",
+                            "SY_1001": "Parameter error - Failed to parse the request",
+                            "SY_1009": "Database error - An error has occurred in the database",
+                            "SY_1005": "Permission denied - Insufficient permissions",
+                            "SY_1011": "Invalid value for the field - The value of the field does not meet the requirements",
+                            "SY_1012": "The field cannot be modified - Due to some restrictions, the target field cannot be edited",
+                            "SY_1013": "Missing required field - Some essential fields are missing",
+                            "21000": "Download URL error - The app download URL is incorrect",
+                            "21001": "App downloading error - Failed to download the app",
+                            "21003": "Package parsing error - Failed to parse the app package",
+                            "21005": "Verification failed - The download link format is not correct",
+                            "21007": "Application package name is blocked - Verification failed",
+                            "21008": "Unsupported app store - This app store is not supported yet",
+                            "21011": "Package name error - Package name is incorrect",
+                            "21012": "SHA1 error - SHA1 is incorrect",
+                            "21014": "App validation still in processing - Verification has timed out",
+                            "21017": "Package name already exist - This package name already exists",
+                            "21020": "App downloading time out - App download has timed out",
+                            "21023": "App store has not been registered by media - This app store is not supported",
+                        }
+                        
+                        # Check if internal_code is in the list
+                        if internal_code in internal_code_descriptions:
+                            description = internal_code_descriptions[internal_code]
+                            print(f"[Pangle]   - Internal Code {internal_code}: {description}", file=sys.stderr)
+                            logger.error(f"[Pangle]   - Internal Code {internal_code}: {description}")
+                        elif internal_code == "50001":
+                            # 50001 is a Return Code, not Internal Code, but may appear as internal_code in some cases
+                            print(f"[Pangle]   - Internal Code 50001: System error (Return Code)", file=sys.stderr)
+                            print(f"[Pangle]   - An error has occurred on the API server or in its subordinate services", file=sys.stderr)
                             print(f"[Pangle]   - This may indicate server-side issue or invalid request parameters", file=sys.stderr)
                             print(f"[Pangle]   - Check request parameters above", file=sys.stderr)
-                            logger.error(f"[Pangle]   - Internal Code 50001: API System error")
-                            logger.error(f"[Pangle]   - This may indicate server-side issue or invalid request parameters")
+                            logger.error(f"[Pangle]   - Internal Code 50001: System error (Return Code)")
+                            logger.error(f"[Pangle]   - An error has occurred on the API server or in its subordinate services")
                         elif internal_code == "41001":
                             print(f"[Pangle]   - Internal Code 41001: OAuth validation failure", file=sys.stderr)
                             print(f"[Pangle]   - Security Key length: {len(security_key) if security_key else 0}", file=sys.stderr)
