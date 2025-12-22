@@ -356,16 +356,29 @@ class MockNetworkManager:
         """Generate Pangle API signature
         
         Signature generation (as per Pangle documentation):
-        1. Concatenate security_key + timestamp + nonce (in order, not sorted)
-        2. Encrypt with SHA1
-        3. Return lowercase hex digest
+        1. Convert security_key, timestamp, nonce to strings
+        2. Sort alphabetically
+        3. Concatenate (join together)
+        4. SHA1 hash
+        5. Return lowercase hex digest (40 characters)
         
-        Note: Some Pangle API versions may require alphabetical sorting,
-        but the standard is: security_key + timestamp + nonce
+        Example:
+          security_key = "Zes6ctYcPJoW4O16Yj85zg=="
+          timestamp = 1704067200
+          nonce = 1234567890
+          
+          keys = ["1234567890", "1704067200", "Zes6ctYcPJoW4O16Yj85zg=="]
+          keys.sort() → ["1234567890", "1704067200", "Zes6ctYcPJoW4O16Yj85zg=="]
+          key_str = "12345678901704067200Zes6ctYcPJoW4O16Yj85zg=="
+          signature = sha1(key_str) → "db29590697024fb53573a5cc0dd5f002801dc8ed"
         """
-        # Concatenate in order: security_key + timestamp + nonce
-        key_str = security_key + str(timestamp) + str(nonce)
-        signature = hashlib.sha1(key_str.encode("utf-8")).hexdigest().lower()
+        # Convert to strings and sort alphabetically
+        keys = [security_key, str(timestamp), str(nonce)]
+        keys.sort()
+        key_str = ''.join(keys)
+        
+        # SHA1 hash and return lowercase hex digest
+        signature = hashlib.sha1(key_str.encode("utf-8")).hexdigest()
         logger.debug(f"[Pangle] Signature generation: security_key length={len(security_key)}, timestamp={timestamp}, nonce={nonce}, signature={signature[:20]}...")
         return signature
     
@@ -406,8 +419,8 @@ class MockNetworkManager:
             }
         
         # Build request parameters
-        timestamp = int(time.time())
-        nonce = random.randint(100000, 999999)
+        timestamp = int(time.time())  # Posix timestamp (seconds)
+        nonce = random.randint(1, 2147483647)  # Random integer (1 to 2^31-1)
         version = "1.0"  # Fixed version
         status = 2  # Fixed status (Live)
         
@@ -1102,8 +1115,8 @@ class MockNetworkManager:
             }
         
         # Build request parameters
-        timestamp = int(time.time())
-        nonce = random.randint(100000, 999999)
+        timestamp = int(time.time())  # Posix timestamp (seconds)
+        nonce = random.randint(1, 2147483647)  # Random integer (1 to 2^31-1)
         version = "1.0"  # Fixed version
         
         # Generate signature (only security_key, timestamp, nonce)
