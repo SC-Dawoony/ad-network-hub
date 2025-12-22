@@ -56,8 +56,23 @@ class IronSourceConfig(NetworkConfig):
         ]
     
     def get_app_creation_fields(self) -> List[Field]:
-        """Get fields for app creation - only required fields"""
+        """Get fields for app creation"""
         return [
+            Field(
+                name="appName",
+                field_type="text",
+                required=True,
+                label="App Name",
+                placeholder="Enter application name"
+            ),
+            Field(
+                name="platform",
+                field_type="radio",
+                required=True,
+                label="Platform",
+                options=[("iOS", "iOS"), ("Android", "Android")],
+                default="Android"
+            ),
             Field(
                 name="storeUrl",
                 field_type="text",
@@ -259,13 +274,12 @@ class IronSourceConfig(NetworkConfig):
     def build_app_payload(self, form_data: Dict) -> Dict:
         """Build API payload for app creation"""
         payload = {
+            "appName": form_data.get("appName"),
+            "platform": form_data.get("platform"),  # "iOS" or "Android"
             "storeUrl": form_data.get("storeUrl"),
             "taxonomy": form_data.get("taxonomy"),
             "coppa": form_data.get("coppa", 0),
         }
-        
-        if form_data.get("appName"):
-            payload["appName"] = form_data.get("appName")
         
         if form_data.get("ccpa") is not None:
             payload["ccpa"] = form_data.get("ccpa", 0)
