@@ -670,17 +670,27 @@ class MockNetworkManager:
             "X-BIGO-Sign": sign
         }
         
+        # Remove None values from payload to avoid sending null
+        cleaned_payload = {k: v for k, v in payload.items() if v is not None}
+        
         logger.info(f"[BigOAds] API Request: POST {url}")
         logger.info(f"[BigOAds] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
-        logger.info(f"[BigOAds] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        logger.info(f"[BigOAds] Request Payload: {json.dumps(_mask_sensitive_data(cleaned_payload), indent=2)}")
         
         try:
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+            response = requests.post(url, json=cleaned_payload, headers=headers)
             
-            result = response.json()
+            # Log response even if status code is not 200
             logger.info(f"[BigOAds] Response Status: {response.status_code}")
-            logger.info(f"[BigOAds] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[BigOAds] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[BigOAds] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            response.raise_for_status()
             
             # BigOAds API 응답 형식에 맞게 정규화
             if result.get("code") == 0 or result.get("status") == 0:

@@ -467,16 +467,24 @@ class BigOAdsConfig(NetworkConfig):
         - coppaOption: int, Yes (1=no, 2=yes)
         - screenDirection: int, Yes (0:Vertical, 1:Horizontal)
         """
+        # Ensure mediationPlatform is a list
+        mediation_platform = form_data.get("mediationPlatform", [])
+        if not isinstance(mediation_platform, list):
+            mediation_platform = [mediation_platform] if mediation_platform is not None else []
+        
         payload = {
             "name": form_data.get("name"),
             "pkgName": form_data.get("pkgName"),
-            "platform": form_data.get("platform"),
-            "mediaType": form_data.get("mediaType", 1),  # 항상 1 (Application)
+            "platform": int(form_data.get("platform")),
+            "mediaType": 1,  # 항상 1 (Application)
             "category": str(form_data.get("category")),  # API 문서에 따르면 string
-            "mediationPlatform": form_data.get("mediationPlatform"),  # int[] 배열
-            "coppaOption": form_data.get("coppaOption"),
-            "screenDirection": form_data.get("screenDirection"),
+            "mediationPlatform": mediation_platform,  # int[] 배열
+            "coppaOption": int(form_data.get("coppaOption")),
+            "screenDirection": int(form_data.get("screenDirection")),
         }
+        
+        # Remove None values to avoid sending null
+        payload = {k: v for k, v in payload.items() if v is not None}
         
         if form_data.get("storeUrl"):
             payload["storeUrl"] = form_data.get("storeUrl")
@@ -491,8 +499,7 @@ class BigOAdsConfig(NetworkConfig):
                 payload["itunesId"] = itunes_id
         
         # mediationPlatform에 99(others)가 포함되어 있으면 mediationPlatformName 필수
-        mediation_platforms = form_data.get("mediationPlatform", [])
-        if 99 in mediation_platforms and form_data.get("mediationPlatformName"):
+        if 99 in mediation_platform and form_data.get("mediationPlatformName"):
             payload["mediationPlatformName"] = form_data.get("mediationPlatformName")
         
         return payload
