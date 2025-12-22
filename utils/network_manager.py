@@ -102,8 +102,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _mask_sensitive_data(data: Dict) -> Dict:
-    """Mask sensitive data in request/response for logging"""
+def _mask_sensitive_data(data) -> Dict:
+    """Mask sensitive data in request/response for logging
+    
+    Args:
+        data: Dict, List, or None to mask
+        
+    Returns:
+        Masked data (Dict or List)
+    """
+    if data is None:
+        return {}
+    
+    # Handle list data
+    if isinstance(data, list):
+        return [_mask_sensitive_data(item) if isinstance(item, dict) else item for item in data]
+    
+    # Handle dict data
+    if not isinstance(data, dict):
+        return data
+    
     masked = data.copy()
     sensitive_keys = ['security_key', 'sign', 'token', 'authorization', 'bearer_token', 
                      'refresh_token', 'secret_key', 'api_key', 'password']
@@ -604,14 +622,44 @@ class MockNetworkManager:
         
         url = f"https://platform.ironsrc.com/levelPlay/adUnits/v1/{app_key}"
         
+        # Validate ad_units
+        if not ad_units:
+            return {
+                "status": 1,
+                "code": "INVALID_PAYLOAD",
+                "msg": "Ad units list is empty"
+            }
+        
+        # Validate each ad unit has required fields
+        for idx, ad_unit in enumerate(ad_units):
+            if not isinstance(ad_unit, dict):
+                return {
+                    "status": 1,
+                    "code": "INVALID_PAYLOAD",
+                    "msg": f"Ad unit at index {idx} must be a dictionary"
+                }
+            if not ad_unit.get("mediationAdUnitName"):
+                return {
+                    "status": 1,
+                    "code": "INVALID_PAYLOAD",
+                    "msg": f"mediationAdUnitName is required for ad unit at index {idx}"
+                }
+            if not ad_unit.get("adFormat"):
+                return {
+                    "status": 1,
+                    "code": "INVALID_PAYLOAD",
+                    "msg": f"adFormat is required for ad unit at index {idx}"
+                }
+        
         # Log request
         logger.info(f"[IronSource] API Request: POST {url}")
         masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
         logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
-        logger.info(f"[IronSource] Request Body: {json.dumps(ad_units, indent=2)}")
+        logger.info(f"[IronSource] Request Body: {json.dumps(_mask_sensitive_data(ad_units), indent=2)}")
         
         try:
-            response = requests.post(url, json=ad_units, headers=headers)
+            # API accepts an array of ad units
+            response = requests.post(url, json=ad_units, headers=headers, timeout=30)
             
             # Log response status
             logger.info(f"[IronSource] Response Status: {response.status_code}")
