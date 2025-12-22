@@ -483,6 +483,33 @@ else:
         if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
             app_name = selected_app_display.split("(")[1].split(")")[0]
     
+    # When app code is selected, immediately generate and update slot names
+    if selected_app_code:
+        # Get pkgNameDisplay/pkgName and platform from apps list
+        selected_app_data = None
+        for app in apps:
+            if app.get("appCode") == selected_app_code:
+                selected_app_data = app
+                break
+        
+        if selected_app_data:
+            # Get pkgNameDisplay (for BigOAds) or pkgName
+            if current_network == "bigoads":
+                pkg_name = selected_app_data.get("pkgNameDisplay", selected_app_data.get("pkgName", ""))
+            else:
+                pkg_name = selected_app_data.get("pkgName", "")
+            
+            # Get platform
+            platform_str_val = selected_app_data.get("platform", "")
+            platform_str = "android" if platform_str_val == "Android" else ("ios" if platform_str_val == "iOS" else "android")
+            
+            # Update all slot names immediately when app is selected
+            if pkg_name:
+                for slot_key in ["rv", "is", "bn"]:
+                    slot_name_key = f"custom_slot_{slot_key.upper()}_name"
+                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key)
+                    st.session_state[slot_name_key] = default_name
+    
     # Show UI for slot creation (always show, but require app code selection)
     if selected_app_code:
         st.info(f"**Selected app:** {app_name} ({selected_app_code})")
