@@ -165,6 +165,10 @@ class MockNetworkManager:
             return self._create_bigoads_app(payload)
         elif network == "mintegral":
             return self._create_mintegral_app(payload)
+        elif network == "inmobi":
+            return self._create_inmobi_app(payload)
+        elif network == "fyber":
+            return self._create_fyber_app(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create App (Mock)")
@@ -835,6 +839,8 @@ class MockNetworkManager:
             return self._create_pangle_unit(payload)
         elif network == "mintegral":
             return self._create_mintegral_unit(payload)
+        elif network == "inmobi":
+            return self._create_inmobi_unit(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create Unit (Mock)")
@@ -1451,6 +1457,219 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _create_inmobi_app(self, payload: Dict) -> Dict:
+        """Create app via InMobi API"""
+        url = "https://publisher.inmobi.com/rest/api/v2/apps"
+        
+        # InMobi API 인증: x-client-id, x-account-id, x-client-secret 헤더 사용
+        username = _get_env_var("INMOBI_USERNAME")  # x-client-id (email ID)
+        account_id = _get_env_var("INMOBI_ACCOUNT_ID")  # x-account-id (Account ID)
+        client_secret = _get_env_var("INMOBI_CLIENT_SECRET")  # x-client-secret (API key)
+        
+        if not username or not account_id or not client_secret:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "INMOBI_USERNAME, INMOBI_ACCOUNT_ID, and INMOBI_CLIENT_SECRET must be set in .env file or Streamlit secrets"
+            }
+        
+        # InMobi 인증 헤더 설정
+        headers = {
+            "x-client-id": username,
+            "x-account-id": account_id,
+            "x-client-secret": client_secret,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        
+        # Remove None values and empty strings from payload
+        cleaned_payload = {k: v for k, v in payload.items() if v is not None and v != ""}
+        
+        logger.info(f"[InMobi] API Request: POST {url}")
+        logger.info(f"[InMobi] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[InMobi] Request Payload: {json.dumps(_mask_sensitive_data(cleaned_payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=cleaned_payload, headers=headers, timeout=30)
+            
+            # Log response even if status code is not 200
+            logger.info(f"[InMobi] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[InMobi] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[InMobi] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            # For 400 errors, log detailed error information
+            if response.status_code == 400:
+                logger.error(f"[InMobi] Bad Request (400) - Full Response: {response.text}")
+                print(f"[InMobi] ❌ Bad Request (400)", file=sys.stderr)
+                print(f"[InMobi] Response: {response.text}", file=sys.stderr)
+                # Try to extract more details from error response
+                try:
+                    error_detail = response.json()
+                    if isinstance(error_detail, dict):
+                        error_msg = error_detail.get("message") or error_detail.get("error") or error_detail.get("msg") or str(error_detail)
+                        logger.error(f"[InMobi] Error Details: {error_msg}")
+                        print(f"[InMobi] Error Details: {error_msg}", file=sys.stderr)
+                except:
+                    pass
+            
+            response.raise_for_status()
+            
+            # InMobi API 응답 형식에 맞게 정규화
+            # 응답 형식은 API 문서를 참조하여 수정 필요
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[InMobi] API Error (Create App): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[InMobi] Error Response: {json.dumps(error_body, indent=2)}")
+                    print(f"[InMobi] Error Response: {json.dumps(error_body, indent=2)}", file=sys.stderr)
+                except:
+                    logger.error(f"[InMobi] Error Response (text): {e.response.text}")
+                    print(f"[InMobi] Error Response (text): {e.response.text}", file=sys.stderr)
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
+    def _get_fyber_access_token(self) -> Optional[str]:
+        """Get Fyber (DT) Access Token
+        
+        API: POST https://console.fyber.com/api/v2/management/auth
+        Payload: grant_type, client_id, client_secret
+        """
+        client_id = _get_env_var("DT_CLIENT_ID") or _get_env_var("FYBER_CLIENT_ID")
+        client_secret = _get_env_var("DT_CLIENT_SECRET") or _get_env_var("FYBER_CLIENT_SECRET")
+        
+        if not client_id or not client_secret:
+            logger.error("[Fyber] DT_CLIENT_ID and DT_CLIENT_SECRET must be set")
+            return None
+        
+        auth_url = "https://console.fyber.com/api/v2/management/auth"
+        
+        payload = {
+            "grant_type": "management_client_credentials",
+            "client_id": client_id.strip(),
+            "client_secret": client_secret.strip(),
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Fyber] API Request: POST {auth_url}")
+        logger.info(f"[Fyber] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(auth_url, json=payload, headers=headers, timeout=30)
+            
+            logger.info(f"[Fyber] Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                access_token = result.get("access_token")
+                if access_token:
+                    logger.info(f"[Fyber] Successfully obtained access token")
+                    return access_token
+                else:
+                    logger.error(f"[Fyber] Access token not found in response: {result}")
+                    return None
+            else:
+                logger.error(f"[Fyber] Failed to get access token: {response.text}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Fyber] API Error (Get Access Token): {str(e)}")
+            return None
+    
+    def _create_fyber_app(self, payload: Dict) -> Dict:
+        """Create app via Fyber (DT) API"""
+        url = "https://console.fyber.com/api/management/v1/app"
+        
+        # Get access token
+        access_token = self._get_fyber_access_token()
+        if not access_token:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "Failed to obtain Fyber access token. Please check DT_CLIENT_ID and DT_CLIENT_SECRET in .env file or Streamlit secrets."
+            }
+        
+        # Fyber API 인증 헤더 설정
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+        }
+        
+        logger.info(f"[Fyber] API Request: POST {url}")
+        logger.info(f"[Fyber] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Fyber] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            # Log response even if status code is not 200
+            logger.info(f"[Fyber] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Fyber] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[Fyber] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            response.raise_for_status()
+            
+            # Fyber API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Fyber] API Error (Create App): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Fyber] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Fyber] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
     def _create_bigoads_unit(self, payload: Dict) -> Dict:
         """Create unit (slot) via BigOAds API"""
         url = "https://www.bigossp.com/open/slot/add"
@@ -1573,6 +1792,80 @@ class MockNetworkManager:
                 "status": 1,
                 "code": "API_ERROR",
                 "msg": f"Error creating unit: {str(e)}"
+            }
+    
+    def _create_inmobi_unit(self, payload: Dict) -> Dict:
+        """Create unit (placement) via InMobi API"""
+        url = "https://publisher.inmobi.com/rest/api/v1/placements"
+        
+        # InMobi API 인증: x-client-id, x-account-id, x-client-secret 헤더 사용
+        username = _get_env_var("INMOBI_USERNAME")  # x-client-id (email ID)
+        account_id = _get_env_var("INMOBI_ACCOUNT_ID")  # x-account-id (Account ID)
+        client_secret = _get_env_var("INMOBI_CLIENT_SECRET")  # x-client-secret (API key)
+        
+        if not username or not account_id or not client_secret:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "INMOBI_USERNAME, INMOBI_ACCOUNT_ID, and INMOBI_CLIENT_SECRET must be set in .env file or Streamlit secrets"
+            }
+        
+        # InMobi 인증 헤더 설정
+        headers = {
+            "x-client-id": username,
+            "x-account-id": account_id,
+            "x-client-secret": client_secret,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        
+        logger.info(f"[InMobi] API Request: POST {url}")
+        logger.info(f"[InMobi] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[InMobi] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            # Log response even if status code is not 200
+            logger.info(f"[InMobi] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[InMobi] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[InMobi] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            response.raise_for_status()
+            
+            # InMobi API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[InMobi] API Error (Create Unit): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[InMobi] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[InMobi] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
             }
     
     def _create_pangle_unit(self, payload: Dict) -> Dict:
@@ -1950,6 +2243,113 @@ class MockNetworkManager:
                     logger.error(f"[BigOAds] Error Response (text): {e.response.text}")
             return []
     
+    def _get_inmobi_apps(self) -> List[Dict]:
+        """Get apps list from InMobi API
+        
+        API: GET https://publisher.inmobi.com/rest/api/v2/apps
+        Headers: x-client-id, x-account-id, x-client-secret
+        """
+        url = "https://publisher.inmobi.com/rest/api/v2/apps"
+        
+        # InMobi API 인증: x-client-id, x-account-id, x-client-secret 헤더 사용
+        username = _get_env_var("INMOBI_USERNAME")  # x-client-id (email ID)
+        account_id = _get_env_var("INMOBI_ACCOUNT_ID")  # x-account-id (Account ID)
+        client_secret = _get_env_var("INMOBI_CLIENT_SECRET")  # x-client-secret (API key)
+        
+        if not username or not account_id or not client_secret:
+            logger.error("[InMobi] INMOBI_USERNAME, INMOBI_ACCOUNT_ID, and INMOBI_CLIENT_SECRET must be set")
+            return []
+        
+        # InMobi 인증 헤더 설정
+        headers = {
+            "x-client-id": username,
+            "x-account-id": account_id,
+            "x-client-secret": client_secret,
+            "Accept": "application/json",
+        }
+        
+        # Query parameters
+        params = {
+            "pageNum": 1,
+            "pageLength": 10,
+            "status": "ACTIVE",
+        }
+        
+        logger.info(f"[InMobi] API Request: GET {url}")
+        logger.info(f"[InMobi] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[InMobi] Request Params: {json.dumps(params, indent=2)}")
+        
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            
+            logger.info(f"[InMobi] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[InMobi] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[InMobi] Response Text: {response.text}")
+                return []
+            
+            response.raise_for_status()
+            
+            # InMobi API 응답 형식에 맞게 처리
+            # Response format: {"data": {"records": [...], "totalRecords": ...}} or {"data": {"apps": [...]}} or {"data": [...]}
+            if response.status_code == 200:
+                # Extract apps from response
+                if isinstance(result, dict):
+                    apps_data = result.get("data", {})
+                    if isinstance(apps_data, dict):
+                        apps = apps_data.get("records", apps_data.get("apps", []))
+                        total = apps_data.get("totalRecords", len(apps) if isinstance(apps, list) else 0)
+                    else:
+                        apps = apps_data if isinstance(apps_data, list) else []
+                        total = len(apps) if isinstance(apps, list) else 0
+                elif isinstance(result, list):
+                    apps = result
+                    total = len(apps)
+                else:
+                    logger.error(f"[InMobi] Unexpected response format: {type(result)}")
+                    return []
+                
+                logger.info(f"[InMobi] Extracted {len(apps)} apps from API response (total: {total})")
+                
+                # Convert to standard format
+                formatted_apps = []
+                for app in apps:
+                    if isinstance(app, dict):
+                        # Extract app information (field names may vary)
+                        app_id = app.get("appId") or app.get("id") or app.get("app_id")
+                        app_name = app.get("appName") or app.get("name") or app.get("app_name")
+                        platform = app.get("platform") or app.get("os") or "N/A"
+                        status = app.get("status") or "N/A"
+                        
+                        formatted_apps.append({
+                            "appCode": str(app_id) if app_id else "N/A",
+                            "appId": str(app_id) if app_id else "N/A",  # For InMobi, appCode and appId are the same
+                            "name": app_name or "Unknown",
+                            "platform": platform,
+                            "status": status,
+                            "bundleId": app.get("bundleId") or app.get("bundle_id") or app.get("packageName") or "",  # For placement name generation
+                        })
+                
+                logger.info(f"[InMobi] Converted to {len(formatted_apps)} apps in standard format")
+                return formatted_apps
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                logger.error(f"[InMobi] API Error (Get Apps): {error_msg}")
+                return []
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[InMobi] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[InMobi] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[InMobi] Error Response (text): {e.response.text}")
+            return []
+    
     def get_apps(self, network: str, app_key: Optional[str] = None) -> List[Dict]:
         """Get apps list from network
         
@@ -1963,6 +2363,8 @@ class MockNetworkManager:
             return self._get_ironsource_apps(app_key=app_key)
         elif network == "mintegral":
             return self._get_mintegral_apps()
+        elif network == "inmobi":
+            return self._get_inmobi_apps()
         
         # Mock implementation for other networks
         return [

@@ -137,6 +137,28 @@ with st.sidebar:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
+        elif network == "inmobi":
+            # Check for InMobi credentials
+            account_name = get_env("INMOBI_ACCOUNT_NAME")
+            account_id = get_env("INMOBI_ACCOUNT_ID")
+            username = get_env("INMOBI_USERNAME")
+            client_secret = get_env("INMOBI_CLIENT_SECRET")
+            # InMobi 인증 방식에 따라 필요한 필드 확인 (API 문서 참조 필요)
+            if account_name and account_id and username and client_secret:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
+        elif network == "fyber":
+            # Check for Fyber (DT) credentials
+            client_id = get_env("DT_CLIENT_ID")
+            client_secret = get_env("DT_CLIENT_SECRET")
+            access_token = get_env("FYBER_ACCESS_TOKEN")
+            publisher_id = get_env("FYBER_PUBLISHER_ID")
+            # Fyber 인증 방식에 따라 필요한 필드 확인 (API 문서 참조 필요)
+            if client_id and client_secret and access_token and publisher_id:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
         else:
             # For other networks, check credentials
             status = "⚠️ Not Set"

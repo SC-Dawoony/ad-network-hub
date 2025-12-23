@@ -4,6 +4,8 @@ from .bigoads_config import BigOAdsConfig
 from .ironsource_config import IronSourceConfig
 from .pangle_config import PangleConfig
 from .mintegral_config import MintegralConfig
+from .inmobi_config import InMobiConfig
+from .fyber_config import FyberConfig
 
 # Network registry
 NETWORK_REGISTRY = {
@@ -11,9 +13,9 @@ NETWORK_REGISTRY = {
     'ironsource': IronSourceConfig(),
     'pangle': PangleConfig(),
     'mintegral': MintegralConfig(),
+    'inmobi': InMobiConfig(),
+    'fyber': FyberConfig(),
     # Future networks will be added here
-    # 'fyber': FyberConfig(),
-    # 'inmobi': InMobiConfig(),
 }
 
 def get_network_config(network_name: str) -> NetworkConfig:

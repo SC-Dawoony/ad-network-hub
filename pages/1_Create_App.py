@@ -372,6 +372,12 @@ with st.form("create_app_form"):
                             data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
                             app_id = data.get("app_id") or data.get("id") or data.get("appId") or result.get("app_id") or result.get("id")
                             app_code = str(app_id) if app_id else None
+                        elif current_network == "inmobi":
+                            # InMobi: result.data contains appId, or result itself
+                            # Try multiple possible field names
+                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                            app_id = data.get("appId") or data.get("id") or data.get("app_id") or result.get("appId") or result.get("id")
+                            app_code = str(app_id) if app_id else None
                         else:
                             # BigOAds: result.data contains appCode, or result itself
                             data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
@@ -382,8 +388,8 @@ with st.form("create_app_form"):
                         
                         app_name = form_data.get("app_name") or form_data.get("appName") or form_data.get("name", "Unknown")
                         
-                        # For IronSource and Pangle, we don't have platform/pkgName in the same way
-                        if current_network in ["ironsource", "pangle", "mintegral"]:
+                        # For IronSource, Pangle, Mintegral, and InMobi, we don't have platform/pkgName in the same way
+                        if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
                             platform = None
                             platform_str = None
                             pkg_name = None
@@ -403,7 +409,7 @@ with st.form("create_app_form"):
                             "appCode": app_code,  # For IronSource, this is actually appKey
                             "appKey": app_code if current_network == "ironsource" else None,  # Store appKey separately for IronSource
                             "siteId": app_code if current_network == "pangle" else None,  # Store siteId separately for Pangle
-                            "app_id": app_id if current_network == "mintegral" else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral
+                            "app_id": app_id if current_network in ["mintegral", "inmobi"] else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral and InMobi
                             "name": app_name,
                             "pkgName": pkg_name,
                             "platform": platform,
@@ -459,9 +465,9 @@ else:
     # Load apps from cache (from Create App POST responses)
     cached_apps = SessionManager.get_cached_apps(current_network)
     
-    # For BigOAds, IronSource, and Mintegral, also fetch from API and get latest 3 apps
+    # For BigOAds, IronSource, Mintegral, and InMobi, also fetch from API and get latest 3 apps
     api_apps = []
-    if current_network in ["bigoads", "ironsource", "mintegral"]:
+    if current_network in ["bigoads", "ironsource", "mintegral", "inmobi"]:
         try:
             with st.spinner("Loading apps from API..."):
                 api_apps = network_manager.get_apps(current_network)
@@ -474,8 +480,8 @@ else:
             api_apps = []
     
     # Merge cached apps with API apps (prioritize cached, but add unique API apps)
-    # For BigOAds, IronSource, and Mintegral, prioritize API apps (they are more recent)
-    if current_network in ["bigoads", "ironsource", "mintegral"] and api_apps:
+    # For BigOAds, IronSource, Mintegral, and InMobi, prioritize API apps (they are more recent)
+    if current_network in ["bigoads", "ironsource", "mintegral", "inmobi"] and api_apps:
         # Use API apps first, then add cached apps that are not in API
         apps = api_apps.copy()
         # For IronSource, check appKey; for BigOAds, check appCode
@@ -510,9 +516,11 @@ else:
     
     if apps:
         for app in apps:
-            # For IronSource, use appKey; for others, use appCode
+            # For IronSource, use appKey; for InMobi, use appId or appCode; for others, use appCode
             if current_network == "ironsource":
                 app_code = app.get("appKey") or app.get("appCode", "N/A")
+            elif current_network == "inmobi":
+                app_code = app.get("appId") or app.get("appCode", "N/A")
             else:
                 app_code = app.get("appCode", "N/A")
             
@@ -537,12 +545,12 @@ else:
             app_info_map[app_code] = {
                 "appCode": app_code,
                 "appKey": app_code if current_network == "ironsource" else None,  # Store appKey for IronSource
-                "app_id": app.get("app_id") if current_network == "mintegral" else None,  # Store app_id for Mintegral
+                "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi"] else None,  # Store app_id for Mintegral and InMobi
                 "name": app_name,
                 "platform": platform_num,  # 1 or 2
                 "platformStr": platform_str,  # "android" or "ios"
                 "pkgName": app.get("pkgName", ""),  # From API response
-                "bundleId": app.get("bundleId", ""),  # IronSource bundleId (for Mediation Ad Unit Name)
+                "bundleId": app.get("bundleId", "") if current_network in ["ironsource", "inmobi"] else "",  # bundleId for IronSource and InMobi (for placement name generation)
                 "storeUrl": store_url,  # Store URL (optional)
                 "platformDisplay": platform  # "Android" or "iOS" for display
             }
@@ -793,8 +801,13 @@ else:
             else:
                 # Try to get from apps list
                 for app in apps:
-                    # For IronSource, check appKey; for others, check appCode
-                    app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
+                    # For IronSource, check appKey; for InMobi, check appId or appCode; for others, check appCode
+                    if current_network == "ironsource":
+                        app_identifier = app.get("appKey") or app.get("appCode")
+                    elif current_network == "inmobi":
+                        app_identifier = app.get("appId") or app.get("appCode")
+                    else:
+                        app_identifier = app.get("appCode")
                     
                     if app_identifier == selected_app_code:
                         platform_str = app.get("platform", "")
@@ -811,12 +824,14 @@ else:
                         app_info_to_use = {
                             "appCode": selected_app_code,
                             "appKey": selected_app_code if current_network == "ironsource" else None,
+                            "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi"] else None,
                             "name": app.get("name", "Unknown"),
                             "platform": platform_num,
                             "platformStr": platform_str_val,
                             "storeUrl": store_url,
                             "pkgName": "",
                             "pkgNameDisplay": app.get("pkgNameDisplay", "") if current_network == "bigoads" else "",
+                            "bundleId": app.get("bundleId", "") if current_network in ["ironsource", "inmobi"] else "",
                             "storeUrl": app.get("storeUrl", "") if current_network == "ironsource" else ""
                         }
                         break
@@ -979,6 +994,28 @@ else:
             }
         }
         
+        # Default slot configurations for InMobi
+        slot_configs_inmobi = {
+            "RV": {
+                "name": "Rewarded Video",
+                "placementType": "REWARDED_VIDEO",
+                "isAudienceBiddingEnabled": True,
+                "audienceBiddingPartner": "MAX",
+            },
+            "IS": {
+                "name": "Interstitial",
+                "placementType": "INTERSTITIAL",
+                "isAudienceBiddingEnabled": True,
+                "audienceBiddingPartner": "MAX",
+            },
+            "BN": {
+                "name": "Banner",
+                "placementType": "BANNER",
+                "isAudienceBiddingEnabled": True,
+                "audienceBiddingPartner": "MAX",
+            }
+        }
+        
         # Select configs based on network
         if current_network == "ironsource":
             slot_configs = slot_configs_ironsource
@@ -986,6 +1023,8 @@ else:
             slot_configs = slot_configs_pangle
         elif current_network == "mintegral":
             slot_configs = slot_configs_mintegral
+        elif current_network == "inmobi":
+            slot_configs = slot_configs_inmobi
         else:
             slot_configs = slot_configs_bigoads
         
@@ -1482,6 +1521,124 @@ else:
                                                     "appCode": str(app_id),
                                                     "slotType": slot_config["ad_type"],
                                                     "adType": slot_config["ad_type"],
+                                                    "auctionType": "N/A"
+                                                }
+                                                SessionManager.add_created_unit(current_network, unit_data)
+                                                
+                                                # Add to cache
+                                                cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                                if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                    cached_units.append(unit_data)
+                                                    SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                                
+                                                st.success(f"✅ {slot_key} placement created successfully!")
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
+                                            SessionManager.log_error(current_network, str(e))
+                        elif current_network == "inmobi":
+                            # InMobi: appId, placementName, placementType, isAudienceBiddingEnabled, audienceBiddingPartner
+                            placement_name_key = f"inmobi_slot_{slot_key}_name"
+                            
+                            # Get appId from selected app (required)
+                            app_id = None
+                            if selected_app_code:
+                                # Try to get from app_info_to_use first
+                                if app_info_to_use:
+                                    app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
+                                
+                                # If not found, try to parse from selected_app_code
+                                if not app_id:
+                                    try:
+                                        app_id = int(selected_app_code)
+                                    except (ValueError, TypeError):
+                                        app_id = None
+                                
+                                # If still not found, try to get from apps list
+                                if not app_id:
+                                    for app in apps:
+                                        app_identifier = app.get("appId") or app.get("appCode")
+                                        if str(app_identifier) == str(selected_app_code):
+                                            app_id = app.get("appId") or app.get("app_id")
+                                            if not app_id:
+                                                try:
+                                                    app_id = int(app_identifier)
+                                                except (ValueError, TypeError):
+                                                    app_id = None
+                                            break
+                            
+                            # Generate placement name from bundleId (last part after ".")
+                            if selected_app_code and app_info_to_use:
+                                bundle_id = app_info_to_use.get("bundleId", "")
+                                if bundle_id and "." in bundle_id:
+                                    last_part = bundle_id.split(".")[-1]
+                                else:
+                                    # Fallback: use app name
+                                    app_name = app_info_to_use.get("name", "Unknown")
+                                    last_part = app_name.replace(" ", "_").lower()
+                                
+                                platform_str = app_info_to_use.get("platformStr", "android")
+                                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                default_name = f"{last_part}_{platform_str}_inmobi_{slot_type}_bidding"
+                                if placement_name_key not in st.session_state:
+                                    st.session_state[placement_name_key] = default_name
+                            elif placement_name_key not in st.session_state:
+                                default_name = f"{slot_key.lower()}-placement-1"
+                                st.session_state[placement_name_key] = default_name
+                            
+                            placement_name = st.text_input(
+                                "Placement Name*",
+                                value=st.session_state[placement_name_key],
+                                key=placement_name_key,
+                                help=f"Name for {slot_config['name']} placement"
+                            )
+                            
+                            # Display current settings
+                            st.markdown("**Current Settings:**")
+                            settings_html = '<div style="min-height: 120px; margin-bottom: 10px;">'
+                            settings_html += f'<ul style="margin: 0; padding-left: 20px;">'
+                            settings_html += f'<li>Placement Type: {slot_config["placementType"].replace("_", " ").title()}</li>'
+                            settings_html += f'<li>Audience Bidding: {"Enabled" if slot_config["isAudienceBiddingEnabled"] else "Disabled"}</li>'
+                            if slot_config["isAudienceBiddingEnabled"]:
+                                settings_html += f'<li>Audience Bidding Partner: {slot_config["audienceBiddingPartner"]}</li>'
+                            settings_html += '</ul></div>'
+                            st.markdown(settings_html, unsafe_allow_html=True)
+                            
+                            # Create button for InMobi
+                            if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_inmobi_{slot_key}"):
+                                if not selected_app_code:
+                                    st.toast("❌ Please select an App Code", icon="🚫")
+                                elif not app_id or app_id <= 0:
+                                    st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
+                                elif not placement_name:
+                                    st.toast("❌ Placement Name is required", icon="🚫")
+                                else:
+                                    # Build payload for InMobi
+                                    payload = {
+                                        "appId": int(app_id),
+                                        "placementName": placement_name,
+                                        "placementType": slot_config["placementType"],
+                                        "isAudienceBiddingEnabled": slot_config["isAudienceBiddingEnabled"],
+                                    }
+                                    
+                                    # Add audienceBiddingPartner if Audience Bidding is enabled
+                                    if slot_config["isAudienceBiddingEnabled"]:
+                                        payload["audienceBiddingPartner"] = slot_config["audienceBiddingPartner"]
+                                    
+                                    # Make API call
+                                    with st.spinner(f"Creating {slot_key} placement..."):
+                                        try:
+                                            response = network_manager.create_unit(current_network, payload)
+                                            result = handle_api_response(response)
+                                            
+                                            if result:
+                                                unit_data = {
+                                                    "slotCode": result.get("placementId", result.get("id", "N/A")),
+                                                    "name": placement_name,
+                                                    "appCode": str(app_id),
+                                                    "slotType": slot_config["placementType"],
+                                                    "adType": slot_config["placementType"],
                                                     "auctionType": "N/A"
                                                 }
                                                 SessionManager.add_created_unit(current_network, unit_data)
