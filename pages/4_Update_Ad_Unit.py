@@ -25,60 +25,6 @@ st.set_page_config(
 st.title("⚙️ AppLovin Ad Unit Settings 업데이트")
 st.markdown("AppLovin API를 통해 Ad Unit의 ad_network_settings를 업데이트합니다.")
 
-# Check API Key
-api_key = get_applovin_api_key()
-if not api_key:
-    st.error("❌ APPLOVIN_API_KEY가 환경변수에 설정되지 않았습니다.")
-    st.info("`.env` 파일에 `APPLOVIN_API_KEY=your_api_key`를 추가해주세요.")
-    st.stop()
-
-st.success(f"✅ AppLovin API Key가 설정되어 있습니다.")
-
-# Simple API Test Section
-with st.expander("📡 AppLovin Ad Units 조회", expanded=False):
-    if st.button("📡 Get Ad Units", type="primary"):
-        with st.spinner("API 호출 중..."):
-            success, result = get_ad_units(api_key)
-            
-            if success:
-                st.success("✅ API 호출 성공!")
-                data = result.get("data", {})
-                
-                # Handle different response formats
-                ad_units_list = []
-                if isinstance(data, list):
-                    ad_units_list = data
-                elif isinstance(data, dict):
-                    ad_units_list = data.get("ad_units", data.get("data", data.get("list", data.get("results", []))))
-                
-                if ad_units_list:
-                    st.info(f"📊 총 {len(ad_units_list)}개의 Ad Unit이 조회되었습니다.")
-                    
-                    # Display as table
-                    table_data = []
-                    for unit in ad_units_list:
-                        table_data.append({
-                            "id": unit.get("id", ""),
-                            "name": unit.get("name", ""),
-                            "platform": unit.get("platform", ""),
-                            "ad_format": unit.get("ad_format", ""),
-                            "package_name": unit.get("package_name", "")
-                        })
-                    
-                    if table_data:
-                        df = pd.DataFrame(table_data)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-                else:
-                    st.json(data)
-            else:
-                st.error("❌ API 호출 실패")
-                error_info = result.get("data", {})
-                st.json(error_info)
-                if "status_code" in result:
-                    st.error(f"Status Code: {result['status_code']}")
-
-st.divider()
-
 # Available ad networks
 AD_NETWORKS = [
     "ADMOB_BIDDING",
@@ -95,6 +41,179 @@ AD_NETWORKS = [
     "YANDEX_BIDDING",
     "PUBMATIC_BIDDING"
 ]
+
+# Check API Key
+api_key = get_applovin_api_key()
+if not api_key:
+    st.error("❌ APPLOVIN_API_KEY가 환경변수에 설정되지 않았습니다.")
+    st.info("`.env` 파일에 `APPLOVIN_API_KEY=your_api_key`를 추가해주세요.")
+    st.stop()
+
+st.success(f"✅ AppLovin API Key가 설정되어 있습니다.")
+
+# AppLovin Ad Units 조회 및 검색 섹션
+with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        search_query = st.text_input(
+            "검색 (name 또는 package_name)",
+            key="ad_units_search",
+            placeholder="예: Aim Master 또는 com.pungang.shooter",
+            help="name 또는 package_name에 포함된 Ad Unit을 검색합니다"
+        )
+    
+    with col2:
+        st.write("")  # Spacing
+        st.write("")  # Spacing
+        if st.button("📡 조회", type="primary", use_container_width=True):
+            st.session_state.applovin_ad_units_raw = None
+    
+    # Load ad units data
+    if "applovin_ad_units_raw" not in st.session_state or st.session_state.applovin_ad_units_raw is None:
+        if st.button("📡 Get Ad Units", type="secondary", use_container_width=True):
+            with st.spinner("API 호출 중..."):
+                success, result = get_ad_units(api_key)
+                
+                if success:
+                    data = result.get("data", {})
+                    
+                    # Handle different response formats
+                    ad_units_list = []
+                    if isinstance(data, list):
+                        ad_units_list = data
+                    elif isinstance(data, dict):
+                        ad_units_list = data.get("ad_units", data.get("data", data.get("list", data.get("results", []))))
+                    
+                    if ad_units_list:
+                        st.session_state.applovin_ad_units_raw = ad_units_list
+                        st.success(f"✅ {len(ad_units_list)}개의 Ad Unit이 조회되었습니다!")
+                    else:
+                        st.json(data)
+                        st.session_state.applovin_ad_units_raw = []
+                else:
+                    st.error("❌ API 호출 실패")
+                    error_info = result.get("data", {})
+                    st.json(error_info)
+                    if "status_code" in result:
+                        st.error(f"Status Code: {result['status_code']}")
+                    st.session_state.applovin_ad_units_raw = []
+    
+    # Display filtered and selectable ad units
+    if st.session_state.get("applovin_ad_units_raw"):
+        ad_units_list = st.session_state.applovin_ad_units_raw
+        
+        # Apply search filter
+        filtered_units = ad_units_list
+        if search_query:
+            search_lower = search_query.lower()
+            filtered_units = [
+                unit for unit in ad_units_list
+                if search_lower in unit.get("name", "").lower() or search_lower in unit.get("package_name", "").lower()
+            ]
+        
+        if filtered_units:
+            st.info(f"📊 검색 결과: {len(filtered_units)}개 (전체: {len(ad_units_list)}개)")
+            
+            # Create table with checkbox
+            table_data = []
+            for unit in filtered_units:
+                table_data.append({
+                    "선택": False,
+                    "id": unit.get("id", ""),
+                    "name": unit.get("name", ""),
+                    "platform": unit.get("platform", ""),
+                    "ad_format": unit.get("ad_format", ""),
+                    "package_name": unit.get("package_name", "")
+                })
+            
+            if table_data:
+                df = pd.DataFrame(table_data)
+                
+                # Display with checkbox
+                edited_df = st.data_editor(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "선택": st.column_config.CheckboxColumn("선택", default=False),
+                        "id": st.column_config.TextColumn("id"),
+                        "name": st.column_config.TextColumn("name"),
+                        "platform": st.column_config.TextColumn("platform"),
+                        "ad_format": st.column_config.TextColumn("ad_format"),
+                        "package_name": st.column_config.TextColumn("package_name")
+                    },
+                    disabled=["id", "name", "platform", "ad_format", "package_name"],
+                    key="ad_units_selection_table"
+                )
+                
+                # Get selected rows
+                selected_rows = edited_df[edited_df["선택"] == True]
+                
+                if len(selected_rows) > 0:
+                    st.markdown(f"**선택된 Ad Units: {len(selected_rows)}개**")
+                    
+                    # Initialize selected networks in session state (default: all networks)
+                    if "selected_ad_networks" not in st.session_state:
+                        st.session_state.selected_ad_networks = AD_NETWORKS.copy()
+                    
+                    # Show selected networks with remove buttons
+                    if st.session_state.selected_ad_networks:
+                        st.markdown("**선택된 네트워크:**")
+                        for network in sorted(st.session_state.selected_ad_networks):
+                            col_name, col_remove = st.columns([4, 1])
+                            with col_name:
+                                st.markdown(f"- {network}")
+                            with col_remove:
+                                if st.button("🗑️", key=f"remove_network_{network}", help="제거"):
+                                    st.session_state.selected_ad_networks.remove(network)
+                                    st.rerun()
+                    
+                    # Add button
+                    if st.session_state.selected_ad_networks:
+                        if st.button(f"➕ 선택한 {len(selected_rows)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
+                            new_rows = []
+                            for _, row in selected_rows.iterrows():
+                                for selected_network in st.session_state.selected_ad_networks:
+                                    # Create 6 rows for each selected unit (android/ios × REWARD/INTER/BANNER)
+                                    platforms = ["android", "ios"]
+                                    ad_formats = ["REWARD", "INTER", "BANNER"]
+                                    
+                                    for platform in platforms:
+                                        for ad_format in ad_formats:
+                                            # Only add if platform and ad_format match the selected unit
+                                            if row["platform"].lower() == platform and row["ad_format"] == ad_format:
+                                                new_rows.append({
+                                                    "id": row["id"],
+                                                    "name": row["name"],
+                                                    "platform": platform,
+                                                    "ad_format": ad_format,
+                                                    "package_name": row["package_name"],
+                                                    "ad_network": selected_network,
+                                                    "ad_network_app_id": "",
+                                                    "ad_network_app_key": "",
+                                                    "ad_unit_id": "",
+                                                    "countries_type": "",
+                                                    "countries": "",
+                                                    "cpm": 0.0,
+                                                    "segment_name": "",
+                                                    "segment_id": "",
+                                                    "disabled": "FALSE"
+                                                })
+                            
+                            if new_rows:
+                                new_df = pd.DataFrame(new_rows)
+                                st.session_state.applovin_data = pd.concat([st.session_state.applovin_data, new_df], ignore_index=True)
+                                st.success(f"✅ {len(new_rows)}개 행이 데이터 테이블에 추가되었습니다!")
+                                # Clear selections
+                                st.session_state.selected_ad_networks = []
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ 선택한 항목과 일치하는 platform/ad_format 조합이 없습니다.")
+        else:
+            st.info("검색 조건에 맞는 Ad Unit이 없습니다.")
+
+st.divider()
 
 # Initialize session state
 if "applovin_data" not in st.session_state:
@@ -116,148 +235,6 @@ if "applovin_data" not in st.session_state:
         "segment_id": pd.Series(dtype="string"),
         "disabled": pd.Series(dtype="string")
     })
-
-# Instructions
-with st.expander("📖 사용 방법", expanded=False):
-    st.markdown("""
-    **CSV 형식으로 데이터를 입력하세요:**
-    - **id**: Ad Unit ID* (같은 id를 가진 행들은 같은 Ad Unit에 여러 네트워크 설정)
-    - **name**: Ad Unit Name (선택사항)
-    - **platform**: android 또는 ios*
-    - **ad_format**: BANNER, INTER (Interstitial), 또는 REWARD*
-    - **package_name**: 앱 패키지명 (선택사항)
-    - **ad_network**: 네트워크 이름* (예: GOOGLE_AD_MANAGER_NETWORK, ironsource 등)
-    - **ad_network_app_id**: Ad Network App ID (선택사항)
-    - **ad_network_app_key**: Ad Network App Key (선택사항)
-    - **ad_unit_id**: Ad Network의 Ad Unit ID*
-    - **countries_type**: INCLUDE 또는 EXCLUDE (공란 가능)
-    - **countries**: 국가 코드 (쉼표로 구분, 예: "us,kr", 공란 가능)
-    - **cpm**: CPM 값* (기본값: 0)
-    - **segment_name**: Segment Name (공란 가능)
-    - **segment_id**: Segment ID (비워두면 "None", 공란 가능)
-    - **disabled**: FALSE 또는 TRUE (기본값: FALSE)
-    
-    **예시:**
-    - 같은 id를 가진 여러 행 = 하나의 Ad Unit에 여러 Ad Network 설정
-    """)
-
-# Get already added networks
-added_networks = set()
-if len(st.session_state.applovin_data) > 0 and "ad_network" in st.session_state.applovin_data.columns:
-    added_networks = set(st.session_state.applovin_data["ad_network"].dropna().unique())
-    added_networks.discard("")  # Remove empty strings
-
-# Available networks (exclude already added ones)
-available_networks = [net for net in AD_NETWORKS if net not in added_networks]
-
-# Split into two columns: Left for input, Right for added networks
-left_col, right_col = st.columns([2, 1])
-
-with left_col:
-    st.subheader("📝 데이터 입력")
-    
-    if available_networks:
-        selected_networks = st.multiselect(
-            "Ad Network 선택 (여러 개 선택 가능)",
-            options=available_networks,
-            help="네트워크를 선택하고 'Add Networks' 버튼을 클릭하면 각 네트워크마다 6개 행이 자동으로 추가됩니다"
-        )
-    else:
-        selected_networks = []
-        st.multiselect(
-            "Ad Network 선택",
-            options=["모든 네트워크가 추가되었습니다"],
-            disabled=True,
-            help="모든 네트워크가 이미 추가되었습니다"
-        )
-    
-    if st.button("➕ Add Networks", type="primary", use_container_width=True, disabled=not available_networks or len(selected_networks) == 0):
-        if not selected_networks:
-            st.error("❌ 네트워크를 선택해주세요.")
-        else:
-            platforms = ["android", "ios"]
-            ad_formats = ["REWARD", "INTER", "BANNER"]
-            
-            new_rows = []
-            for selected_network in selected_networks:
-                if selected_network in added_networks:
-                    st.warning(f"⚠️ {selected_network}는 이미 추가된 네트워크입니다. 건너뜁니다.")
-                    continue
-                
-                for platform in platforms:
-                    for ad_format in ad_formats:
-                        new_rows.append({
-                            "id": "",
-                            "name": "",
-                            "platform": platform,
-                            "ad_format": ad_format,
-                            "package_name": "",
-                            "ad_network": selected_network,
-                            "ad_network_app_id": "",
-                            "ad_network_app_key": "",
-                            "ad_unit_id": "",
-                            "countries_type": "",
-                            "countries": "",
-                            "cpm": 0.0,
-                            "segment_name": "",
-                            "segment_id": "",
-                            "disabled": "FALSE"
-                        })
-            
-            if new_rows:
-                new_df = pd.DataFrame(new_rows)
-                st.session_state.applovin_data = pd.concat([st.session_state.applovin_data, new_df], ignore_index=True)
-                st.success(f"✅ {len(selected_networks)}개 네트워크의 {len(new_rows)}개 행이 추가되었습니다!")
-                st.rerun()
-            else:
-                st.error("❌ 추가할 네트워크가 없습니다.")
-    
-    if len(st.session_state.applovin_data) == 0:
-        st.info("💡 네트워크를 선택하고 'Add Network' 버튼을 클릭하여 시작하세요.")
-
-with right_col:
-    st.subheader("📋 추가된 네트워크")
-    
-    if added_networks:
-        # Show added networks in a more compact format
-        for network in sorted(added_networks):
-            network_rows = len(st.session_state.applovin_data[st.session_state.applovin_data["ad_network"] == network])
-            col_name, col_delete = st.columns([4, 1])
-            with col_name:
-                st.markdown(f"**{network}** <span style='color: gray; font-size: 0.8em'>({network_rows}행)</span>", unsafe_allow_html=True)
-            with col_delete:
-                if st.button("🗑️", key=f"delete_{network}", help="삭제"):
-                    st.session_state.applovin_data = st.session_state.applovin_data[
-                        st.session_state.applovin_data["ad_network"] != network
-                    ].reset_index(drop=True)
-                    st.success(f"✅ {network} 네트워크가 삭제되었습니다.")
-                    st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)  # Small spacing
-        
-        # Reset button
-        if st.button("🔄 전체 리셋", type="secondary", use_container_width=True):
-            st.session_state.applovin_data = pd.DataFrame({
-                "id": pd.Series(dtype="string"),
-                "name": pd.Series(dtype="string"),
-                "platform": pd.Series(dtype="string"),
-                "ad_format": pd.Series(dtype="string"),
-                "package_name": pd.Series(dtype="string"),
-                "ad_network": pd.Series(dtype="string"),
-                "ad_network_app_id": pd.Series(dtype="string"),
-                "ad_network_app_key": pd.Series(dtype="string"),
-                "ad_unit_id": pd.Series(dtype="string"),
-                "countries_type": pd.Series(dtype="string"),
-                "countries": pd.Series(dtype="string"),
-                "cpm": pd.Series(dtype="float64"),
-                "segment_name": pd.Series(dtype="string"),
-                "segment_id": pd.Series(dtype="string"),
-                "disabled": pd.Series(dtype="string")
-            })
-            st.success("✅ 모든 데이터가 리셋되었습니다.")
-            st.rerun()
-    else:
-        st.info("추가된 네트워크가 없습니다.")
 
 st.divider()
 
@@ -281,6 +258,26 @@ if len(st.session_state.applovin_data) > 0 or any(col in st.session_state.applov
     existing_cols = [col for col in column_order if col in st.session_state.applovin_data.columns]
     missing_cols = [col for col in st.session_state.applovin_data.columns if col not in column_order]
     st.session_state.applovin_data = st.session_state.applovin_data[existing_cols + missing_cols]
+
+# Sort data by ad_network, platform, ad_format
+if len(st.session_state.applovin_data) > 0:
+    if "ad_network" in st.session_state.applovin_data.columns:
+        # Define sort order for ad_format
+        ad_format_order = {"REWARD": 0, "INTER": 1, "BANNER": 2}
+        platform_order = {"android": 0, "ios": 1}
+        
+        # Create temporary columns for sorting
+        st.session_state.applovin_data["_sort_ad_format"] = st.session_state.applovin_data["ad_format"].map(ad_format_order).fillna(99)
+        st.session_state.applovin_data["_sort_platform"] = st.session_state.applovin_data["platform"].map(platform_order).fillna(99)
+        
+        # Sort
+        st.session_state.applovin_data = st.session_state.applovin_data.sort_values(
+            by=["ad_network", "_sort_platform", "_sort_ad_format"],
+            ascending=[True, True, True]
+        ).reset_index(drop=True)
+        
+        # Remove temporary columns
+        st.session_state.applovin_data = st.session_state.applovin_data.drop(columns=["_sort_ad_format", "_sort_platform"], errors="ignore")
 
 # Data editor
 edited_df = st.data_editor(
