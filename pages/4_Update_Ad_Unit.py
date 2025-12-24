@@ -130,7 +130,38 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
             if table_data:
                 df = pd.DataFrame(table_data)
                 
+                # Initialize select all state
+                if "select_all_ad_units_flag" not in st.session_state:
+                    st.session_state.select_all_ad_units_flag = None
+                
+                # Select all / Deselect all buttons
+                col_select, col_deselect = st.columns(2)
+                with col_select:
+                    if st.button("✅ 전체 선택", use_container_width=True, key="select_all_ad_units"):
+                        st.session_state.select_all_ad_units_flag = True
+                        st.rerun()
+                with col_deselect:
+                    if st.button("❌ 전체 해제", use_container_width=True, key="deselect_all_ad_units"):
+                        st.session_state.select_all_ad_units_flag = False
+                        st.rerun()
+                
+                # Apply select all/deselect all
+                if st.session_state.select_all_ad_units_flag is not None:
+                    df["선택"] = st.session_state.select_all_ad_units_flag
+                    st.session_state.select_all_ad_units_flag = None
+                
+                # Restore selected Ad Unit IDs if they exist (after network removal)
+                # This must happen BEFORE data_editor to ensure the selection is restored
+                if "selected_ad_unit_ids" in st.session_state and st.session_state.selected_ad_unit_ids:
+                    # Only restore if we have saved IDs and they match current dataframe
+                    saved_ids = set(st.session_state.selected_ad_unit_ids)
+                    current_ids = set(df["id"].tolist())
+                    if saved_ids.issubset(current_ids):
+                        df.loc[df["id"].isin(st.session_state.selected_ad_unit_ids), "선택"] = True
+                
                 # Display with checkbox
+                # Use a dynamic key that changes when networks are removed to force refresh
+                editor_key = f"ad_units_selection_table_{len(st.session_state.get('selected_ad_networks', []))}"
                 edited_df = st.data_editor(
                     df,
                     use_container_width=True,
@@ -144,11 +175,22 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                         "package_name": st.column_config.TextColumn("package_name")
                     },
                     disabled=["id", "name", "platform", "ad_format", "package_name"],
-                    key="ad_units_selection_table"
+                    key=editor_key
                 )
                 
-                # Get selected rows
+                # Get selected rows and save IDs
                 selected_rows = edited_df[edited_df["선택"] == True]
+                # Always save current selection (will be used if rerun happens)
+                if len(selected_rows) > 0:
+                    st.session_state.selected_ad_unit_ids = selected_rows["id"].tolist()
+                else:
+                    # Only clear if user explicitly deselected everything (not after network removal)
+                    if "network_removed" not in st.session_state:
+                        st.session_state.selected_ad_unit_ids = []
+                
+                # Clear network_removed flag after processing
+                if "network_removed" in st.session_state:
+                    del st.session_state.network_removed
                 
                 if len(selected_rows) > 0:
                     st.markdown(f"**선택된 Ad Units: {len(selected_rows)}개**")
@@ -157,17 +199,30 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     if "selected_ad_networks" not in st.session_state:
                         st.session_state.selected_ad_networks = AD_NETWORKS.copy()
                     
-                    # Show selected networks with remove buttons
+                    # Show selected networks with remove buttons (compact format)
                     if st.session_state.selected_ad_networks:
                         st.markdown("**선택된 네트워크:**")
-                        for network in sorted(st.session_state.selected_ad_networks):
-                            col_name, col_remove = st.columns([4, 1])
-                            with col_name:
-                                st.markdown(f"- {network}")
-                            with col_remove:
-                                if st.button("🗑️", key=f"remove_network_{network}", help="제거"):
-                                    st.session_state.selected_ad_networks.remove(network)
-                                    st.rerun()
+                        sorted_networks = sorted(st.session_state.selected_ad_networks.copy())  # Use copy to avoid modification during iteration
+                        
+                        # Display in a compact grid (4 columns)
+                        num_cols = 4
+                        for i in range(0, len(sorted_networks), num_cols):
+                            cols = st.columns(num_cols)
+                            for j, network in enumerate(sorted_networks[i:i+num_cols]):
+                                with cols[j]:
+                                    # Compact display with inline remove button
+                                    col_name, col_btn = st.columns([3, 1])
+                                    with col_name:
+                                        st.markdown(f'<span style="font-size: 0.85em;">{network}</span>', unsafe_allow_html=True)
+                                    with col_btn:
+                                        remove_key = f"remove_network_{network}"
+                                        if st.button("🗑️", key=remove_key, help=f"{network} 제거", use_container_width=True):
+                                            # Mark that network removal is happening (to preserve selection)
+                                            st.session_state.network_removed = True
+                                            # Remove network directly
+                                            if network in st.session_state.selected_ad_networks:
+                                                st.session_state.selected_ad_networks.remove(network)
+                                            st.rerun()
                     
                     # Add button
                     if st.session_state.selected_ad_networks:
