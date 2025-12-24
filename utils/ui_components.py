@@ -9,13 +9,14 @@ class DynamicFormRenderer:
     """Render dynamic forms based on network configuration"""
     
     @staticmethod
-    def render_field(field: Field, form_data: Dict, key_prefix: str = "") -> Any:
+    def render_field(field: Field, form_data: Dict, key_prefix: str = "", config: Optional[NetworkConfig] = None) -> Any:
         """Render a single field based on its type
         
         Args:
             field: Field definition
             form_data: Current form data dictionary
             key_prefix: Prefix for field key (e.g., "app", "unit")
+            config: NetworkConfig instance (for dynamic options like Fyber categories)
         """
         field_key = f"{key_prefix}_{field.name}" if key_prefix else field.name
         
@@ -135,17 +136,29 @@ class DynamicFormRenderer:
             return None
         
         elif field.field_type == "dropdown":
+            # Special handling for Fyber category1 and category2: Update options based on platform
             options = field.options or []
+            if (field.name in ["category1", "category2"] and 
+                hasattr(config, 'network_name') and config.network_name == "fyber" and
+                hasattr(config, '_get_categories')):
+                # Get current platform selection
+                platform = form_data.get("platform", "android")
+                # Get platform-specific categories
+                options = config._get_categories(platform)
+            
             option_labels = [opt[0] for opt in options]
             # Use current form_data value if exists, otherwise use default
             current_value = form_data.get(field.name, field.default)
             default_index = 0
             if current_value is not None:
-                # Find index of current value
+                # Find index of current value in updated options
                 for idx, (opt_label, opt_value) in enumerate(options):
                     if opt_value == current_value:
                         default_index = idx
                         break
+                # If current value not found in new options (platform changed), reset to default
+                if default_index == 0 and current_value not in [opt[1] for opt in options]:
+                    current_value = None
             elif field.default is not None:
                 # Fallback to default if no current value
                 for idx, (opt_label, opt_value) in enumerate(options):
@@ -226,7 +239,7 @@ class DynamicFormRenderer:
             if isinstance(field, ConditionalField):
                 if field.should_show(form_data):
                     # Render conditional field at its correct position in the form
-                    rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type)
+                    rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
                     if rendered_value is not None:
                         form_data[field.name] = rendered_value
                 else:
@@ -234,7 +247,7 @@ class DynamicFormRenderer:
                     form_data.pop(field.name, None)
             else:
                 # Render regular field
-                rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type)
+                rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
                 if rendered_value is not None:
                     form_data[field.name] = rendered_value
                 
@@ -276,18 +289,18 @@ class DynamicFormRenderer:
             for field in common_fields:
                 if isinstance(field, ConditionalField):
                     if field.should_show(form_data):
-                        form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type)
+                        form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
                 else:
-                    form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type)
+                    form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
             
             # Network-specific fields section
             st.subheader("Network-Specific Fields")
             for field in other_fields:
                 if isinstance(field, ConditionalField):
                     if field.should_show(form_data):
-                        form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type)
+                        form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
                 else:
-                    form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type)
+                    form_data[field.name] = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
         
         else:
             # For unit creation, render all fields

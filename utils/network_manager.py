@@ -841,6 +841,8 @@ class MockNetworkManager:
             return self._create_mintegral_unit(payload)
         elif network == "inmobi":
             return self._create_inmobi_unit(payload)
+        elif network == "fyber":
+            return self._create_fyber_unit(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create Unit (Mock)")
@@ -1555,29 +1557,54 @@ class MockNetworkManager:
     def _get_fyber_access_token(self) -> Optional[str]:
         """Get Fyber (DT) Access Token
         
+        Always fetches a new access token using DT_CLIENT_ID and DT_CLIENT_SECRET.
         API: POST https://console.fyber.com/api/v2/management/auth
         Payload: grant_type, client_id, client_secret
         """
-        client_id = _get_env_var("DT_CLIENT_ID") or _get_env_var("FYBER_CLIENT_ID")
-        client_secret = _get_env_var("DT_CLIENT_SECRET") or _get_env_var("FYBER_CLIENT_SECRET")
+        client_id_raw = _get_env_var("DT_CLIENT_ID") or _get_env_var("FYBER_CLIENT_ID")
+        client_secret_raw = _get_env_var("DT_CLIENT_SECRET") or _get_env_var("FYBER_CLIENT_SECRET")
+        
+        # Strip whitespace and check if empty
+        client_id = client_id_raw.strip() if client_id_raw else None
+        client_secret = client_secret_raw.strip() if client_secret_raw else None
+        
+        # Debug logging - check all possible env var names
+        logger.info(f"[Fyber] Fetching new access token...")
+        dt_client_id = _get_env_var("DT_CLIENT_ID")
+        fyber_client_id = _get_env_var("FYBER_CLIENT_ID")
+        dt_client_secret = _get_env_var("DT_CLIENT_SECRET")
+        fyber_client_secret = _get_env_var("FYBER_CLIENT_SECRET")
+        
+        logger.info(f"[Fyber] Environment variable check:")
+        logger.info(f"[Fyber]   DT_CLIENT_ID: {'✓' if dt_client_id else '✗'} (length: {len(dt_client_id) if dt_client_id else 0})")
+        logger.info(f"[Fyber]   FYBER_CLIENT_ID: {'✓' if fyber_client_id else '✗'} (length: {len(fyber_client_id) if fyber_client_id else 0})")
+        logger.info(f"[Fyber]   DT_CLIENT_SECRET: {'✓' if dt_client_secret else '✗'} (length: {len(dt_client_secret) if dt_client_secret else 0})")
+        logger.info(f"[Fyber]   FYBER_CLIENT_SECRET: {'✓' if fyber_client_secret else '✗'} (length: {len(fyber_client_secret) if fyber_client_secret else 0})")
+        logger.info(f"[Fyber] Final client_id: {'✓' if client_id else '✗'} (length: {len(client_id) if client_id else 0})")
+        logger.info(f"[Fyber] Final client_secret: {'✓' if client_secret else '✗'} (length: {len(client_secret) if client_secret else 0})")
         
         if not client_id or not client_secret:
             logger.error("[Fyber] DT_CLIENT_ID and DT_CLIENT_SECRET must be set")
+            logger.error(f"[Fyber] client_id is None or empty: {not client_id}, client_secret is None or empty: {not client_secret}")
+            logger.error(f"[Fyber] Please check:")
+            logger.error(f"[Fyber]   1. .env file has DT_CLIENT_ID and DT_CLIENT_SECRET (or FYBER_CLIENT_ID and FYBER_CLIENT_SECRET)")
+            logger.error(f"[Fyber]   2. Streamlit secrets has DT_CLIENT_ID and DT_CLIENT_SECRET")
+            logger.error(f"[Fyber]   3. Values are not empty or whitespace-only")
             return None
         
         auth_url = "https://console.fyber.com/api/v2/management/auth"
         
         payload = {
             "grant_type": "management_client_credentials",
-            "client_id": client_id.strip(),
-            "client_secret": client_secret.strip(),
+            "client_id": client_id,
+            "client_secret": client_secret,
         }
         
         headers = {
             "Content-Type": "application/json"
         }
         
-        logger.info(f"[Fyber] API Request: POST {auth_url}")
+        logger.info(f"[Fyber] Requesting new access token from: {auth_url}")
         logger.info(f"[Fyber] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
         
         try:
@@ -1587,18 +1614,32 @@ class MockNetworkManager:
             
             if response.status_code == 200:
                 result = response.json()
-                access_token = result.get("access_token")
+                # Check both accessToken and access_token (API may return either)
+                access_token = result.get("accessToken") or result.get("access_token")
                 if access_token:
-                    logger.info(f"[Fyber] Successfully obtained access token")
+                    logger.info(f"[Fyber] ✅ Successfully obtained new access token (length: {len(access_token)})")
                     return access_token
                 else:
-                    logger.error(f"[Fyber] Access token not found in response: {result}")
+                    logger.error(f"[Fyber] ❌ Access token not found in response: {result}")
                     return None
             else:
-                logger.error(f"[Fyber] Failed to get access token: {response.text}")
+                logger.error(f"[Fyber] ❌ Failed to get access token. Status: {response.status_code}")
+                logger.error(f"[Fyber] Response: {response.text}")
+                
+                # Provide helpful error messages
+                if "invalid_client" in response.text:
+                    logger.error("[Fyber] 💡 'invalid_client' 오류:")
+                    logger.error("[Fyber]   → Client ID 또는 Client Secret이 올바르지 않습니다.")
+                    logger.error("[Fyber]   → Fyber Console > Settings > API Credentials > Management API")
+                    logger.error("[Fyber]   → UI에서 받은 Client ID와 Client Secret을 정확히 복사했는지 확인")
+                elif "invalid_request" in response.text:
+                    logger.error("[Fyber] 💡 'invalid_request' 오류:")
+                    logger.error("[Fyber]   → 요청 파라미터가 올바르지 않습니다.")
+                    logger.error("[Fyber]   → grant_type이 'management_client_credentials'인지 확인")
+                
                 return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"[Fyber] API Error (Get Access Token): {str(e)}")
+            logger.error(f"[Fyber] ❌ API Error (Get Access Token): {str(e)}")
             return None
     
     def _create_fyber_app(self, payload: Dict) -> Dict:
@@ -1638,7 +1679,85 @@ class MockNetworkManager:
                 logger.error(f"[Fyber] Response Text: {response.text}")
                 result = {"code": response.status_code, "msg": response.text}
             
-            response.raise_for_status()
+            # Fyber API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                # Extract error message from response
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                
+                # Provide helpful error messages for common errors
+                if response.status_code == 409:
+                    if "Invalid store category1" in error_msg:
+                        logger.error("[Fyber] 💡 카테고리 오류:")
+                        logger.error("[Fyber]   → 선택한 카테고리가 플랫폼에 맞지 않습니다.")
+                        logger.error("[Fyber]   → Android와 iOS는 서로 다른 카테고리를 사용합니다.")
+                        logger.error(f"[Fyber]   → 에러 메시지: {error_msg[:200]}...")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Fyber] API Error (Create App): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Fyber] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Fyber] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
+    def _create_fyber_unit(self, payload: Dict) -> Dict:
+        """Create placement (unit) via Fyber (DT) API
+        
+        API: POST https://console.fyber.com/api/management/v1/placement
+        """
+        url = "https://console.fyber.com/api/management/v1/placement"
+        
+        # Get access token
+        access_token = self._get_fyber_access_token()
+        if not access_token:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "Failed to obtain Fyber access token. Please check DT_CLIENT_ID and DT_CLIENT_SECRET in .env file or Streamlit secrets."
+            }
+        
+        # Fyber API 인증 헤더 설정
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+        }
+        
+        logger.info(f"[Fyber] API Request: POST {url}")
+        logger.info(f"[Fyber] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Fyber] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            # Log response even if status code is not 200
+            logger.info(f"[Fyber] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Fyber] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[Fyber] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
             
             # Fyber API 응답 형식에 맞게 정규화
             if response.status_code == 200 or response.status_code == 201:
@@ -1649,15 +1768,17 @@ class MockNetworkManager:
                     "result": result
                 }
             else:
+                # Extract error message from response
                 error_msg = result.get("msg") or result.get("message") or "Unknown error"
                 error_code = result.get("code") or response.status_code
+                
                 return {
                     "status": 1,
                     "code": error_code,
                     "msg": error_msg
                 }
         except requests.exceptions.RequestException as e:
-            logger.error(f"[Fyber] API Error (Create App): {str(e)}")
+            logger.error(f"[Fyber] API Error (Create Placement): {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_body = e.response.json()
@@ -2350,11 +2471,122 @@ class MockNetworkManager:
                     logger.error(f"[InMobi] Error Response (text): {e.response.text}")
             return []
     
+    def _get_fyber_apps(self, publisher_id: Optional[int] = None, app_id: Optional[int] = None) -> List[Dict]:
+        """Get apps list from Fyber (DT) API
+        
+        API: GET https://console.fyber.com/api/management/v1/app?publisherId={publisherId}
+        or GET https://console.fyber.com/api/management/v1/app?appId={appId}
+        
+        Args:
+            publisher_id: Publisher ID (optional)
+            app_id: App ID (optional)
+        """
+        # Get access token
+        access_token = self._get_fyber_access_token()
+        if not access_token:
+            logger.error("[Fyber] Failed to get access token for get_apps")
+            return []
+        
+        # Get publisher_id or app_id from environment if not provided
+        if not publisher_id and not app_id:
+            publisher_id_str = _get_env_var("FYBER_PUBLISHER_ID") or _get_env_var("DT_PUBLISHER_ID")
+            app_id_str = _get_env_var("FYBER_APP_ID") or _get_env_var("DT_APP_ID")
+            
+            if app_id_str:
+                try:
+                    app_id = int(app_id_str)
+                except ValueError:
+                    logger.warning(f"[Fyber] Invalid FYBER_APP_ID: {app_id_str}")
+            elif publisher_id_str:
+                try:
+                    publisher_id = int(publisher_id_str)
+                except ValueError:
+                    logger.warning(f"[Fyber] Invalid FYBER_PUBLISHER_ID: {publisher_id_str}")
+        
+        if not publisher_id and not app_id:
+            logger.error("[Fyber] publisher_id or app_id is required for get_apps")
+            return []
+        
+        url = "https://console.fyber.com/api/management/v1/app"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        }
+        
+        params = {}
+        if publisher_id:
+            params["publisherId"] = publisher_id
+        if app_id:
+            params["appId"] = app_id
+        
+        logger.info(f"[Fyber] Get Apps API Request: GET {url}")
+        logger.info(f"[Fyber] Params: {json.dumps(params, indent=2)}")
+        
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            
+            logger.info(f"[Fyber] Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[Fyber] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                # Parse response - can be list or dict
+                apps = []
+                if isinstance(result, list):
+                    apps = result
+                elif isinstance(result, dict):
+                    apps = result.get("apps", result.get("data", result.get("list", [])))
+                    if not isinstance(apps, list):
+                        # Single app object
+                        apps = [result]
+                
+                # Convert to standard format
+                formatted_apps = []
+                for app in apps:
+                    app_id_val = app.get("id") or app.get("appId")
+                    app_name = app.get("name") or "Unknown"
+                    platform = app.get("platform", "").lower()
+                    bundle_id = app.get("bundle") or app.get("bundleId") or ""
+                    
+                    formatted_apps.append({
+                        "appCode": str(app_id_val) if app_id_val else "N/A",
+                        "appId": str(app_id_val) if app_id_val else "N/A",
+                        "name": app_name,
+                        "platform": platform,
+                        "status": app.get("status") or "Active",
+                        "bundleId": bundle_id,
+                    })
+                
+                logger.info(f"[Fyber] Converted to {len(formatted_apps)} apps in standard format")
+                return formatted_apps
+            else:
+                logger.error(f"[Fyber] Failed to get apps. Status: {response.status_code}")
+                logger.error(f"[Fyber] Response: {response.text}")
+                
+                if response.status_code == 401:
+                    logger.error("[Fyber] 💡 인증 오류: Access Token이 만료되었거나 유효하지 않습니다.")
+                elif response.status_code == 403:
+                    logger.error("[Fyber] 💡 권한 오류: Publisher ID 또는 App ID에 대한 접근 권한이 없습니다.")
+                elif response.status_code == 404:
+                    logger.error("[Fyber] 💡 리소스를 찾을 수 없음: Publisher ID 또는 App ID가 올바른지 확인해주세요.")
+                
+                return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Fyber] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Fyber] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Fyber] Error Response (text): {e.response.text}")
+            return []
+    
     def get_apps(self, network: str, app_key: Optional[str] = None) -> List[Dict]:
         """Get apps list from network
         
         Args:
-            network: Network name (e.g., "bigoads", "ironsource")
+            network: Network name (e.g., "bigoads", "ironsource", "fyber")
             app_key: Optional app key to filter by (for IronSource)
         """
         if network == "bigoads":
@@ -2365,6 +2597,19 @@ class MockNetworkManager:
             return self._get_mintegral_apps()
         elif network == "inmobi":
             return self._get_inmobi_apps()
+        elif network == "fyber":
+            # For Fyber, app_key can be publisher_id or app_id
+            publisher_id = None
+            app_id = None
+            if app_key:
+                try:
+                    if app_key.startswith("app:"):
+                        app_id = int(app_key.split(":")[1])
+                    else:
+                        publisher_id = int(app_key)
+                except ValueError:
+                    logger.warning(f"[Fyber] Invalid app_key format: {app_key}")
+            return self._get_fyber_apps(publisher_id=publisher_id, app_id=app_id)
         
         # Mock implementation for other networks
         return [

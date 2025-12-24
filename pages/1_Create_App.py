@@ -1016,6 +1016,25 @@ else:
             }
         }
         
+        # Default slot configurations for Fyber (DT)
+        slot_configs_fyber = {
+            "RV": {
+                "name": "Rewarded",
+                "placementType": "Rewarded",
+                "coppa": False,
+            },
+            "IS": {
+                "name": "Interstitial",
+                "placementType": "Interstitial",
+                "coppa": False,
+            },
+            "BN": {
+                "name": "Banner",
+                "placementType": "Banner",
+                "coppa": False,
+            }
+        }
+        
         # Select configs based on network
         if current_network == "ironsource":
             slot_configs = slot_configs_ironsource
@@ -1025,6 +1044,8 @@ else:
             slot_configs = slot_configs_mintegral
         elif current_network == "inmobi":
             slot_configs = slot_configs_inmobi
+        elif current_network == "fyber":
+            slot_configs = slot_configs_fyber
         else:
             slot_configs = slot_configs_bigoads
         
@@ -1654,6 +1675,145 @@ else:
                                         except Exception as e:
                                             st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
                                             SessionManager.log_error(current_network, str(e))
+                        elif current_network == "fyber":
+                            # Fyber: name, appId, placementType, coppa
+                            placement_name_key = f"fyber_slot_{slot_key}_name"
+                            
+                            # Get appId from selected app (required)
+                            app_id = None
+                            if selected_app_code:
+                                # Try to get from app_info_to_use first
+                                if app_info_to_use:
+                                    app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
+                                
+                                # If not found, try to get from apps list
+                                if not app_id:
+                                    for app in apps:
+                                        app_identifier = app.get("appId") or app.get("appCode")
+                                        if str(app_identifier) == str(selected_app_code):
+                                            app_id = app.get("appId") or app.get("app_id")
+                                            if not app_id:
+                                                try:
+                                                    app_id = int(app_identifier)
+                                                except (ValueError, TypeError):
+                                                    app_id = None
+                                            break
+                                
+                                # If still not found, use selected_app_code directly (manual entry)
+                                # This handles the case when user enters app code manually
+                                if not app_id:
+                                    try:
+                                        app_id = int(selected_app_code)
+                                    except (ValueError, TypeError):
+                                        app_id = None
+                            
+                            # Generate placement name only if not already set by user
+                            if placement_name_key not in st.session_state:
+                                if selected_app_code and app_info_to_use:
+                                    bundle_id = app_info_to_use.get("bundleId", "")
+                                    platform_str = app_info_to_use.get("platformStr", "android")
+                                    if bundle_id and "." in bundle_id:
+                                        last_part = bundle_id.split(".")[-1]
+                                    else:
+                                        app_name = app_info_to_use.get("name", "Unknown")
+                                        last_part = app_name.replace(" ", "_").lower()
+                                    
+                                    slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                    default_name = f"{last_part}_{platform_str}_fyber_{slot_type}"
+                                    st.session_state[placement_name_key] = default_name
+                                else:
+                                    default_name = f"{slot_key.lower()}_placement"
+                                    st.session_state[placement_name_key] = default_name
+                            
+                            placement_name = st.text_input(
+                                "Placement Name*",
+                                value=st.session_state.get(placement_name_key, ""),
+                                key=placement_name_key,
+                                help=f"Name for {slot_config['name']} placement"
+                            )
+                            
+                            # Display current settings
+                            st.markdown("**Current Settings:**")
+                            settings_html = '<div style="min-height: 80px; margin-bottom: 10px;">'
+                            settings_html += '<ul style="margin: 0; padding-left: 20px;">'
+                            settings_html += f'<li>Placement Type: {slot_config["placementType"]}</li>'
+                            settings_html += f'<li>COPPA: {"No" if not slot_config["coppa"] else "Yes"}</li>'
+                            settings_html += '</ul></div>'
+                            st.markdown(settings_html, unsafe_allow_html=True)
+                            
+                            # Show app ID info
+                            if app_id:
+                                st.info(f"📱 App ID: {app_id}")
+                            elif selected_app_code:
+                                st.warning(f"⚠️ App ID not found. Will use entered code: {selected_app_code}")
+                            
+                            # Create button for Fyber
+                            if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_fyber_{slot_key}"):
+                                if not placement_name:
+                                    st.toast("❌ Placement Name is required", icon="🚫")
+                                elif not selected_app_code:
+                                    st.toast("❌ App Code is required. Please select an app or enter manually.", icon="🚫")
+                                else:
+                                    # Ensure app_id is set (try parsing selected_app_code if app_id is still None)
+                                    if not app_id or app_id <= 0:
+                                        try:
+                                            app_id = int(selected_app_code)
+                                        except (ValueError, TypeError):
+                                            st.toast("❌ Invalid App ID. Please enter a valid numeric App ID.", icon="🚫")
+                                            app_id = None
+                                    
+                                    if not app_id or app_id <= 0:
+                                        st.toast("❌ App ID is required. Please select an app or enter a valid App ID.", icon="🚫")
+                                    else:
+                                        # Build payload for Fyber
+                                        # Ensure appId is properly set as string (API expects string)
+                                        payload = {
+                                            "name": placement_name.strip(),
+                                            "appId": str(app_id),  # Must be string, not integer
+                                            "placementType": slot_config["placementType"],
+                                            "coppa": bool(slot_config["coppa"]),  # Must be boolean, not string
+                                        }
+                                        
+                                        # Debug: Log payload to verify appId is included
+                                        logger.info(f"[Fyber] Creating placement - appId: {app_id}, payload: {payload}")
+                                        
+                                        # Make API call
+                                        with st.spinner(f"Creating {slot_key} placement..."):
+                                            try:
+                                                response = network_manager.create_unit(current_network, payload)
+                                                # handle_api_response displays the response automatically
+                                                result = handle_api_response(response)
+                                                
+                                                if result:
+                                                    unit_data = {
+                                                        "slotCode": result.get("id", result.get("placementId", "N/A")),
+                                                        "name": placement_name,
+                                                        "appCode": str(app_id),
+                                                        "slotType": slot_config["placementType"],
+                                                        "adType": slot_config["placementType"],
+                                                        "auctionType": "N/A"
+                                                    }
+                                                    SessionManager.add_created_unit(current_network, unit_data)
+                                                    
+                                                    # Add to cache
+                                                    cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                        cached_units.append(unit_data)
+                                                        SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                                    
+                                                    # Note: handle_api_response already displayed success message and response
+                                                    # Don't rerun immediately to let user see the response
+                                                    # Add a refresh button if needed
+                                                    if st.button("🔄 Refresh Page", key=f"refresh_after_{slot_key}", use_container_width=True):
+                                                        st.rerun()
+                                                else:
+                                                    # If result is None, handle_api_response already displayed the error
+                                                    # Don't rerun on error - let user see the error message
+                                                    pass
+                                            except Exception as e:
+                                                st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
+                                                SessionManager.log_error(current_network, str(e))
                         else:
                             # BigOAds and other networks
                             # Slot name input
