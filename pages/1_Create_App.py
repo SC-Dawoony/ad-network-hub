@@ -55,47 +55,173 @@ def _extract_package_name_from_store_url(store_url: str) -> str:
     return store_url.split("/")[-1].split("?")[0] if "/" in store_url else store_url
 
 
-def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None) -> str:
-    """Generate slot name based on network
+def _normalize_platform_str(platform_value: str, network: str = None) -> str:
+    """Normalize platform string to "android" or "ios"
     
-    BigOAds: {last_part}_{platform}_bigoads_{slot_type}_bidding
-    IronSource: {last_part}_{os}_ironsource_{ad_type}_bidding (uses bundleId)
+    Args:
+        platform_value: Platform value from API (can be "ANDROID", "IOS", "Android", "iOS", etc.)
+        network: Network name for network-specific handling (optional)
+    
+    Returns:
+        Normalized platform string: "android" or "ios"
     """
-    if network == "ironsource":
-        # IronSource: use bundleId (preferred) or pkg_name, extract last part after "."
-        source = bundle_id if bundle_id else pkg_name
-        if "." in source:
-            last_part = source.split(".")[-1]
-        else:
-            last_part = source
-    else:
-        # Get last part after "."
-        if "." in pkg_name:
-            last_part = pkg_name.split(".")[-1]
-        else:
-            last_part = pkg_name
+    if not platform_value:
+        return "android"  # Default
     
-    if network == "ironsource":
-        # IronSource: os is "aos" for Android, "ios" for iOS
-        # Handle None or empty platform_str
-        if platform_str and isinstance(platform_str, str):
-            platform_lower = platform_str.lower()
-            os = "aos" if platform_lower in ["android", "aos"] else "ios"
-        else:
-            # Default to "aos" if platform_str is None or invalid
-            os = "aos"
+    platform_str = str(platform_value).strip()
+    platform_upper = platform_str.upper()
+    platform_lower = platform_str.lower()
+    
+    # Handle Mintegral format: "ANDROID" or "IOS" (uppercase)
+    if platform_upper == "ANDROID" or platform_upper == "AND":
+        return "android"
+    elif platform_upper == "IOS" or platform_upper == "IPHONE":
+        return "ios"
+    
+    # Handle common formats
+    if platform_lower in ["android", "1", "and", "aos"]:
+        return "android"
+    elif platform_lower in ["ios", "2", "iphone"]:
+        return "ios"
+    elif platform_str == "Android":
+        return "android"
+    elif platform_str == "iOS":
+        return "ios"
+    
+    # Default to android
+    return "android"
+
+
+def _get_bigoads_pkg_name_display(pkg_name: str, bundle_id: str, network_manager, app_name: str = None, platform_str: str = None) -> str:
+    """Get BigOAds pkgNameDisplay by matching package name or bundleId
+    
+    For iOS apps with iTunes ID (id123456), try to find Android version of the same app
+    by matching app name, then use Android package name.
+    
+    Args:
+        pkg_name: Package name from current network
+        bundle_id: Bundle ID from current network (optional)
+        network_manager: Network manager instance to fetch BigOAds apps
+        app_name: App name for matching (optional, used when pkg_name is iTunes ID)
+        platform_str: Platform string ("android" or "ios") for filtering
+    
+    Returns:
+        BigOAds pkgNameDisplay if found, otherwise returns empty string for iTunes ID,
+        or original pkg_name/bundle_id for valid package names
+    """
+    if not pkg_name and not bundle_id:
+        return ""
+    
+    # Use bundle_id if available, otherwise use pkg_name
+    search_key = bundle_id if bundle_id else pkg_name
+    if not search_key:
+        return ""
+    
+    # Check if search_key is an iTunes ID (starts with "id" followed by numbers)
+    is_itunes_id = search_key.startswith("id") and search_key[2:].isdigit()
+    
+    try:
+        # Fetch BigOAds apps
+        bigoads_apps = network_manager.get_apps("bigoads")
         
-        # Map slot_type to ad_type
-        ad_type_map = {
-            "rv": "rewarded",
-            "is": "interstitial",
-            "bn": "banner"
-        }
-        ad_type = ad_type_map.get(slot_type.lower(), slot_type.lower())
-        return f"{last_part}_{os}_ironsource_{ad_type}_bidding"
+        if is_itunes_id:
+            # For iTunes ID, try to find Android version of the same app by app name
+            if app_name:
+                for app in bigoads_apps:
+                    app_platform = app.get("platform", "")
+                    app_pkg_name_display = app.get("pkgNameDisplay", "")
+                    app_pkg_name = app.get("pkgName", "")
+                    app_app_name = app.get("name", "")
+                    
+                    # Match by app name and platform (Android)
+                    if app_platform == "Android" and app_app_name and app_name:
+                        # Simple name matching (case-insensitive, partial match)
+                        if app_app_name.lower().strip() == app_name.lower().strip():
+                            # Found Android version, use its package name
+                            if app_pkg_name_display:
+                                return app_pkg_name_display
+                            elif app_pkg_name:
+                                return app_pkg_name
+                            break
+            # If no match found for iTunes ID, return empty to avoid using iTunes ID
+            logger.warning(f"Could not find Android package name for iTunes ID: {search_key}. App name: {app_name}")
+            return ""
+        else:
+            # For normal package name, match by pkgName or pkgNameDisplay
+            for app in bigoads_apps:
+                app_pkg_name = app.get("pkgName", "")
+                app_pkg_name_display = app.get("pkgNameDisplay", "")
+                
+                # Match by pkgName or pkgNameDisplay
+                if app_pkg_name == search_key or app_pkg_name_display == search_key:
+                    # Return pkgNameDisplay if available, otherwise return original
+                    if app_pkg_name_display:
+                        return app_pkg_name_display
+                    break
+    except Exception as e:
+        logger.warning(f"Failed to fetch BigOAds apps for pkgNameDisplay lookup: {str(e)}")
+    
+    # Fallback: if it's an iTunes ID, return empty to avoid using it
+    if is_itunes_id:
+        return ""
+    
+    # Fallback: return original pkg_name or bundle_id for valid package names
+    return search_key
+
+
+def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None) -> str:
+    """Generate unified slot name for all networks
+    
+    Format: {package_name_last_part}_{os}_{network}_{adtype}_bidding
+    
+    Rules:
+    - package_name: Use BigOAds pkgNameDisplay if available, otherwise use current network's pkg_name/bundle_id
+    - For iOS apps with iTunes ID (id123456), find Android version by app name and use its package name
+    - Extract last part after "." (e.g., com.example.app -> app)
+    - os: "aos" for Android, "ios" for iOS
+    - network: network name in lowercase (bigoads, ironsource, fyber, etc.)
+    - adtype: "rv", "is", "bn" (unified for all networks)
+    - Always append "_bidding"
+    """
+    # Get package name (prefer BigOAds pkgNameDisplay)
+    final_pkg_name = pkg_name
+    if network_manager and (pkg_name or bundle_id):
+        bigoads_pkg = _get_bigoads_pkg_name_display(pkg_name, bundle_id, network_manager, app_name, platform_str)
+        if bigoads_pkg:
+            final_pkg_name = bigoads_pkg
+        elif not bigoads_pkg and pkg_name and pkg_name.startswith("id") and pkg_name[2:].isdigit():
+            # iTunes ID but couldn't find Android version - this should not happen if app_name is provided
+            # Return empty to avoid using iTunes ID
+            logger.warning(f"Could not find package name for iTunes ID: {pkg_name}. App name: {app_name}")
+            return ""
+    
+    # Extract last part after "."
+    if "." in final_pkg_name:
+        last_part = final_pkg_name.split(".")[-1]
     else:
-        # BigOAds format
-        return f"{last_part}_{platform_str}_bigoads_{slot_type}_bidding"
+        last_part = final_pkg_name
+    
+    # Normalize platform_str first, then map to os: Android -> aos, iOS -> ios
+    normalized_platform = _normalize_platform_str(platform_str, network)
+    os = "aos" if normalized_platform == "android" else "ios"
+    
+    # Map slot_type to adtype (unified: rv, is, bn)
+    slot_type_lower = slot_type.lower()
+    adtype_map = {
+        "rv": "rv",
+        "rewarded": "rv",
+        "is": "is",
+        "interstitial": "is",
+        "bn": "bn",
+        "banner": "bn"
+    }
+    adtype = adtype_map.get(slot_type_lower, slot_type_lower)
+    
+    # Network name in lowercase
+    network_lower = network.lower()
+    
+    # Generate unified format: {last_part}_{os}_{network}_{adtype}_bidding
+    return f"{last_part}_{os}_{network_lower}_{adtype}_bidding"
 
 
 def _create_default_slot(network: str, app_info: dict, slot_type: str, network_manager, config):
@@ -103,14 +229,13 @@ def _create_default_slot(network: str, app_info: dict, slot_type: str, network_m
     app_code = app_info.get("appCode")
     platform_str = app_info.get("platformStr", "android")
     
-    # For BigOAds, use pkgNameDisplay from API response; otherwise use pkgName
-    if network == "bigoads" and "pkgNameDisplay" in app_info:
-        pkg_name = app_info.get("pkgNameDisplay", "")
-    else:
-        pkg_name = app_info.get("pkgName", "")
+    # Get package name (prefer BigOAds pkgNameDisplay via unified function)
+    pkg_name = app_info.get("pkgName", "")
+    bundle_id = app_info.get("bundleId", "")
+    app_name = app_info.get("name", "")
     
-    # Generate slot name
-    slot_name = _generate_slot_name(pkg_name, platform_str, slot_type, network)
+    # Generate slot name using unified function (will automatically use BigOAds pkgNameDisplay if available)
+    slot_name = _generate_slot_name(pkg_name, platform_str, slot_type, network, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name)
     
     # Build payload based on slot type
     payload = {
@@ -709,18 +834,20 @@ else:
             else:
                 pkg_name = selected_app_data.get("pkgName", "")
             
-            # Get platform
+            # Get platform and normalize it using helper function
             platform_str_val = selected_app_data.get("platform", "")
-            platform_str = "android" if platform_str_val == "Android" else ("ios" if platform_str_val == "iOS" else "android")
+            platform_str = _normalize_platform_str(platform_str_val, current_network)
             
             # Get bundleId for IronSource
             bundle_id = selected_app_data.get("bundleId", "") if current_network == "ironsource" else None
             
             # Update all slot names immediately when app is selected
             if pkg_name or bundle_id:
+                # Get app name from selected_app_data
+                app_name_for_slot = selected_app_data.get("name", app_name) if selected_app_data else app_name
                 for slot_key in ["rv", "is", "bn"]:
                     slot_name_key = f"custom_slot_{slot_key.upper()}_name"
-                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key, current_network, store_url=None, bundle_id=bundle_id)
+                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key, current_network, store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
                     st.session_state[slot_name_key] = default_name
     
     # Show UI for slot creation (always show, but require app code selection)
@@ -754,13 +881,12 @@ else:
                 # For IronSource, check appKey; for others, check appCode
                 app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
                 if app_identifier == selected_app_code:
-                    platform_str = app.get("platform", "")
-                    if platform_str == "Android":
-                        app_info_to_use["platform"] = 1
-                        app_info_to_use["platformStr"] = "android"
-                    elif platform_str == "iOS":
-                        app_info_to_use["platform"] = 2
-                        app_info_to_use["platformStr"] = "ios"
+                    # Normalize platform using helper function
+                    platform_from_app = app.get("platform", "")
+                    normalized_platform = _normalize_platform_str(platform_from_app, current_network)
+                    
+                    app_info_to_use["platformStr"] = normalized_platform
+                    app_info_to_use["platform"] = 1 if normalized_platform == "android" else 2
                     
                     # For IronSource, get bundleId, storeUrl and platformStr from API response
                     if current_network == "ironsource":
@@ -772,6 +898,18 @@ else:
                     # For BigOAds, get pkgNameDisplay from API response
                     if current_network == "bigoads" and "pkgNameDisplay" in app:
                         app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
+                    
+                    # For Mintegral, get pkgName from API response
+                    if current_network == "mintegral":
+                        app_info_to_use["pkgName"] = app.get("pkgName", "")
+                        app_info_to_use["name"] = app.get("name", app_name)
+                    
+                    # For InMobi, get bundleId and pkgName from API response
+                    if current_network == "inmobi":
+                        app_info_to_use["bundleId"] = app.get("bundleId", "")
+                        app_info_to_use["pkgName"] = app.get("pkgName", "")
+                        app_info_to_use["name"] = app.get("name", app_name)
+                    
                     break
     else:
         # Show message if no app code selected
@@ -1065,11 +1203,12 @@ else:
                             if selected_app_code and app_info_to_use:
                                 bundle_id = app_info_to_use.get("bundleId", "")
                                 platform_str = app_info_to_use.get("platformStr", "android")
+                                app_name_for_slot = app_info_to_use.get("name", app_name)
                                 if bundle_id:
                                     # Map slot_key to slot_type
                                     slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                                     slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                    default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id)
+                                    default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
                                     st.session_state[slot_name_key] = default_name
                                 elif slot_name_key not in st.session_state:
                                     default_name = f"{slot_key.lower()}-1"
@@ -1166,7 +1305,18 @@ else:
                         elif current_network == "pangle":
                             # Pangle: site_id, ad_slot_type, and type-specific fields
                             slot_name_key = f"pangle_slot_{slot_key}_name"
-                            if slot_name_key not in st.session_state:
+                            
+                            # Generate placement name using unified function
+                            if selected_app_code and app_info_to_use:
+                                pkg_name = app_info_to_use.get("pkgName", "")
+                                platform_str = app_info_to_use.get("platformStr", "android")
+                                app_name_for_slot = app_info_to_use.get("name", app_name)
+                                
+                                if pkg_name:
+                                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "pangle", network_manager=network_manager, app_name=app_name_for_slot)
+                                    if slot_name_key not in st.session_state:
+                                        st.session_state[slot_name_key] = default_name
+                            elif slot_name_key not in st.session_state:
                                 default_name = f"slot_{slot_key.lower()}"
                                 st.session_state[slot_name_key] = default_name
                             
@@ -1363,7 +1513,44 @@ else:
                         elif current_network == "mintegral":
                             # Mintegral: app_id, placement_name, ad_type, and type-specific fields
                             placement_name_key = f"mintegral_slot_{slot_key}_name"
-                            if placement_name_key not in st.session_state:
+                            
+                            # Generate placement name using unified function
+                            if selected_app_code:
+                                # Get pkg_name and platform_str from app_info_to_use or apps list
+                                pkg_name = ""
+                                platform_str = "android"
+                                app_name_for_slot = app_name
+                                
+                                if app_info_to_use:
+                                    pkg_name = app_info_to_use.get("pkgName", "")
+                                    platform_str = app_info_to_use.get("platformStr", "android")
+                                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                                
+                                # If not found in app_info_to_use, try to get from apps list directly
+                                if not pkg_name or not platform_str or platform_str == "unknown":
+                                    for app in apps:
+                                        app_identifier = app.get("appCode")
+                                        if app_identifier == selected_app_code:
+                                            if not pkg_name:
+                                                pkg_name = app.get("pkgName", "")
+                                            if not platform_str or platform_str == "unknown":
+                                                platform_from_app = app.get("platform", "")
+                                                platform_str = _normalize_platform_str(platform_from_app, "mintegral")
+                                            if not app_name_for_slot or app_name_for_slot == app_name:
+                                                app_name_for_slot = app.get("name", app_name)
+                                            break
+                                
+                                # Normalize platform_str (ensure it's "android" or "ios")
+                                platform_str = _normalize_platform_str(platform_str, "mintegral")
+                                
+                                if pkg_name:
+                                    default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "mintegral", network_manager=network_manager, app_name=app_name_for_slot)
+                                    # Always update when app is selected (even if key exists) - same as RV, IS, BN
+                                    st.session_state[placement_name_key] = default_name
+                                elif placement_name_key not in st.session_state:
+                                    default_name = f"{slot_key.lower()}_placement"
+                                    st.session_state[placement_name_key] = default_name
+                            elif placement_name_key not in st.session_state:
                                 default_name = f"{slot_key.lower()}_placement"
                                 st.session_state[placement_name_key] = default_name
                             
@@ -1588,21 +1775,49 @@ else:
                                                     app_id = None
                                             break
                             
-                            # Generate placement name from bundleId (last part after ".")
-                            if selected_app_code and app_info_to_use:
-                                bundle_id = app_info_to_use.get("bundleId", "")
-                                if bundle_id and "." in bundle_id:
-                                    last_part = bundle_id.split(".")[-1]
-                                else:
-                                    # Fallback: use app name
-                                    app_name = app_info_to_use.get("name", "Unknown")
-                                    last_part = app_name.replace(" ", "_").lower()
+                            # Generate placement name using unified function
+                            if selected_app_code:
+                                # Always get bundle_id, pkg_name and platform_str from apps list directly (most reliable)
+                                bundle_id = ""
+                                pkg_name = ""
+                                platform_str = "android"
+                                app_name_for_slot = app_name
                                 
-                                platform_str = app_info_to_use.get("platformStr", "android")
-                                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                                slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                default_name = f"{last_part}_{platform_str}_inmobi_{slot_type}_bidding"
-                                if placement_name_key not in st.session_state:
+                                # Get from apps list directly (most reliable source)
+                                for app in apps:
+                                    app_identifier = app.get("appId") or app.get("appCode")
+                                    if str(app_identifier) == str(selected_app_code):
+                                        bundle_id = app.get("bundleId", "")
+                                        pkg_name = app.get("pkgName", "")
+                                        platform_from_app = app.get("platform", "")
+                                        platform_str = _normalize_platform_str(platform_from_app, "inmobi")
+                                        app_name_for_slot = app.get("name", app_name)
+                                        break
+                                
+                                # Fallback to app_info_to_use if not found in apps list
+                                if (not bundle_id and not pkg_name) or not platform_str or platform_str == "unknown":
+                                    if app_info_to_use:
+                                        if not bundle_id:
+                                            bundle_id = app_info_to_use.get("bundleId", "")
+                                        if not pkg_name:
+                                            pkg_name = app_info_to_use.get("pkgName", "")
+                                        if not platform_str or platform_str == "unknown":
+                                            platform_str_from_info = app_info_to_use.get("platformStr", "android")
+                                            platform_str = _normalize_platform_str(platform_str_from_info, "inmobi")
+                                        if not app_name_for_slot or app_name_for_slot == app_name:
+                                            app_name_for_slot = app_info_to_use.get("name", app_name)
+                                
+                                # Normalize platform_str one more time to ensure correctness
+                                platform_str = _normalize_platform_str(platform_str, "inmobi")
+                                
+                                # Use bundleId if available, otherwise use pkgName
+                                source_pkg = bundle_id if bundle_id else pkg_name
+                                
+                                if source_pkg:
+                                    slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                    default_name = _generate_slot_name(source_pkg, platform_str, slot_type, "inmobi", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                    # Always update when app is selected (even if key exists) - same as RV, IS, BN
                                     st.session_state[placement_name_key] = default_name
                             elif placement_name_key not in st.session_state:
                                 default_name = f"{slot_key.lower()}-placement-1"
@@ -1707,21 +1922,22 @@ else:
                                     except (ValueError, TypeError):
                                         app_id = None
                             
-                            # Generate placement name only if not already set by user
+                            # Generate placement name using unified function
                             if placement_name_key not in st.session_state:
                                 if selected_app_code and app_info_to_use:
                                     bundle_id = app_info_to_use.get("bundleId", "")
+                                    pkg_name = app_info_to_use.get("pkgName", "")
                                     platform_str = app_info_to_use.get("platformStr", "android")
-                                    if bundle_id and "." in bundle_id:
-                                        last_part = bundle_id.split(".")[-1]
-                                    else:
-                                        app_name = app_info_to_use.get("name", "Unknown")
-                                        last_part = app_name.replace(" ", "_").lower()
+                                    app_name_for_slot = app_info_to_use.get("name", app_name)
                                     
-                                    slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                    default_name = f"{last_part}_{platform_str}_fyber_{slot_type}"
-                                    st.session_state[placement_name_key] = default_name
+                                    # Use bundleId if available, otherwise use pkgName
+                                    source_pkg = bundle_id if bundle_id else pkg_name
+                                    
+                                    if source_pkg:
+                                        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                        slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                        default_name = _generate_slot_name(source_pkg, platform_str, slot_type, "fyber", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                        st.session_state[placement_name_key] = default_name
                                 else:
                                     default_name = f"{slot_key.lower()}_placement"
                                     st.session_state[placement_name_key] = default_name
@@ -1851,7 +2067,10 @@ else:
                             
                             # Update slot name if app is selected and we have pkg_name
                             if selected_app_code and pkg_name:
-                                default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower())
+                                # Get bundleId if available (for networks that use it)
+                                bundle_id = app_info_to_use.get("bundleId", "") if app_info_to_use else ""
+                                app_name_for_slot = app_info_to_use.get("name", app_name) if app_info_to_use else app_name
+                                default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), current_network, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
                                 # Always update when app is selected (even if key exists)
                                 st.session_state[slot_name_key] = default_name
                             elif slot_name_key not in st.session_state:
