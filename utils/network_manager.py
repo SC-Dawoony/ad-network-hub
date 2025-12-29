@@ -939,11 +939,31 @@ class MockNetworkManager:
                     "msg": error_msg
                 }
             
-            # Success response
-            result = response.json()
+            # Success response - handle empty or invalid JSON
+            response_text = response.text.strip()
+            if not response_text:
+                # Empty response
+                logger.warning(f"[IronSource] Empty response body (status {response.status_code})")
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success (empty response)",
+                    "result": {}
+                }
             
-            # Log response
-            logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            try:
+                result = response.json()
+                # Log response
+                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except json.JSONDecodeError as e:
+                # Invalid JSON response
+                logger.error(f"[IronSource] JSON decode error: {str(e)}")
+                logger.error(f"[IronSource] Response text: {response_text[:500]}")
+                return {
+                    "status": 1,
+                    "code": "JSON_ERROR",
+                    "msg": f"Invalid JSON response: {str(e)}. Response: {response_text[:200]}"
+                }
             
             # IronSource API response format may vary, normalize it
             # Response might be an array of created ad units or a single object

@@ -3,7 +3,7 @@ import streamlit as st
 import logging
 from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
-from utils.network_manager import get_network_manager, handle_api_response
+from utils.network_manager import get_network_manager, handle_api_response, _mask_sensitive_data
 from utils.validators import validate_app_name, validate_package_name, validate_url, validate_slot_name
 from network_configs import get_network_config, get_network_display_names
 
@@ -416,6 +416,23 @@ with st.form("create_app_form"):
                 st.error(f"❌ Media List API 호출 실패: {str(e)}")
                 st.info("💡 터미널 로그를 확인하여 자세한 에러 정보를 확인하세요.")
     
+    # Display persisted create app response if exists (for all networks)
+    response_key = f"{current_network}_last_app_response"
+    if response_key in st.session_state:
+        last_response = st.session_state[response_key]
+        st.info(f"📥 Last Create App Response (persisted) - {network_display}")
+        with st.expander("📥 Last API Response", expanded=True):
+            import json
+            st.json(_mask_sensitive_data(last_response))
+            result = last_response.get('result', {})
+            if result:
+                st.subheader("📝 Result Data")
+                st.json(_mask_sensitive_data(result))
+        if st.button("🗑️ Clear Response", key=f"clear_{current_network}_response"):
+            del st.session_state[response_key]
+            st.rerun()
+        st.divider()
+    
     if submit_button:
         # Validate form data
         validation_passed = True
@@ -476,6 +493,9 @@ with st.form("create_app_form"):
                 with st.spinner("Creating app..."):
                     network_manager = get_network_manager()
                     response = network_manager.create_app(current_network, payload)
+                    
+                    # Store response in session_state to persist it (for all networks)
+                    st.session_state[f"{current_network}_last_app_response"] = response
                     
                     result = handle_api_response(response)
                     
@@ -567,7 +587,17 @@ with st.form("create_app_form"):
                             st.write(f"**App Code:** {result.get('appCode', app_code)}")
                         with result_col2:
                             st.write(f"**App Name:** {form_data.get('name', app_name)}")
-                            if form_data.get('platform'):
+                            # Display platform correctly for all networks
+                            if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
+                                # For these networks, use platform_str or platform_value
+                                if current_network == "ironsource":
+                                    platform_value = form_data.get("platform", "Android")
+                                    platform_display = "Android" if platform_value == "Android" else "iOS"
+                                else:
+                                    platform_display = "Android" if platform_str == "android" else "iOS"
+                                st.write(f"**Platform:** {platform_display}")
+                            elif form_data.get('platform'):
+                                # For other networks, platform is numeric (1 = Android, 2 = iOS)
                                 st.write(f"**Platform:** {'Android' if form_data.get('platform') == 1 else 'iOS'}")
                         
             except Exception as e:
@@ -1199,30 +1229,56 @@ else:
                             # IronSource: mediationAdUnitName and adFormat only
                             slot_name_key = f"ironsource_slot_{slot_key}_name"
                             
-                            # Generate default name from Store URL if available
+                            # Generate default name from Store URL if available (only when app is first selected)
+                            # Use a flag to track if name was auto-generated to avoid overwriting user edits
+                            auto_gen_flag_key = f"{slot_name_key}_auto_generated"
+                            
                             if selected_app_code and app_info_to_use:
-                                bundle_id = app_info_to_use.get("bundleId", "")
-                                platform_str = app_info_to_use.get("platformStr", "android")
-                                app_name_for_slot = app_info_to_use.get("name", app_name)
-                                if bundle_id:
-                                    # Map slot_key to slot_type
-                                    slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                    default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
-                                    st.session_state[slot_name_key] = default_name
-                                elif slot_name_key not in st.session_state:
-                                    default_name = f"{slot_key.lower()}-1"
-                                    st.session_state[slot_name_key] = default_name
+                                # Only auto-generate if name hasn't been set yet or was previously auto-generated
+                                if slot_name_key not in st.session_state or st.session_state.get(auto_gen_flag_key, False):
+                                    bundle_id = app_info_to_use.get("bundleId", "")
+                                    platform_str = app_info_to_use.get("platformStr", "android")
+                                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                                    if bundle_id:
+                                        # Map slot_key to slot_type
+                                        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                        slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                        default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                        st.session_state[slot_name_key] = default_name
+                                        st.session_state[auto_gen_flag_key] = True
+                                    elif slot_name_key not in st.session_state:
+                                        default_name = f"{slot_key.lower()}-1"
+                                        st.session_state[slot_name_key] = default_name
+                                        st.session_state[auto_gen_flag_key] = True
                             elif slot_name_key not in st.session_state:
                                 default_name = f"{slot_key.lower()}-1"
                                 st.session_state[slot_name_key] = default_name
+                                st.session_state[auto_gen_flag_key] = True
                             
+                            # Track if user manually edits the name (clear auto-generated flag)
+                            # Only auto-generate if flag is True (meaning it was auto-generated before)
                             mediation_ad_unit_name = st.text_input(
                                 "Mediation Ad Unit Name*",
-                                value=st.session_state[slot_name_key],
+                                value=st.session_state.get(slot_name_key, ""),
                                 key=slot_name_key,
                                 help=f"Name for {slot_config['name']} placement"
                             )
+                            
+                            # If user edits the name manually, clear the auto-generated flag
+                            # This prevents re-generation when app code is re-selected
+                            if mediation_ad_unit_name:
+                                # Check if this is a manual edit (different from auto-generated value)
+                                if selected_app_code and app_info_to_use:
+                                    bundle_id = app_info_to_use.get("bundleId", "")
+                                    if bundle_id:
+                                        platform_str = app_info_to_use.get("platformStr", "android")
+                                        app_name_for_slot = app_info_to_use.get("name", app_name)
+                                        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                        slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                        expected_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                        if mediation_ad_unit_name != expected_name:
+                                            # User has manually edited, clear auto-generated flag
+                                            st.session_state[auto_gen_flag_key] = False
                             
                             # Display current settings (adFormat is fixed)
                             st.markdown("**Current Settings:**")
