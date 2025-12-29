@@ -256,7 +256,8 @@ def match_applovin_unit_to_network(
 def find_matching_unit(
     network_units: List[Dict],
     ad_format: str,
-    network: str
+    network: str,
+    platform: Optional[str] = None
 ) -> Optional[Dict]:
     """Find matching ad unit by ad format
     
@@ -264,12 +265,43 @@ def find_matching_unit(
         network_units: List of ad units from network API
         ad_format: AppLovin ad format (REWARD, INTER, BANNER)
         network: Network name
+        platform: Optional platform ("android" or "ios") for filtering by mediationAdUnitName
     
     Returns:
         Matched unit dict with mediationAdUnitId/adUnitId, or None if not found
     """
     target_format = map_ad_format_to_network_format(ad_format, network)
     
+    # For IronSource, if platform is provided and multiple units match the format,
+    # prioritize units with platform indicator in mediationAdUnitName
+    if network == "ironsource" and platform:
+        platform_normalized = platform.lower()
+        platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+        
+        # First, collect all matching units
+        matching_units = []
+        for unit in network_units:
+            unit_format = unit.get("adFormat", "").lower()
+            if unit_format == target_format.lower():
+                matching_units.append(unit)
+        
+        # If multiple matches, prioritize by platform indicator in mediationAdUnitName
+        if len(matching_units) > 1:
+            for unit in matching_units:
+                mediation_name = unit.get("mediationAdUnitName", "").lower()
+                if platform_indicator in mediation_name:
+                    logger.info(f"[IronSource] Found unit with platform indicator '{platform_indicator}' in mediationAdUnitName: {unit.get('mediationAdUnitName')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[IronSource] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in mediationAdUnitName")
+            return matching_units[0]
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
+    # For other networks or when platform is not provided, use simple format matching
     for unit in network_units:
         unit_format = unit.get("adFormat", "").lower()
         if unit_format == target_format.lower():

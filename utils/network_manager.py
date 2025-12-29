@@ -1375,11 +1375,24 @@ class MockNetworkManager:
             # Mintegral API response format normalization
             # Check common success indicators
             if result.get("code") == 0 or result.get("ret_code") == 0 or result.get("status") == 0:
+                # Handle empty result object - this is a valid success response
+                result_data = result.get("data")
+                if result_data is None:
+                    # If "data" field doesn't exist, check if "result" field exists
+                    result_data = result.get("result", {})
+                
+                # If result_data is empty dict and msg indicates empty response, keep it as is
+                # This is a valid success case for Mintegral API
+                msg = result.get("msg", "Success")
+                if not result_data and "empty response" in msg.lower():
+                    # This is expected - empty result is valid for Mintegral create unit
+                    result_data = {}
+                
                 return {
                     "status": 0,
                     "code": 0,
-                    "msg": result.get("msg", "Success"),
-                    "result": result.get("data", result)
+                    "msg": msg,
+                    "result": result_data if result_data else {}
                 }
             else:
                 error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"

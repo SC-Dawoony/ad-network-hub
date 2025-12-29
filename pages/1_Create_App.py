@@ -1328,27 +1328,36 @@ else:
                                             else:
                                                 result = handle_api_response(response)
                                         
-                                                if result and isinstance(result, dict):
-                                                    unit_data = {
-                                                        "slotCode": result.get("adUnitId") or result.get("id") or result.get("adUnitId", "N/A"),
-                                                        "name": mediation_ad_unit_name,
-                                                        "appCode": selected_app_code,
-                                                        "slotType": slot_config['adFormat'],
-                                                        "adType": slot_config['adFormat'],
-                                                        "auctionType": "N/A"
-                                                    }
-                                                    SessionManager.add_created_unit(current_network, unit_data)
+                                                if result is not None and isinstance(result, dict):
+                                                    # Check if result has any data (empty dict is also valid for some networks like Mintegral)
+                                                    slot_code = result.get("adUnitId") or result.get("id") or result.get("placement_id") or result.get("placementId")
                                                     
-                                                    # Add to cache
-                                                    cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
-                                                    if not cached_units:
-                                                        cached_units = []
-                                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
-                                                        cached_units.append(unit_data)
-                                                        SessionManager.cache_units(current_network, selected_app_code, cached_units)
-                                                    
-                                                    st.success(f"✅ {slot_key} placement created successfully!")
-                                                    st.rerun()
+                                                    if slot_code or not result:  # If has slot_code or empty dict (valid success response)
+                                                        if slot_code:  # Only add to cache if we have slot_code
+                                                            unit_data = {
+                                                                "slotCode": slot_code,
+                                                                "name": mediation_ad_unit_name,
+                                                                "appCode": selected_app_code,
+                                                                "slotType": slot_config['adFormat'],
+                                                                "adType": slot_config['adFormat'],
+                                                                "auctionType": "N/A"
+                                                            }
+                                                            SessionManager.add_created_unit(current_network, unit_data)
+                                                            
+                                                            # Add to cache
+                                                            cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                                            if not cached_units:
+                                                                cached_units = []
+                                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                                cached_units.append(unit_data)
+                                                                SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                                        
+                                                        st.success(f"✅ {slot_key} placement created successfully!")
+                                                        st.rerun()
+                                                    else:
+                                                        # Empty dict but no slot_code - this is a valid success response (e.g., Mintegral)
+                                                        st.success(f"✅ {slot_key} placement created successfully!")
+                                                        st.rerun()
                                                 elif result is None:
                                                     # handle_api_response already displayed error
                                                     pass

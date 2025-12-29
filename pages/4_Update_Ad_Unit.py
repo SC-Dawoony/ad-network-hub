@@ -356,7 +356,8 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             matched_unit = find_matching_unit(
                                                 units,
                                                 applovin_unit["ad_format"],
-                                                actual_network
+                                                actual_network,
+                                                applovin_unit["platform"]  # Pass platform for filtering by mediationAdUnitName
                                             )
                                         
                                         # Extract unit ID
