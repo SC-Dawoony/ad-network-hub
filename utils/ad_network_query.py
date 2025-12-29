@@ -148,6 +148,19 @@ def get_ironsource_app_by_name(app_name: str, platform: Optional[str] = None) ->
     return find_app_by_name("ironsource", app_name, platform)
 
 
+def get_inmobi_app_by_name(app_name: str, platform: Optional[str] = None) -> Optional[Dict]:
+    """Get InMobi app by appName
+    
+    Args:
+        app_name: App name to search for
+        platform: Optional platform filter ("android" or "ios")
+    
+    Returns:
+        App dict with appId if found, None otherwise
+    """
+    return find_app_by_name("inmobi", app_name, platform)
+
+
 def get_ironsource_units(app_key: str) -> List[Dict]:
     """Get IronSource ad units (placements) for an app
     
@@ -265,10 +278,10 @@ def find_matching_unit(
         network_units: List of ad units from network API
         ad_format: AppLovin ad format (REWARD, INTER, BANNER)
         network: Network name
-        platform: Optional platform ("android" or "ios") for filtering by mediationAdUnitName
+        platform: Optional platform ("android" or "ios") for filtering by mediationAdUnitName or placementName
     
     Returns:
-        Matched unit dict with mediationAdUnitId/adUnitId, or None if not found
+        Matched unit dict with placementId/adUnitId, or None if not found
     """
     target_format = map_ad_format_to_network_format(ad_format, network)
     
@@ -301,6 +314,34 @@ def find_matching_unit(
         else:
             return None
     
+    # For InMobi, match by placementType
+    if network == "inmobi":
+        # InMobi uses placementType field (e.g., "REWARDED_VIDEO", "INTERSTITIAL", "BANNER")
+        matching_units = []
+        for unit in network_units:
+            unit_format = unit.get("placementType", "").upper()
+            if unit_format == target_format.upper():
+                matching_units.append(unit)
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in placementName
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                placement_name = unit.get("placementName", "").lower()
+                if platform_indicator in placement_name:
+                    logger.info(f"[InMobi] Found unit with platform indicator '{platform_indicator}' in placementName: {unit.get('placementName')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[InMobi] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in placementName")
+            return matching_units[0] if matching_units else None
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
     # For other networks or when platform is not provided, use simple format matching
     for unit in network_units:
         unit_format = unit.get("adFormat", "").lower()
@@ -310,23 +351,118 @@ def find_matching_unit(
     return None
 
 
+def get_inmobi_units(app_id: str) -> List[Dict]:
+    """Get InMobi ad units (placements) for an app
+    
+    API: GET https://publisher.inmobi.com/rest/api/v1/placements?appId={appId}
+    
+    Args:
+        app_id: InMobi app ID (Integer)
+    
+    Returns:
+        List of ad unit dicts with placementId, placementName, placementType, etc.
+    """
+    try:
+        # InMobi uses x-client-id, x-account-id, x-client-secret headers
+        username = _get_env_var("INMOBI_USERNAME")
+        account_id = _get_env_var("INMOBI_ACCOUNT_ID")
+        client_secret = _get_env_var("INMOBI_CLIENT_SECRET")
+        
+        if not username or not account_id or not client_secret:
+            logger.error("[InMobi] Cannot get units: INMOBI_USERNAME, INMOBI_ACCOUNT_ID, and INMOBI_CLIENT_SECRET must be set")
+            return []
+        
+        headers = {
+            "x-client-id": username,
+            "x-account-id": account_id,
+            "x-client-secret": client_secret,
+            "Accept": "application/json",
+        }
+        
+        url = "https://publisher.inmobi.com/rest/api/v1/placements"
+        
+        # Query parameters
+        params = {
+            "appId": int(app_id) if app_id.isdigit() else app_id,
+            "pageNum": 1,
+            "pageLength": 100,  # Get more results per page
+        }
+        
+        logger.info(f"[InMobi] API Request: GET {url}")
+        logger.info(f"[InMobi] Request Params: {json.dumps(params, indent=2)}")
+        masked_headers = {k: "***MASKED***" if k in ["x-client-secret"] else v for k, v in headers.items()}
+        logger.info(f"[InMobi] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        
+        import requests
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        logger.info(f"[InMobi] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[InMobi] Empty response body (status {response.status_code})")
+                return []
+            
+            try:
+                result = response.json()
+                logger.info(f"[InMobi] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[InMobi] JSON decode error: {str(e)}")
+                logger.error(f"[InMobi] Response text: {response_text[:500]}")
+                return []
+            
+            # InMobi API 응답 형식에 맞게 파싱
+            # Response format: {"success": true, "data": {"records": [...], "totalRecords": ...}}
+            units = []
+            if isinstance(result, dict):
+                if result.get("success") is True:
+                    data = result.get("data", {})
+                    if isinstance(data, dict):
+                        units = data.get("records", data.get("placements", []))
+                    elif isinstance(data, list):
+                        units = data
+                else:
+                    # If success is false, check if there's error info
+                    error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                    logger.error(f"[InMobi] API returned success=false: {error_msg}")
+            elif isinstance(result, list):
+                units = result
+            
+            logger.info(f"[InMobi] Units count: {len(units)}")
+            return units
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[InMobi] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[InMobi] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[InMobi] API Error (Get Units): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
         network: Network name (e.g., "ironsource", "bigoads", "inmobi")
-        app_code: App code (appKey for IronSource, appCode for others, etc.)
+        app_code: App code (appKey for IronSource, appId for InMobi, appCode for others, etc.)
     
     Returns:
         List of ad unit dicts
     """
     if network == "ironsource":
         return get_ironsource_units(app_code)
+    elif network == "inmobi":
+        return get_inmobi_units(app_code)
     # TODO: Add other networks
     # elif network == "bigoads":
     #     return get_bigoads_units(app_code)
-    # elif network == "inmobi":
-    #     return get_inmobi_units(app_code)
     
     logger.warning(f"[{network}] get_network_units not implemented yet")
     return []
@@ -373,6 +509,14 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": "banner"
         }
         return format_map.get(ad_format_upper, ad_format.lower())
+    elif network == "inmobi":
+        # InMobi: REWARDED_VIDEO, INTERSTITIAL, BANNER
+        format_map = {
+            "REWARD": "REWARDED_VIDEO",
+            "INTER": "INTERSTITIAL",
+            "BANNER": "BANNER"
+        }
+        return format_map.get(ad_format_upper, ad_format.upper())
     
     # Default: return lowercase
     return ad_format.lower()

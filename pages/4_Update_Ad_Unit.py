@@ -4,7 +4,8 @@ import json
 import pandas as pd
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.applovin_manager import (
     get_applovin_api_key,
     transform_csv_data_to_api_format,
@@ -300,7 +301,157 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 if actual_network:
                                     network_mapping[applovin_network] = actual_network
                             
-                            # Process each selected AppLovin unit
+                            def process_network_unit(row_data: Dict, selected_network: str) -> Tuple[Dict, Dict]:
+                                """Process a single network-unit combination
+                                
+                                Returns:
+                                    Tuple of (row_data, result_info)
+                                """
+                                applovin_unit = row_data["applovin_unit"]
+                                actual_network = network_mapping.get(selected_network)
+                                
+                                # Skip if network is not supported for auto-fetch
+                                if not actual_network:
+                                    return {
+                                        "id": applovin_unit["id"],
+                                        "name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "package_name": applovin_unit["package_name"],
+                                        "ad_network": selected_network,
+                                        "ad_network_app_id": "",
+                                        "ad_network_app_key": "",
+                                        "ad_unit_id": "",
+                                        "countries_type": "",
+                                        "countries": "",
+                                        "cpm": 0.0,
+                                        "segment_name": "",
+                                        "segment_id": "",
+                                        "disabled": "FALSE"
+                                    }, {"status": "skipped", "network": selected_network}
+                                
+                                # Try to find matching app (platform must match)
+                                matched_app = match_applovin_unit_to_network(
+                                    actual_network,
+                                    applovin_unit
+                                )
+                                
+                                if matched_app:
+                                    # Extract app identifiers
+                                    app_ids = extract_app_identifiers(matched_app, actual_network)
+                                    app_key = app_ids.get("app_key") or app_ids.get("app_code")
+                                    app_id = app_ids.get("app_id")
+                                    
+                                    # Get units for this app (sequential: app -> units)
+                                    units = get_network_units(actual_network, app_key or app_id or "")
+                                    
+                                    # Find matching unit by ad_format
+                                    matched_unit = None
+                                    if units:
+                                        matched_unit = find_matching_unit(
+                                            units,
+                                            applovin_unit["ad_format"],
+                                            actual_network,
+                                            applovin_unit["platform"]
+                                        )
+                                    
+                                    # Extract unit ID
+                                    unit_id = ""
+                                    if matched_unit:
+                                        if actual_network == "ironsource":
+                                            unit_id = matched_unit.get("mediationAdUnitId") or matched_unit.get("adUnitId") or ""
+                                        elif actual_network == "inmobi":
+                                            unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
+                                        else:
+                                            unit_id = (
+                                                matched_unit.get("adUnitId") or
+                                                matched_unit.get("unitId") or
+                                                matched_unit.get("placementId") or
+                                                matched_unit.get("id") or
+                                                ""
+                                            )
+                                    
+                                    # For IronSource, appKey goes to ad_network_app_id
+                                    # For InMobi, use fixed value for ad_network_app_id and empty ad_network_app_key
+                                    if actual_network == "ironsource":
+                                        ad_network_app_id = str(app_key) if app_key else ""
+                                        ad_network_app_key = ""
+                                    elif actual_network == "inmobi":
+                                        ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
+                                        ad_network_app_key = ""  # Empty for InMobi
+                                    else:
+                                        ad_network_app_id = str(app_id) if app_id else ""
+                                        ad_network_app_key = str(app_key) if app_key else ""
+                                    
+                                    row = {
+                                        "id": applovin_unit["id"],
+                                        "name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "package_name": applovin_unit["package_name"],
+                                        "ad_network": selected_network,
+                                        "ad_network_app_id": ad_network_app_id,
+                                        "ad_network_app_key": ad_network_app_key,
+                                        "ad_unit_id": str(unit_id) if unit_id else "",
+                                        "countries_type": "",
+                                        "countries": "",
+                                        "cpm": 0.0,
+                                        "segment_name": "",
+                                        "segment_id": "",
+                                        "disabled": "FALSE"
+                                    }
+                                    
+                                    result_info = {
+                                        "status": "success" if unit_id else "unit_not_found",
+                                        "network": selected_network,
+                                        "app_name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "reason": "Unit not found" if not unit_id else None
+                                    }
+                                    
+                                    return row, result_info
+                                else:
+                                    # App not found
+                                    # For InMobi, still use fixed value for ad_network_app_id
+                                    if actual_network == "inmobi":
+                                        ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
+                                        ad_network_app_key = ""
+                                    else:
+                                        ad_network_app_id = ""
+                                        ad_network_app_key = ""
+                                    
+                                    row = {
+                                        "id": applovin_unit["id"],
+                                        "name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "package_name": applovin_unit["package_name"],
+                                        "ad_network": selected_network,
+                                        "ad_network_app_id": ad_network_app_id,
+                                        "ad_network_app_key": ad_network_app_key,
+                                        "ad_unit_id": "",
+                                        "countries_type": "",
+                                        "countries": "",
+                                        "cpm": 0.0,
+                                        "segment_name": "",
+                                        "segment_id": "",
+                                        "disabled": "FALSE"
+                                    }
+                                    
+                                    result_info = {
+                                        "status": "app_not_found",
+                                        "network": selected_network,
+                                        "app_name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "reason": "App not found"
+                                    }
+                                    
+                                    return row, result_info
+                            
+                            # Prepare tasks for parallel processing
+                            tasks = []
                             for _, row in selected_rows.iterrows():
                                 applovin_unit = {
                                     "id": row["id"],
@@ -311,142 +462,49 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 }
                                 
                                 for selected_network in st.session_state.selected_ad_networks:
-                                    actual_network = network_mapping.get(selected_network)
-                                    
-                                    # Skip if network is not supported for auto-fetch
-                                    if not actual_network:
-                                        # Still add row but without auto-filled data
-                                        new_rows.append({
-                                            "id": row["id"],
-                                            "name": row["name"],
-                                            "platform": applovin_unit["platform"],
-                                            "ad_format": applovin_unit["ad_format"],
-                                            "package_name": row["package_name"],
-                                            "ad_network": selected_network,
-                                            "ad_network_app_id": "",
-                                            "ad_network_app_key": "",
-                                            "ad_unit_id": "",
-                                            "countries_type": "",
-                                            "countries": "",
-                                            "cpm": 0.0,
-                                            "segment_name": "",
-                                            "segment_id": "",
-                                            "disabled": "FALSE"
-                                        })
-                                        continue
-                                    
-                                    # Try to find matching app (platform must match)
-                                    matched_app = match_applovin_unit_to_network(
-                                        actual_network,
-                                        applovin_unit
-                                    )
-                                    
-                                    if matched_app:
-                                        # Extract app identifiers
-                                        app_ids = extract_app_identifiers(matched_app, actual_network)
-                                        app_key = app_ids.get("app_key") or app_ids.get("app_code")
-                                        app_id = app_ids.get("app_id")
-                                        
-                                        # Get units for this app
-                                        units = get_network_units(actual_network, app_key or app_id or "")
-                                        
-                                        # Find matching unit by ad_format
-                                        matched_unit = None
-                                        if units:
-                                            matched_unit = find_matching_unit(
-                                                units,
-                                                applovin_unit["ad_format"],
-                                                actual_network,
-                                                applovin_unit["platform"]  # Pass platform for filtering by mediationAdUnitName
-                                            )
-                                        
-                                        # Extract unit ID
-                                        unit_id = ""
-                                        if matched_unit:
-                                            # IronSource uses mediationAdUnitId
-                                            if actual_network == "ironsource":
-                                                unit_id = matched_unit.get("mediationAdUnitId") or matched_unit.get("adUnitId") or ""
-                                            else:
-                                                # Other networks - use common field names
-                                                unit_id = (
-                                                    matched_unit.get("adUnitId") or
-                                                    matched_unit.get("unitId") or
-                                                    matched_unit.get("placementId") or
-                                                    matched_unit.get("id") or
-                                                    ""
-                                                )
-                                        
-                                        # For IronSource, appKey goes to ad_network_app_id
-                                        # For other networks, app_id goes to ad_network_app_id, app_key goes to ad_network_app_key
-                                        if actual_network == "ironsource":
-                                            ad_network_app_id = str(app_key) if app_key else ""
-                                            ad_network_app_key = ""
-                                        else:
-                                            ad_network_app_id = str(app_id) if app_id else ""
-                                            ad_network_app_key = str(app_key) if app_key else ""
-                                        
-                                        # Add row with fetched data
-                                        new_rows.append({
-                                            "id": row["id"],
-                                            "name": row["name"],
-                                            "platform": applovin_unit["platform"],
-                                            "ad_format": applovin_unit["ad_format"],
-                                            "package_name": row["package_name"],
-                                            "ad_network": selected_network,
-                                            "ad_network_app_id": ad_network_app_id,
-                                            "ad_network_app_key": ad_network_app_key,
-                                            "ad_unit_id": str(unit_id) if unit_id else "",
-                                            "countries_type": "",
-                                            "countries": "",
-                                            "cpm": 0.0,
-                                            "segment_name": "",
-                                            "segment_id": "",
-                                            "disabled": "FALSE"
-                                        })
+                                    tasks.append({
+                                        "applovin_unit": applovin_unit,
+                                        "selected_network": selected_network
+                                    })
+                            
+                            # Process tasks in parallel (multiple networks) but sequential within each network (app -> units)
+                            with ThreadPoolExecutor(max_workers=min(len(st.session_state.selected_ad_networks), 5)) as executor:
+                                future_to_task = {
+                                    executor.submit(
+                                        process_network_unit,
+                                        {"applovin_unit": task["applovin_unit"]},
+                                        task["selected_network"]
+                                    ): task
+                                    for task in tasks
+                                }
+                                
+                                for future in as_completed(future_to_task):
+                                    try:
+                                        row, result_info = future.result()
+                                        new_rows.append(row)
                                         
                                         # Track results
-                                        if app_key or app_id:
-                                            if unit_id:
-                                                fetch_results["success"].append({
-                                                    "network": selected_network,
-                                                    "app_name": applovin_unit["name"],
-                                                    "platform": applovin_unit["platform"],
-                                                    "ad_format": applovin_unit["ad_format"]
-                                                })
-                                            else:
-                                                fetch_results["not_found"].append({
-                                                    "network": selected_network,
-                                                    "app_name": applovin_unit["name"],
-                                                    "platform": applovin_unit["platform"],
-                                                    "ad_format": applovin_unit["ad_format"],
-                                                    "reason": "Unit not found"
-                                                })
-                                    else:
-                                        # App not found - add row without data
-                                        new_rows.append({
-                                            "id": row["id"],
-                                            "name": row["name"],
-                                            "platform": applovin_unit["platform"],
-                                            "ad_format": applovin_unit["ad_format"],
-                                            "package_name": row["package_name"],
-                                            "ad_network": selected_network,
-                                            "ad_network_app_id": "",
-                                            "ad_network_app_key": "",
-                                            "ad_unit_id": "",
-                                            "countries_type": "",
-                                            "countries": "",
-                                            "cpm": 0.0,
-                                            "segment_name": "",
-                                            "segment_id": "",
-                                            "disabled": "FALSE"
-                                        })
-                                        
-                                        fetch_results["not_found"].append({
-                                            "network": selected_network,
-                                            "app_name": applovin_unit["name"],
-                                            "platform": applovin_unit["platform"],
-                                            "ad_format": applovin_unit["ad_format"],
-                                            "reason": "App not found"
+                                        if result_info["status"] == "success":
+                                            fetch_results["success"].append({
+                                                "network": result_info["network"],
+                                                "app_name": result_info["app_name"],
+                                                "platform": result_info["platform"],
+                                                "ad_format": result_info["ad_format"]
+                                            })
+                                        elif result_info["status"] in ["app_not_found", "unit_not_found"]:
+                                            fetch_results["not_found"].append({
+                                                "network": result_info["network"],
+                                                "app_name": result_info["app_name"],
+                                                "platform": result_info["platform"],
+                                                "ad_format": result_info["ad_format"],
+                                                "reason": result_info.get("reason", "Unknown")
+                                            })
+                                    except Exception as e:
+                                        task = future_to_task[future]
+                                        logging.error(f"Error processing {task['selected_network']}: {str(e)}")
+                                        fetch_results["failed"].append({
+                                            "network": task["selected_network"],
+                                            "error": str(e)
                                         })
                             
                             if new_rows:
