@@ -2819,6 +2819,138 @@ class MockNetworkManager:
             logger.error(f"[Vungle] Error fetching placements: {str(e)}")
             return []
     
+    def _get_unity_projects(self) -> List[Dict]:
+        """Get all projects (apps) from Unity API
+        
+        API: GET https://services.api.unity.com/monetize/v1/organizations/{organizationId}/projects
+        
+        Returns:
+            List of project dicts
+        """
+        organization_id = _get_env_var("UNITY_ORGANIZATION_ID")
+        if not organization_id:
+            logger.error("[Unity] UNITY_ORGANIZATION_ID not found")
+            return []
+        
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return []
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        url = f"https://services.api.unity.com/monetize/v1/organizations/{organization_id}/projects"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] Fetching projects from {url}")
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Parse response - can be list or dict
+                projects = []
+                if isinstance(result, list):
+                    projects = result
+                elif isinstance(result, dict):
+                    projects = result.get("data", result.get("projects", result.get("list", [])))
+                    if not isinstance(projects, list):
+                        projects = []
+                
+                # For Unity, ensure stores field is preserved (can be JSON string or dict)
+                # The API might return stores as a JSON string that needs parsing
+                for project in projects:
+                    stores = project.get("stores", "")
+                    if stores and isinstance(stores, str):
+                        # Try to parse if it's a JSON string
+                        try:
+                            import json
+                            # Handle escaped JSON strings
+                            parsed_stores = json.loads(stores)
+                            # Keep both original string and parsed dict for compatibility
+                            project["stores_parsed"] = parsed_stores
+                        except (json.JSONDecodeError, TypeError):
+                            # If parsing fails, keep original string
+                            pass
+                
+                logger.info(f"[Unity] Retrieved {len(projects)} projects")
+                if projects:
+                    logger.info(f"[Unity] First project keys: {list(projects[0].keys())}")
+                    logger.info(f"[Unity] First project stores type: {type(projects[0].get('stores', ''))}")
+                
+                return projects
+            else:
+                logger.error(f"[Unity] Failed to get projects: {response.status_code} - {response.text[:200]}")
+                if response.status_code == 401:
+                    logger.error("[Unity] Authentication failed - check KEY_ID and SECRET_KEY")
+                elif response.status_code == 403:
+                    logger.error("[Unity] Permission denied")
+                return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] Error fetching projects: {str(e)}")
+            return []
+    
+    def _get_unity_ad_units(self, project_id: str) -> Dict:
+        """Get ad units for a Unity project
+        
+        API: GET https://services.api.unity.com/monetize/v1/projects/{projectId}/adunits
+        
+        Args:
+            project_id: Unity project ID
+        
+        Returns:
+            Dict with "apple" and "google" keys containing ad units
+        """
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return {}
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        url = f"https://services.api.unity.com/monetize/v1/projects/{project_id}/adunits"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] Fetching ad units from {url}")
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[Unity] Retrieved ad units for project {project_id}")
+                return result  # Returns { "apple": {}, "google": {} }
+            else:
+                logger.error(f"[Unity] Failed to get ad units: {response.status_code} - {response.text[:200]}")
+                if response.status_code == 401:
+                    logger.error("[Unity] Authentication failed - check KEY_ID and SECRET_KEY")
+                elif response.status_code == 403:
+                    logger.error("[Unity] Permission denied")
+                elif response.status_code == 404:
+                    logger.error(f"[Unity] Project {project_id} not found")
+                return {}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] Error fetching ad units: {str(e)}")
+            return {}
+    
     def get_apps(self, network: str, app_key: Optional[str] = None) -> List[Dict]:
         """Get apps list from network
         
@@ -2863,6 +2995,8 @@ class MockNetworkManager:
                         "bundleId": placement.get("bundleId", "")
                     }
             return list(apps_dict.values())
+        elif network == "unity":
+            return self._get_unity_projects()
         
         # Mock implementation for other networks
         return [

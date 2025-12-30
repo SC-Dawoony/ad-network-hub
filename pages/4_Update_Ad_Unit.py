@@ -372,6 +372,11 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     app_key = app_ids.get("app_key") or app_ids.get("app_code")
                                     app_id = app_ids.get("app_id")
                                     
+                                    # For Unity, use projectId to get units
+                                    if actual_network == "unity":
+                                        project_id = app_ids.get("projectId") or app_id
+                                        app_key = project_id  # Use projectId for Unity unit lookup
+                                    
                                     # Debug logging for BigOAds
                                     if actual_network == "bigoads":
                                         st.write(f"🔍 [BigOAds Debug] App found: {matched_app.get('name', 'N/A')}")
@@ -437,6 +442,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         elif actual_network == "vungle":
                                             # Vungle uses referenceID for ad_unit_id
                                             unit_id = matched_unit.get("referenceID") or matched_unit.get("placementId") or matched_unit.get("id") or ""
+                                        elif actual_network == "unity":
+                                            # Unity uses id or adUnitId for ad_unit_id
+                                            unit_id = matched_unit.get("id") or matched_unit.get("adUnitId") or matched_unit.get("unitId") or ""
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or
@@ -472,6 +480,60 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         # app_id should already contain vungleAppId from match_applovin_unit_to_network
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = ""  # Empty for Vungle
+                                    elif actual_network == "unity":
+                                        # Unity uses gameId from stores (platform-specific)
+                                        # Extract gameId based on platform
+                                        game_id = ""
+                                        if matched_app:
+                                            stores_raw = matched_app.get("stores", "")
+                                            stores = {}
+                                            
+                                            # Parse stores - can be JSON string or dict
+                                            if stores_raw:
+                                                try:
+                                                    import json
+                                                    if isinstance(stores_raw, str):
+                                                        # Handle escaped JSON string with double quotes (e.g., '{"apple": {...}}')
+                                                        # First, try to parse as-is
+                                                        try:
+                                                            stores = json.loads(stores_raw)
+                                                        except json.JSONDecodeError:
+                                                            # If that fails, try replacing double quotes
+                                                            # Handle case where JSON has escaped quotes: "{""apple"": ...}"
+                                                            cleaned_str = stores_raw.replace('""', '"')
+                                                            stores = json.loads(cleaned_str)
+                                                    elif isinstance(stores_raw, dict):
+                                                        stores = stores_raw
+                                                    else:
+                                                        logger.warning(f"[Unity] Unexpected stores type: {type(stores_raw)}")
+                                                except (json.JSONDecodeError, TypeError) as e:
+                                                    logger.warning(f"[Unity] Failed to parse stores JSON: {stores_raw[:200]}, error: {e}")
+                                            
+                                            platform_lower = applovin_unit.get("platform", "").lower()
+                                            logger.info(f"[Unity] Platform: {platform_lower}, Stores keys: {list(stores.keys()) if isinstance(stores, dict) else 'not a dict'}")
+                                            
+                                            if platform_lower == "ios":
+                                                # iOS: use apple.gameId
+                                                apple_store = stores.get("apple", {})
+                                                if isinstance(apple_store, dict):
+                                                    game_id = apple_store.get("gameId", "")
+                                                logger.info(f"[Unity] iOS gameId: {game_id} from apple store: {apple_store}")
+                                            elif platform_lower == "android":
+                                                # Android: use google.gameId
+                                                google_store = stores.get("google", {})
+                                                if isinstance(google_store, dict):
+                                                    game_id = google_store.get("gameId", "")
+                                                logger.info(f"[Unity] Android gameId: {game_id} from google store: {google_store}")
+                                            
+                                            if not game_id:
+                                                logger.warning(f"[Unity] No gameId found for platform {platform_lower}, stores: {stores}")
+                                        
+                                        ad_network_app_id = str(game_id) if game_id else ""
+                                        ad_network_app_key = ""  # Empty for Unity
+                                        
+                                        # Debug logging
+                                        if not ad_network_app_id:
+                                            logger.warning(f"[Unity] Empty ad_network_app_id for platform {applovin_unit.get('platform')}, matched_app name: {matched_app.get('name') if matched_app else 'None'}")
                                     else:
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = str(app_key) if app_key else ""

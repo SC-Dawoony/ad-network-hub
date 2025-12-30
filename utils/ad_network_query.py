@@ -16,7 +16,7 @@ def find_app_by_name(network: str, app_name: str, platform: Optional[str] = None
     """Find an app by name from a network
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi")
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "unity")
         app_name: App name to search for
         platform: Optional platform filter ("android" or "ios")
     
@@ -31,7 +31,18 @@ def find_app_by_name(network: str, app_name: str, platform: Optional[str] = None
             logger.warning(f"[{network}] No apps found")
             return None
         
-        # Search for app by name (case-insensitive, partial match)
+        # For Unity, name matching doesn't need platform check (one project can have both iOS and Android)
+        if network == "unity":
+            app_name_lower = app_name.lower().strip()
+            for app in apps:
+                app_name_in_list = app.get("name") or app.get("appName") or ""
+                if app_name_lower in app_name_in_list.lower() or app_name_in_list.lower() in app_name_lower:
+                    logger.info(f"[Unity] Found app by name: '{app_name_in_list}' matches '{app_name}'")
+                    return app
+            logger.warning(f"[Unity] App '{app_name}' not found by name")
+            return None
+        
+        # For other networks, use standard name matching with platform check
         app_name_lower = app_name.lower().strip()
         for app in apps:
             app_name_in_list = app.get("name") or app.get("appName") or ""
@@ -56,7 +67,7 @@ def find_app_by_package_name(network: str, package_name: str, platform: Optional
     """Find an app by package name from a network
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi")
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "unity")
         package_name: Package name to search for (e.g., "com.example.app")
         platform: Optional platform filter ("android" or "ios")
     
@@ -71,7 +82,45 @@ def find_app_by_package_name(network: str, package_name: str, platform: Optional
             logger.warning(f"[{network}] No apps found")
             return None
         
-        # Search for app by package name
+        # For Unity, check stores.storeId
+        if network == "unity":
+            package_name_lower = package_name.lower().strip()
+            target_platform = platform.lower() if platform else None
+            
+            for app in apps:
+                stores_str = app.get("stores", "")
+                if not stores_str:
+                    continue
+                
+                # Parse stores JSON string
+                try:
+                    import json
+                    if isinstance(stores_str, str):
+                        stores = json.loads(stores_str)
+                    else:
+                        stores = stores_str
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"[Unity] Failed to parse stores JSON: {stores_str}")
+                    continue
+                
+                # Check apple storeId (iOS)
+                if target_platform in (None, "ios"):
+                    apple_store = stores.get("apple", {})
+                    apple_store_id = apple_store.get("storeId", "")
+                    if apple_store_id and package_name_lower == apple_store_id.lower():
+                        return app
+                
+                # Check google storeId (Android)
+                if target_platform in (None, "android"):
+                    google_store = stores.get("google", {})
+                    google_store_id = google_store.get("storeId", "")
+                    if google_store_id and package_name_lower == google_store_id.lower():
+                        return app
+            
+            logger.warning(f"[Unity] App with package name '{package_name}' not found in stores")
+            return None
+        
+        # For other networks, use standard package name matching
         package_name_lower = package_name.lower().strip()
         for app in apps:
             # Check various package name fields
@@ -362,6 +411,21 @@ def match_applovin_unit_to_network(
                             "storeId": placement_pkg
                         }
         
+        return None
+    
+    # For Unity, match by app name or storeId
+    if network == "unity":
+        # Try package_name first (storeId matching)
+        if package_name:
+            app = find_app_by_package_name(network, package_name, platform)
+            if app:
+                return app
+        
+        # Fallback to app name matching
+        if app_name:
+            app = find_app_by_name(network, app_name, platform)
+            if app:
+                return app
         return None
     
     # For other networks, use standard app matching
@@ -655,6 +719,43 @@ def find_matching_unit(
             return matched_unit
         else:
             logger.warning(f"[Vungle] No matching units found for format '{target_format}' (target_type={target_type})")
+            return None
+    
+    # For Unity, match by ad format and platform
+    if network == "unity":
+        # Unity ad units are flattened with "platform" field (apple/google)
+        # Match by ad format and platform
+        matching_units = []
+        for unit in network_units:
+            unit_format = unit.get("adFormat", "").lower()
+            unit_platform = unit.get("platform", "").lower()
+            
+            # Map platform: apple -> ios, google -> android
+            platform_mapping = {
+                "apple": "ios",
+                "google": "android"
+            }
+            unit_platform_normalized = platform_mapping.get(unit_platform, unit_platform)
+            
+            # Check format match
+            if unit_format == target_format.lower():
+                # If platform is provided, check platform match
+                if platform:
+                    target_platform_normalized = _normalize_platform_for_matching(platform, network)
+                    if unit_platform_normalized == target_platform_normalized:
+                        matching_units.append(unit)
+                else:
+                    # No platform filter, match any
+                    matching_units.append(unit)
+        
+        if len(matching_units) == 1:
+            return matching_units[0]
+        elif len(matching_units) > 1:
+            # If multiple matches, return first one (or could prioritize by platform)
+            logger.warning(f"[Unity] Multiple units found for format '{target_format}', returning first match")
+            return matching_units[0]
+        else:
+            logger.warning(f"[Unity] No matching units found for format '{target_format}'")
             return None
     
     # For other networks or when platform is not provided, use simple format matching
@@ -1079,6 +1180,82 @@ def get_vungle_placements() -> List[Dict]:
         return []
 
 
+def get_unity_projects() -> List[Dict]:
+    """Get all projects (apps) from Unity API
+    
+    Returns:
+        List of project dicts
+    """
+    try:
+        network_manager = get_network_manager()
+        projects = network_manager._get_unity_projects()
+        return projects
+    except Exception as e:
+        logger.error(f"[Unity] Error getting projects: {str(e)}")
+        return []
+
+
+def get_unity_ad_units(project_id: str) -> Dict:
+    """Get ad units for a Unity project
+    
+    Args:
+        project_id: Unity project ID
+    
+    Returns:
+        Dict with "apple" and "google" keys containing ad units
+    """
+    try:
+        network_manager = get_network_manager()
+        ad_units = network_manager._get_unity_ad_units(project_id)
+        return ad_units
+    except Exception as e:
+        logger.error(f"[Unity] Error getting ad units: {str(e)}")
+        return {}
+
+
+def get_unity_units(project_id: str) -> List[Dict]:
+    """Get ad units for a Unity project (flattened format)
+    
+    Args:
+        project_id: Unity project ID
+    
+    Returns:
+        List of ad unit dicts (flattened from apple/google structure)
+    """
+    try:
+        ad_units_dict = get_unity_ad_units(project_id)
+        units = []
+        
+        # Flatten apple and google ad units
+        for platform, platform_units in ad_units_dict.items():
+            if isinstance(platform_units, dict):
+                # If platform_units is a dict, it might contain a list or more nested structure
+                if "data" in platform_units:
+                    platform_units = platform_units["data"]
+                elif "adUnits" in platform_units:
+                    platform_units = platform_units["adUnits"]
+                
+                if isinstance(platform_units, list):
+                    for unit in platform_units:
+                        unit_with_platform = unit.copy()
+                        unit_with_platform["platform"] = platform
+                        units.append(unit_with_platform)
+                elif isinstance(platform_units, dict):
+                    # If it's a single unit dict, add it
+                    platform_units["platform"] = platform
+                    units.append(platform_units)
+            elif isinstance(platform_units, list):
+                for unit in platform_units:
+                    unit_with_platform = unit.copy()
+                    unit_with_platform["platform"] = platform
+                    units.append(unit_with_platform)
+        
+        return units
+    except Exception as e:
+        logger.error(f"[Unity] Error getting units: {str(e)}")
+        return []
+
+
 def get_vungle_units(app_id: Optional[str] = None) -> List[Dict]:
     """Get placements (units) for a Vungle app
     
@@ -1125,8 +1302,8 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber", "vungle")
-        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber/Vungle, appCode for BigOAds, etc.)
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber", "vungle", "unity")
+        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber/Vungle, appCode for BigOAds, projectId for Unity, etc.)
     
     Returns:
         List of ad unit dicts
@@ -1143,6 +1320,8 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         return get_bigoads_units(app_code)
     elif network == "vungle":
         return get_vungle_units(app_code)
+    elif network == "unity":
+        return get_unity_units(app_code)  # app_code is projectId for Unity
     
     logger.warning(f"[{network}] get_network_units not implemented yet")
     return []
@@ -1165,6 +1344,7 @@ def map_applovin_network_to_actual_network(applovin_network: str) -> Optional[st
         "MINTEGRAL_BIDDING": "mintegral",
         "PANGLE_BIDDING": "pangle",
         "VUNGLE_BIDDING": "vungle",
+        "UNITY_BIDDING": "unity",
         # Add more mappings as needed
     }
     return mapping.get(applovin_network.upper())
@@ -1230,6 +1410,14 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": "Banner"
         }
         return format_map.get(ad_format_upper, ad_format.capitalize())
+    elif network == "unity":
+        # Unity: Rewarded, Interstitial, Banner
+        format_map = {
+            "REWARD": "Rewarded",
+            "INTER": "Interstitial",
+            "BANNER": "Banner"
+        }
+        return format_map.get(ad_format_upper, ad_format.capitalize())
     
     # Default: return lowercase
     return ad_format.lower()
@@ -1274,6 +1462,28 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
         # Vungle uses vungleAppId from application object
         result["app_id"] = app.get("vungleAppId") or app.get("appId") or app.get("applicationId") or app.get("id")
         result["app_code"] = str(result["app_id"]) if result["app_id"] else None
+    elif network == "unity":
+        # Unity uses gameId from stores (platform-specific)
+        # projectId is stored for reference, but gameId will be extracted based on platform
+        project_id = app.get("projectId") or app.get("id")
+        result["projectId"] = project_id  # Store projectId for reference
+        result["app_code"] = str(project_id) if project_id else None
+        
+        # Store stores info for later gameId extraction
+        stores_str = app.get("stores", "")
+        stores = None
+        if stores_str:
+            try:
+                import json
+                if isinstance(stores_str, str):
+                    stores = json.loads(stores_str)
+                else:
+                    stores = stores_str
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        result["stores"] = stores  # Store stores for gameId extraction
+        result["app_id"] = project_id  # For now, use projectId (gameId will be extracted separately)
     else:
         # Generic fallback
         result["app_code"] = app.get("appCode") or app.get("appKey") or app.get("appId")
