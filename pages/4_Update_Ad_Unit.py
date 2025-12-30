@@ -133,8 +133,21 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
     # Load ad units data
     if "applovin_ad_units_raw" not in st.session_state or st.session_state.applovin_ad_units_raw is None:
         if st.button("📡 Get Ad Units", type="secondary", use_container_width=True):
-            with st.spinner("API 호출 중..."):
+            # Show prominent loading message
+            loading_placeholder = st.empty()
+            with loading_placeholder.container():
+                st.info("⏳ **AppLovin API에서 Ad Units를 조회하는 중입니다...**")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+            
+            try:
+                status_text.text("🔄 API 연결 중...")
+                progress_bar.progress(20)
+                
                 success, result = get_ad_units(api_key)
+                
+                status_text.text("📊 데이터 처리 중...")
+                progress_bar.progress(60)
                 
                 if success:
                     data = result.get("data", {})
@@ -146,19 +159,33 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     elif isinstance(data, dict):
                         ad_units_list = data.get("ad_units", data.get("data", data.get("list", data.get("results", []))))
                     
+                    progress_bar.progress(90)
+                    status_text.text("✅ 완료!")
+                    
                     if ad_units_list:
                         st.session_state.applovin_ad_units_raw = ad_units_list
+                        progress_bar.progress(100)
+                        loading_placeholder.empty()
                         st.success(f"✅ {len(ad_units_list)}개의 Ad Unit이 조회되었습니다!")
                     else:
+                        progress_bar.progress(100)
+                        loading_placeholder.empty()
                         st.json(data)
                         st.session_state.applovin_ad_units_raw = []
                 else:
+                    progress_bar.progress(100)
+                    loading_placeholder.empty()
                     st.error("❌ API 호출 실패")
                     error_info = result.get("data", {})
                     st.json(error_info)
                     if "status_code" in result:
                         st.error(f"Status Code: {result['status_code']}")
                     st.session_state.applovin_ad_units_raw = []
+            except Exception as e:
+                progress_bar.progress(100)
+                loading_placeholder.empty()
+                st.error(f"❌ 오류 발생: {str(e)}")
+                st.session_state.applovin_ad_units_raw = []
     
     # Display filtered and selectable ad units
     if st.session_state.get("applovin_ad_units_raw"):
@@ -288,12 +315,14 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     # Add button
                     if st.session_state.selected_ad_networks:
                         if st.button(f"➕ 선택한 {len(selected_rows)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
-                            new_rows = []
-                            fetch_results = {
-                                "success": [],
-                                "failed": [],
-                                "not_found": []
-                            }
+                            # Show prominent loading message
+                            loading_placeholder = st.empty()
+                            total_tasks = len(selected_rows) * len(st.session_state.selected_ad_networks)
+                            
+                            with loading_placeholder.container():
+                                st.info(f"⏳ **네트워크에서 데이터를 조회하는 중입니다...**\n\n📊 {len(selected_rows)}개 Ad Units × {len(st.session_state.selected_ad_networks)}개 네트워크 = 총 {total_tasks}개 작업")
+                                progress_bar = st.progress(0)
+                                status_text = st.empty()
                             
                             # Map AppLovin networks to actual network identifiers
                             network_mapping = {}
@@ -368,6 +397,18 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             applovin_unit["platform"]
                                         )
                                         
+                                        # Debug logging for Vungle
+                                        if actual_network == "vungle":
+                                            if matched_unit:
+                                                st.write(f"🔍 [Vungle Debug] Matched unit: {matched_unit.get('name', 'N/A')}")
+                                                st.write(f"🔍 [Vungle Debug] referenceID: {matched_unit.get('referenceID', 'N/A')}")
+                                                st.write(f"🔍 [Vungle Debug] All keys: {list(matched_unit.keys())}")
+                                            else:
+                                                st.write(f"⚠️ [Vungle Debug] No unit matched!")
+                                                if units:
+                                                    st.write(f"🔍 [Vungle Debug] Available units: {len(units)}")
+                                                    st.write(f"🔍 [Vungle Debug] First unit keys: {list(units[0].keys()) if units else []}")
+                                        
                                         # Debug logging for BigOAds unit matching
                                         if actual_network == "bigoads":
                                             st.write(f"🔍 [BigOAds Debug] Ad format: {applovin_unit['ad_format']}")
@@ -393,6 +434,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         elif actual_network == "bigoads":
                                             # BigOAds uses slotCode for ad_unit_id
                                             unit_id = matched_unit.get("slotCode") or matched_unit.get("id") or ""
+                                        elif actual_network == "vungle":
+                                            # Vungle uses referenceID for ad_unit_id
+                                            unit_id = matched_unit.get("referenceID") or matched_unit.get("placementId") or matched_unit.get("id") or ""
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or
@@ -407,6 +451,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     # For Mintegral, use empty ad_network_app_id and fixed value for ad_network_app_key
                                     # For Fyber, use app_id for ad_network_app_id and empty ad_network_app_key
                                     # For BigOAds, use appCode for ad_network_app_id and empty ad_network_app_key
+                                    # For Vungle, use applicationId for ad_network_app_id and empty ad_network_app_key
                                     if actual_network == "ironsource":
                                         ad_network_app_id = str(app_key) if app_key else ""
                                         ad_network_app_key = ""
@@ -422,6 +467,11 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "bigoads":
                                         ad_network_app_id = str(app_key) if app_key else ""  # appCode for BigOAds
                                         ad_network_app_key = ""  # Empty for BigOAds
+                                    elif actual_network == "vungle":
+                                        # Vungle uses vungleAppId from application object
+                                        # app_id should already contain vungleAppId from match_applovin_unit_to_network
+                                        ad_network_app_id = str(app_id) if app_id else ""
+                                        ad_network_app_key = ""  # Empty for Vungle
                                     else:
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = str(app_key) if app_key else ""
@@ -460,6 +510,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     # For Mintegral, still use fixed value for ad_network_app_key
                                     # For Fyber, empty both fields
                                     # For BigOAds, empty both fields
+                                    # For Vungle, empty both fields
                                     if actual_network == "inmobi":
                                         ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
                                         ad_network_app_key = ""
@@ -472,6 +523,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "bigoads":
                                         ad_network_app_id = ""  # Empty for BigOAds (app not found)
                                         ad_network_app_key = ""  # Empty for BigOAds
+                                    elif actual_network == "vungle":
+                                        ad_network_app_id = ""  # Empty for Vungle (app not found)
+                                        ad_network_app_key = ""  # Empty for Vungle
                                     else:
                                         ad_network_app_id = ""
                                         ad_network_app_key = ""
@@ -505,89 +559,128 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     
                                     return row, result_info
                             
-                            # Prepare tasks for parallel processing
-                            tasks = []
-                            for _, row in selected_rows.iterrows():
-                                applovin_unit = {
-                                    "id": row["id"],
-                                    "name": row["name"],
-                                    "platform": row["platform"].lower(),
-                                    "ad_format": row["ad_format"],
-                                    "package_name": row["package_name"]
+                            try:
+                                new_rows = []
+                                fetch_results = {
+                                    "success": [],
+                                    "failed": [],
+                                    "not_found": []
                                 }
                                 
-                                for selected_network in st.session_state.selected_ad_networks:
-                                    tasks.append({
-                                        "applovin_unit": applovin_unit,
-                                        "selected_network": selected_network
-                                    })
-                            
-                            # Process tasks in parallel (multiple networks) but sequential within each network (app -> units)
-                            with ThreadPoolExecutor(max_workers=min(len(st.session_state.selected_ad_networks), 5)) as executor:
-                                future_to_task = {
-                                    executor.submit(
-                                        process_network_unit,
-                                        {"applovin_unit": task["applovin_unit"]},
-                                        task["selected_network"]
-                                    ): task
-                                    for task in tasks
-                                }
+                                status_text.text("🔄 네트워크 매핑 완료. API 호출 시작...")
+                                progress_bar.progress(10)
                                 
-                                for future in as_completed(future_to_task):
-                                    try:
-                                        row, result_info = future.result()
-                                        new_rows.append(row)
-                                        
-                                        # Track results
-                                        if result_info["status"] == "success":
-                                            fetch_results["success"].append({
-                                                "network": result_info["network"],
-                                                "app_name": result_info["app_name"],
-                                                "platform": result_info["platform"],
-                                                "ad_format": result_info["ad_format"]
-                                            })
-                                        elif result_info["status"] in ["app_not_found", "unit_not_found"]:
-                                            fetch_results["not_found"].append({
-                                                "network": result_info["network"],
-                                                "app_name": result_info["app_name"],
-                                                "platform": result_info["platform"],
-                                                "ad_format": result_info["ad_format"],
-                                                "reason": result_info.get("reason", "Unknown")
-                                            })
-                                    except Exception as e:
-                                        task = future_to_task[future]
-                                        logging.error(f"Error processing {task['selected_network']}: {str(e)}")
-                                        fetch_results["failed"].append({
-                                            "network": task["selected_network"],
-                                            "error": str(e)
+                                # Prepare tasks for parallel processing
+                                tasks = []
+                                for _, row in selected_rows.iterrows():
+                                    applovin_unit = {
+                                        "id": row["id"],
+                                        "name": row["name"],
+                                        "platform": row["platform"].lower(),
+                                        "ad_format": row["ad_format"],
+                                        "package_name": row["package_name"]
+                                    }
+                                    
+                                    for selected_network in st.session_state.selected_ad_networks:
+                                        tasks.append({
+                                            "applovin_unit": applovin_unit,
+                                            "selected_network": selected_network
                                         })
-                            
-                            if new_rows:
-                                new_df = pd.DataFrame(new_rows)
-                                st.session_state.applovin_data = pd.concat([st.session_state.applovin_data, new_df], ignore_index=True)
                                 
-                                # Show results summary
-                                success_count = len(fetch_results["success"])
-                                not_found_count = len(fetch_results["not_found"])
+                                # Process tasks in parallel (multiple networks) but sequential within each network (app -> units)
+                                status_text.text(f"🔄 {len(tasks)}개 작업 처리 중... (병렬 처리)")
+                                progress_bar.progress(20)
                                 
-                                if success_count > 0:
-                                    st.success(f"✅ {len(new_rows)}개 행이 데이터 테이블에 추가되었습니다! ({success_count}개 자동 채움)")
+                                completed_tasks = 0
+                                with ThreadPoolExecutor(max_workers=min(len(st.session_state.selected_ad_networks), 5)) as executor:
+                                    future_to_task = {
+                                        executor.submit(
+                                            process_network_unit,
+                                            {"applovin_unit": task["applovin_unit"]},
+                                            task["selected_network"]
+                                        ): task
+                                        for task in tasks
+                                    }
+                                    
+                                    for future in as_completed(future_to_task):
+                                        try:
+                                            row, result_info = future.result()
+                                            new_rows.append(row)
+                                            completed_tasks += 1
+                                            
+                                            # Update progress
+                                            progress = 20 + int((completed_tasks / len(tasks)) * 70)
+                                            progress_bar.progress(progress)
+                                            status_text.text(f"🔄 진행 중... ({completed_tasks}/{len(tasks)} 완료)")
+                                            
+                                            # Track results
+                                            if result_info["status"] == "success":
+                                                fetch_results["success"].append({
+                                                    "network": result_info["network"],
+                                                    "app_name": result_info["app_name"],
+                                                    "platform": result_info["platform"],
+                                                    "ad_format": result_info["ad_format"]
+                                                })
+                                            elif result_info["status"] in ["app_not_found", "unit_not_found"]:
+                                                fetch_results["not_found"].append({
+                                                    "network": result_info["network"],
+                                                    "app_name": result_info["app_name"],
+                                                    "platform": result_info["platform"],
+                                                    "ad_format": result_info["ad_format"],
+                                                    "reason": result_info.get("reason", "Unknown")
+                                                })
+                                        except Exception as e:
+                                            task = future_to_task[future]
+                                            logging.error(f"Error processing {task['selected_network']}: {str(e)}")
+                                            fetch_results["failed"].append({
+                                                "network": task["selected_network"],
+                                                "error": str(e)
+                                            })
+                                            completed_tasks += 1
+                                
+                                status_text.text("📊 데이터 정리 중...")
+                                progress_bar.progress(95)
+                                
+                                if new_rows:
+                                    new_df = pd.DataFrame(new_rows)
+                                    st.session_state.applovin_data = pd.concat([st.session_state.applovin_data, new_df], ignore_index=True)
+                                    
+                                    progress_bar.progress(100)
+                                    status_text.text("✅ 완료!")
+                                    
+                                    # Clear loading placeholder
+                                    loading_placeholder.empty()
+                                    
+                                    # Show results summary
+                                    success_count = len(fetch_results["success"])
+                                    not_found_count = len(fetch_results["not_found"])
+                                    
+                                    if success_count > 0:
+                                        st.success(f"✅ {len(new_rows)}개 행이 데이터 테이블에 추가되었습니다! ({success_count}개 자동 채움)")
+                                    else:
+                                        st.info(f"ℹ️ {len(new_rows)}개 행이 데이터 테이블에 추가되었습니다. (자동 채움: {success_count}개, 찾지 못함: {not_found_count}개)")
+                                    
+                                    # Show details if there are failures
+                                    if not_found_count > 0:
+                                        with st.expander(f"⚠️ 찾지 못한 항목 ({not_found_count}개)", expanded=False):
+                                            for item in fetch_results["not_found"][:10]:  # Show first 10
+                                                st.write(f"- {item['network']}: {item['app_name']} ({item['platform']}, {item['ad_format']}) - {item.get('reason', 'Unknown')}")
+                                            if not_found_count > 10:
+                                                st.write(f"... 외 {not_found_count - 10}개")
+                                    
+                                    # Clear selections
+                                    st.session_state.selected_ad_networks = []
+                                    st.rerun()
                                 else:
-                                    st.info(f"ℹ️ {len(new_rows)}개 행이 데이터 테이블에 추가되었습니다. (자동 채움: {success_count}개, 찾지 못함: {not_found_count}개)")
-                                
-                                # Show details if there are failures
-                                if not_found_count > 0:
-                                    with st.expander(f"⚠️ 찾지 못한 항목 ({not_found_count}개)", expanded=False):
-                                        for item in fetch_results["not_found"][:10]:  # Show first 10
-                                            st.write(f"- {item['network']}: {item['app_name']} ({item['platform']}, {item['ad_format']}) - {item.get('reason', 'Unknown')}")
-                                        if not_found_count > 10:
-                                            st.write(f"... 외 {not_found_count - 10}개")
-                                
-                                # Clear selections
-                                st.session_state.selected_ad_networks = []
-                                st.rerun()
-                            else:
-                                st.warning("⚠️ 선택한 항목과 일치하는 platform/ad_format 조합이 없습니다.")
+                                    progress_bar.progress(100)
+                                    loading_placeholder.empty()
+                                    st.warning("⚠️ 선택한 항목과 일치하는 platform/ad_format 조합이 없습니다.")
+                            except Exception as e:
+                                progress_bar.progress(100)
+                                loading_placeholder.empty()
+                                st.error(f"❌ 오류 발생: {str(e)}")
+                                import traceback
+                                st.exception(e)
         else:
             st.info("검색 조건에 맞는 Ad Unit이 없습니다.")
 

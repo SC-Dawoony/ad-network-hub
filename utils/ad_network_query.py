@@ -291,7 +291,7 @@ def match_applovin_unit_to_network(
     """Match AppLovin ad unit to a network app
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads")
+        network: Network name (e.g., "ironsource", "bigoads", "vungle")
         applovin_unit: AppLovin ad unit dict with id, name, platform, package_name
         network_apps: Optional pre-fetched network apps list (to avoid multiple API calls)
     
@@ -302,6 +302,69 @@ def match_applovin_unit_to_network(
     app_name = applovin_unit.get("name", "")
     platform = applovin_unit.get("platform", "").lower()
     
+    # For Vungle, placements contain app info, so we need to search placements
+    if network == "vungle":
+        placements = get_vungle_placements()
+        if not placements:
+            return None
+        
+        # Search for placement matching package_name or app_name
+        for placement in placements:
+            # Parse application object (can be string or dict)
+            application = placement.get("application", {})
+            if isinstance(application, str):
+                try:
+                    import json
+                    application = json.loads(application)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"[Vungle] Failed to parse application JSON: {application}")
+                    application = {}
+            
+            # Extract app info from application object
+            placement_pkg = application.get("store", {}).get("id", "")  # Store ID can be used as package identifier
+            placement_app_name = application.get("name", "")
+            placement_platform = application.get("platform", "").lower()
+            vungle_app_id = application.get("vungleAppId", "")
+            application_id = application.get("id", "")
+            
+            # Normalize platform for comparison
+            placement_platform_normalized = _normalize_platform_for_matching(placement_platform, network)
+            target_platform_normalized = _normalize_platform_for_matching(platform, network)
+            
+            # Match by package name first (using store.id or application.id)
+            if package_name:
+                # Try matching with store.id (iOS App Store ID or Android package)
+                if placement_pkg and package_name.lower() == placement_pkg.lower():
+                    if placement_platform_normalized == target_platform_normalized:
+                        # Extract app info from placement with vungleAppId
+                        return {
+                            "appId": vungle_app_id or application_id,  # Use vungleAppId as primary identifier
+                            "vungleAppId": vungle_app_id,  # Store vungleAppId separately
+                            "applicationId": application_id,
+                            "name": placement_app_name,
+                            "platform": placement_platform,
+                            "packageName": placement_pkg,
+                            "storeId": placement_pkg
+                        }
+            
+            # Fallback to app name matching
+            if app_name and placement_app_name:
+                if app_name.lower() in placement_app_name.lower() or placement_app_name.lower() in app_name.lower():
+                    if placement_platform_normalized == target_platform_normalized:
+                        # Extract app info from placement with vungleAppId
+                        return {
+                            "appId": vungle_app_id or application_id,  # Use vungleAppId as primary identifier
+                            "vungleAppId": vungle_app_id,  # Store vungleAppId separately
+                            "applicationId": application_id,
+                            "name": placement_app_name,
+                            "platform": placement_platform,
+                            "packageName": placement_pkg,
+                            "storeId": placement_pkg
+                        }
+        
+        return None
+    
+    # For other networks, use standard app matching
     # Try to find app by package name first (more reliable)
     if package_name:
         app = find_app_by_package_name(network, package_name, platform)
@@ -514,6 +577,84 @@ def find_matching_unit(
         elif len(matching_units) == 1:
             return matching_units[0]
         else:
+            return None
+    
+    # For Vungle, match by type (not placementType)
+    if network == "vungle":
+        # Vungle uses "type" field (e.g., "interstitial", "rewarded", "banner")
+        # Note: API response uses "type" field, not "placementType"
+        matching_units = []
+        logger.info(f"[Vungle] Finding unit: ad_format={ad_format}, target_format={target_format}")
+        logger.info(f"[Vungle] Total units to check: {len(network_units)}")
+        
+        # Map target_format to lowercase for comparison
+        # target_format is "Rewarded", "Interstitial", "Banner" from map_ad_format_to_network_format
+        # But actual API response uses lowercase: "interstitial", "rewarded", "banner"
+        type_mapping = {
+            "rewarded": "rewarded",
+            "interstitial": "interstitial",
+            "banner": "banner"
+        }
+        target_type = type_mapping.get(target_format.lower(), target_format.lower())
+        
+        for idx, unit in enumerate(network_units):
+            # Get type field (should be lowercase in API response)
+            unit_type = unit.get("type", "").lower()
+            unit_name = unit.get("name", "N/A")
+            unit_reference_id = unit.get("referenceID", "N/A")
+            
+            # Also check application.platform for platform matching
+            application = unit.get("application", {})
+            if isinstance(application, str):
+                try:
+                    import json
+                    application = json.loads(application)
+                except (json.JSONDecodeError, TypeError):
+                    application = {}
+            unit_platform = application.get("platform", "").lower()
+            
+            logger.info(f"[Vungle] Unit[{idx}]: name={unit_name}, type={unit_type}, referenceID={unit_reference_id}, platform={unit_platform}")
+            
+            # Match by type (lowercase comparison)
+            if unit_type == target_type:
+                # Also check platform if provided
+                if platform:
+                    platform_normalized = _normalize_platform_for_matching(platform, network)
+                    unit_platform_normalized = _normalize_platform_for_matching(unit_platform, network)
+                    if platform_normalized == unit_platform_normalized:
+                        logger.info(f"[Vungle] ✓ Match found: {unit_name} (type={unit_type} == target={target_type}, platform={unit_platform_normalized})")
+                        matching_units.append(unit)
+                    else:
+                        logger.info(f"[Vungle] ✗ Platform mismatch: {unit_name} (type={unit_type} matches but platform {unit_platform_normalized} != {platform_normalized})")
+                else:
+                    logger.info(f"[Vungle] ✓ Match found: {unit_name} (type={unit_type} == target={target_type})")
+                    matching_units.append(unit)
+        
+        logger.info(f"[Vungle] Total matching units found: {len(matching_units)}")
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in name
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                placement_name = unit.get("name", "").lower()
+                if platform_indicator in placement_name:
+                    logger.info(f"[Vungle] Found unit with platform indicator '{platform_indicator}' in name: {unit.get('name')}, referenceID={unit.get('referenceID')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[Vungle] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in name")
+            matched_unit = matching_units[0] if matching_units else None
+            if matched_unit:
+                logger.info(f"[Vungle] Returning first match: {matched_unit.get('name')}, referenceID={matched_unit.get('referenceID')}")
+            return matched_unit
+        elif len(matching_units) == 1:
+            matched_unit = matching_units[0]
+            logger.info(f"[Vungle] Returning single match: {matched_unit.get('name')}, referenceID={matched_unit.get('referenceID')}")
+            return matched_unit
+        else:
+            logger.warning(f"[Vungle] No matching units found for format '{target_format}' (target_type={target_type})")
             return None
     
     # For other networks or when platform is not provided, use simple format matching
@@ -921,12 +1062,71 @@ def get_bigoads_units(app_code: str) -> List[Dict]:
         return []
 
 
+def get_vungle_placements() -> List[Dict]:
+    """Get all placements from Vungle API
+    
+    Note: Vungle placements contain both app and unit info in a single response
+    
+    Returns:
+        List of placement dicts
+    """
+    try:
+        network_manager = get_network_manager()
+        placements = network_manager._get_vungle_placements()
+        return placements
+    except Exception as e:
+        logger.error(f"[Vungle] Error getting placements: {str(e)}")
+        return []
+
+
+def get_vungle_units(app_id: Optional[str] = None) -> List[Dict]:
+    """Get placements (units) for a Vungle app
+    
+    Args:
+        app_id: Optional vungleAppId to filter by (if None, returns all placements)
+    
+    Returns:
+        List of placement dicts
+    """
+    try:
+        placements = get_vungle_placements()
+        
+        if app_id:
+            # Filter by vungleAppId from application object
+            filtered = []
+            for placement in placements:
+                # Parse application object (can be string or dict)
+                application = placement.get("application", {})
+                if isinstance(application, str):
+                    try:
+                        import json
+                        application = json.loads(application)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(f"[Vungle] Failed to parse application JSON in get_vungle_units: {application[:100]}")
+                        continue
+                
+                # Check vungleAppId
+                vungle_app_id = application.get("vungleAppId", "")
+                if str(vungle_app_id) == str(app_id):
+                    filtered.append(placement)
+            
+            logger.info(f"[Vungle] Filtered {len(filtered)} placements for app_id={app_id}")
+            return filtered
+        
+        return placements
+    except Exception as e:
+        logger.error(f"[Vungle] Error getting units: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber")
-        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber, appCode for BigOAds, etc.)
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber", "vungle")
+        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber/Vungle, appCode for BigOAds, etc.)
     
     Returns:
         List of ad unit dicts
@@ -941,6 +1141,8 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         return get_fyber_units(app_code)
     elif network == "bigoads":
         return get_bigoads_units(app_code)
+    elif network == "vungle":
+        return get_vungle_units(app_code)
     
     logger.warning(f"[{network}] get_network_units not implemented yet")
     return []
@@ -962,6 +1164,7 @@ def map_applovin_network_to_actual_network(applovin_network: str) -> Optional[st
         "FYBER_BIDDING": "fyber",
         "MINTEGRAL_BIDDING": "mintegral",
         "PANGLE_BIDDING": "pangle",
+        "VUNGLE_BIDDING": "vungle",
         # Add more mappings as needed
     }
     return mapping.get(applovin_network.upper())
@@ -1019,6 +1222,14 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": 2   # Banner
         }
         return format_map.get(ad_format_upper, ad_format.lower())
+    elif network == "vungle":
+        # Vungle: placementType (Rewarded, Interstitial, Banner, MREC)
+        format_map = {
+            "REWARD": "Rewarded",
+            "INTER": "Interstitial",
+            "BANNER": "Banner"
+        }
+        return format_map.get(ad_format_upper, ad_format.capitalize())
     
     # Default: return lowercase
     return ad_format.lower()
@@ -1058,6 +1269,10 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
         result["app_code"] = str(result["app_id"]) if result["app_id"] else None
     elif network == "fyber":
         result["app_id"] = app.get("appId") or app.get("id")
+        result["app_code"] = str(result["app_id"]) if result["app_id"] else None
+    elif network == "vungle":
+        # Vungle uses vungleAppId from application object
+        result["app_id"] = app.get("vungleAppId") or app.get("appId") or app.get("applicationId") or app.get("id")
         result["app_code"] = str(result["app_id"]) if result["app_id"] else None
     else:
         # Generic fallback

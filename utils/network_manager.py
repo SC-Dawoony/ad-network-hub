@@ -2711,11 +2711,119 @@ class MockNetworkManager:
                     logger.error(f"[Fyber] Error Response (text): {e.response.text}")
             return []
     
+    def _get_vungle_jwt_token(self) -> Optional[str]:
+        """Get Vungle JWT Token for API calls
+        
+        API: GET https://auth-api.vungle.com/v2/auth
+        Header: x-api-key: [secret_token]
+        
+        Returns:
+            JWT Token string or None
+        """
+        # Check for existing JWT token in environment
+        jwt_token = _get_env_var("LIFTOFF_JWT_TOKEN") or _get_env_var("VUNGLE_JWT_TOKEN")
+        if jwt_token:
+            logger.info("[Vungle] Using existing JWT token from environment")
+            return jwt_token
+        
+        # Get secret token
+        secret_token = _get_env_var("LIFTOFF_SECRET_TOKEN") or _get_env_var("VUNGLE_SECRET_TOKEN")
+        if not secret_token:
+            logger.error("[Vungle] LIFTOFF_SECRET_TOKEN or VUNGLE_SECRET_TOKEN not found")
+            return None
+        
+        # Request new JWT token
+        auth_url = "https://auth-api.vungle.com/v2/auth"
+        headers = {
+            "x-api-key": secret_token
+        }
+        
+        logger.info(f"[Vungle] Requesting JWT token from {auth_url}")
+        
+        try:
+            response = requests.get(auth_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Check for error messages
+                if "messages" in result:
+                    error_msg = result.get("messages", [])
+                    error_code = result.get("code")
+                    logger.error(f"[Vungle] Error getting JWT token: {error_msg} (code: {error_code})")
+                    return None
+                
+                jwt_token = result.get("token")
+                if jwt_token:
+                    logger.info("[Vungle] JWT token obtained successfully")
+                    return jwt_token
+                else:
+                    logger.error("[Vungle] JWT token not found in response")
+                    return None
+            else:
+                logger.error(f"[Vungle] Failed to get JWT token: {response.status_code} - {response.text[:200]}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Vungle] Error requesting JWT token: {str(e)}")
+            return None
+    
+    def _get_vungle_placements(self) -> List[Dict]:
+        """Get all placements from Vungle API
+        
+        API: GET https://publisher-api.vungle.com/api/v1/placements
+        
+        Returns:
+            List of placement dicts (each contains app and unit info)
+        """
+        jwt_token = self._get_vungle_jwt_token()
+        if not jwt_token:
+            logger.error("[Vungle] Failed to get JWT token for placements")
+            return []
+        
+        base_url = "https://publisher-api.vungle.com/api/v1"
+        placements_url = f"{base_url}/placements"
+        
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Vungle] Fetching all placements from {placements_url}")
+        
+        try:
+            response = requests.get(placements_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Parse response - can be list or dict
+                placements = []
+                if isinstance(result, list):
+                    placements = result
+                elif isinstance(result, dict):
+                    placements = result.get("data", result.get("placements", result.get("list", [])))
+                    if not isinstance(placements, list):
+                        placements = []
+                
+                logger.info(f"[Vungle] Retrieved {len(placements)} placements")
+                return placements
+            else:
+                logger.error(f"[Vungle] Failed to get placements: {response.status_code} - {response.text[:200]}")
+                if response.status_code == 401:
+                    logger.error("[Vungle] Authentication failed - JWT token may be expired")
+                elif response.status_code == 403:
+                    logger.error("[Vungle] Permission denied")
+                return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Vungle] Error fetching placements: {str(e)}")
+            return []
+    
     def get_apps(self, network: str, app_key: Optional[str] = None) -> List[Dict]:
         """Get apps list from network
         
         Args:
-            network: Network name (e.g., "bigoads", "ironsource", "fyber")
+            network: Network name (e.g., "bigoads", "ironsource", "fyber", "vungle")
             app_key: Optional app key to filter by (for IronSource)
         """
         if network == "bigoads":
@@ -2739,6 +2847,22 @@ class MockNetworkManager:
                 except ValueError:
                     logger.warning(f"[Fyber] Invalid app_key format: {app_key}")
             return self._get_fyber_apps(publisher_id=publisher_id, app_id=app_id)
+        elif network == "vungle":
+            # For Vungle, placements contain both app and unit info
+            # Extract unique apps from placements
+            placements = self._get_vungle_placements()
+            apps_dict = {}
+            for placement in placements:
+                app_id = placement.get("applicationId")
+                if app_id and app_id not in apps_dict:
+                    apps_dict[app_id] = {
+                        "appId": app_id,
+                        "name": placement.get("applicationName", ""),
+                        "platform": placement.get("platform", ""),
+                        "packageName": placement.get("packageName", ""),
+                        "bundleId": placement.get("bundleId", "")
+                    }
+            return list(apps_dict.values())
         
         # Mock implementation for other networks
         return [
