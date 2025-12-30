@@ -162,6 +162,13 @@ with st.sidebar:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
+        elif network == "applovin":
+            # Check for AppLovin credentials
+            api_key = get_env("APPLOVIN_API_KEY")
+            if api_key:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
         else:
             # For other networks, check credentials
             status = "⚠️ Not Set"
