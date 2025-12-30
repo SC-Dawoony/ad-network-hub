@@ -443,8 +443,53 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             # Vungle uses referenceID for ad_unit_id
                                             unit_id = matched_unit.get("referenceID") or matched_unit.get("placementId") or matched_unit.get("id") or ""
                                         elif actual_network == "unity":
-                                            # Unity uses id or adUnitId for ad_unit_id
-                                            unit_id = matched_unit.get("id") or matched_unit.get("adUnitId") or matched_unit.get("unitId") or ""
+                                            # Unity uses placements.id for ad_unit_id
+                                            # placements is a JSON string like: '{"placement_name": {"id": "...", ...}}'
+                                            # We need to extract the "id" from the first placement
+                                            unit_id = ""
+                                            placements_parsed = matched_unit.get("placements_parsed", {})
+                                            
+                                            # If not already parsed, try to parse placements
+                                            if not placements_parsed:
+                                                placements_str = matched_unit.get("placements", "")
+                                                if placements_str:
+                                                    try:
+                                                        import json
+                                                        if isinstance(placements_str, str):
+                                                            # Try normal parsing first
+                                                            try:
+                                                                placements_parsed = json.loads(placements_str)
+                                                            except json.JSONDecodeError:
+                                                                # Handle escaped double quotes ("" -> ")
+                                                                cleaned_str = placements_str.replace('""', '"')
+                                                                placements_parsed = json.loads(cleaned_str)
+                                                        elif isinstance(placements_str, dict):
+                                                            placements_parsed = placements_str
+                                                    except (json.JSONDecodeError, TypeError) as e:
+                                                        logger.warning(f"[Unity] Failed to parse placements: {e}")
+                                                        placements_parsed = {}
+                                            
+                                            # Extract first placement id from placements dict
+                                            # placements_parsed structure: {"placement_name": {"id": "...", "name": "...", ...}}
+                                            if isinstance(placements_parsed, dict) and placements_parsed:
+                                                # Get the first placement (any key)
+                                                for placement_name, placement_data in placements_parsed.items():
+                                                    if isinstance(placement_data, dict):
+                                                        placement_id = placement_data.get("id", "")
+                                                        if placement_id:
+                                                            unit_id = placement_id
+                                                            logger.info(f"[Unity] Extracted unit_id '{unit_id}' from placement '{placement_name}'")
+                                                            break
+                                            
+                                            # Fallback: use unit's id field if placements id not found
+                                            if not unit_id:
+                                                unit_id = matched_unit.get("id") or matched_unit.get("adUnitId") or matched_unit.get("unitId") or ""
+                                                if unit_id:
+                                                    logger.warning(f"[Unity] Using fallback unit_id from unit.id: {unit_id}")
+                                                else:
+                                                    logger.warning(f"[Unity] No unit_id found in placements or unit fields")
+                                            
+                                            logger.info(f"[Unity] Final unit_id: {unit_id}")
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or

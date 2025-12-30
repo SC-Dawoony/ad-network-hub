@@ -723,7 +723,7 @@ def find_matching_unit(
     
     # For Unity, match by ad format and platform
     if network == "unity":
-        # Unity ad units are flattened with "platform" field (apple/google)
+        # Unity ad units have adFormat field (rewarded, interstitial, banner)
         # Match by ad format and platform
         matching_units = []
         for unit in network_units:
@@ -737,7 +737,8 @@ def find_matching_unit(
             }
             unit_platform_normalized = platform_mapping.get(unit_platform, unit_platform)
             
-            # Check format match
+            # Check format match (target_format is "Rewarded", "Interstitial", "Banner")
+            # unit_format is "rewarded", "interstitial", "banner"
             if unit_format == target_format.lower():
                 # If platform is provided, check platform match
                 if platform:
@@ -749,13 +750,15 @@ def find_matching_unit(
                     matching_units.append(unit)
         
         if len(matching_units) == 1:
-            return matching_units[0]
+            matched_unit = matching_units[0]
+            logger.info(f"[Unity] Found matching unit: {matched_unit.get('name')}, adFormat: {matched_unit.get('adFormat')}, platform: {matched_unit.get('platform')}")
+            return matched_unit
         elif len(matching_units) > 1:
             # If multiple matches, return first one (or could prioritize by platform)
             logger.warning(f"[Unity] Multiple units found for format '{target_format}', returning first match")
             return matching_units[0]
         else:
-            logger.warning(f"[Unity] No matching units found for format '{target_format}'")
+            logger.warning(f"[Unity] No matching units found for format '{target_format}' (target_format={target_format.lower()})")
             return None
     
     # For other networks or when platform is not provided, use simple format matching
@@ -1221,34 +1224,90 @@ def get_unity_units(project_id: str) -> List[Dict]:
     
     Returns:
         List of ad unit dicts (flattened from apple/google structure)
+        Each unit has: id, name, adFormat, placements (parsed), platform, etc.
     """
     try:
         ad_units_dict = get_unity_ad_units(project_id)
+        logger.info(f"[Unity] get_unity_units: ad_units_dict type: {type(ad_units_dict)}, keys: {list(ad_units_dict.keys()) if isinstance(ad_units_dict, dict) else 'not a dict'}")
         units = []
         
         # Flatten apple and google ad units
+        # Unity API returns: {"apple": {"iOS_RV_Bidding": {...}, "iOS_IS_Bidding": {...}}, "google": {...}}
         for platform, platform_units in ad_units_dict.items():
+            logger.info(f"[Unity] Processing platform: {platform}, type: {type(platform_units)}")
+            
             if isinstance(platform_units, dict):
-                # If platform_units is a dict, it might contain a list or more nested structure
-                if "data" in platform_units:
-                    platform_units = platform_units["data"]
-                elif "adUnits" in platform_units:
-                    platform_units = platform_units["adUnits"]
+                # platform_units is a dict where keys are ad unit IDs (e.g., "iOS_RV_Bidding")
+                # and values are ad unit objects
+                logger.info(f"[Unity] platform_units dict keys: {list(platform_units.keys())[:5]}")
                 
-                if isinstance(platform_units, list):
-                    for unit in platform_units:
+                for unit_key, unit in platform_units.items():
+                    if isinstance(unit, dict):
                         unit_with_platform = unit.copy()
                         unit_with_platform["platform"] = platform
+                        # Ensure unit has id field (use the key if not present)
+                        if "id" not in unit_with_platform:
+                            unit_with_platform["id"] = unit_key
+                        
+                        # Parse placements JSON string if present
+                        placements_str = unit_with_platform.get("placements", "")
+                        logger.info(f"[Unity] Unit {unit_key} placements type: {type(placements_str)}, value: {str(placements_str)[:200] if placements_str else 'empty'}")
+                        
+                        if placements_str:
+                            if isinstance(placements_str, str):
+                                try:
+                                    import json
+                                    # Handle escaped double quotes
+                                    try:
+                                        placements = json.loads(placements_str)
+                                        logger.info(f"[Unity] Successfully parsed placements (first attempt) for {unit_key}")
+                                    except json.JSONDecodeError:
+                                        cleaned_str = placements_str.replace('""', '"')
+                                        placements = json.loads(cleaned_str)
+                                        logger.info(f"[Unity] Successfully parsed placements (after cleaning) for {unit_key}")
+                                    unit_with_platform["placements_parsed"] = placements
+                                except (json.JSONDecodeError, TypeError) as e:
+                                    logger.warning(f"[Unity] Failed to parse placements JSON for {unit_key}: {placements_str[:100]}, error: {e}")
+                                    unit_with_platform["placements_parsed"] = {}
+                            elif isinstance(placements_str, dict):
+                                # Already a dict, use as-is
+                                logger.info(f"[Unity] placements is already a dict for {unit_key}")
+                                unit_with_platform["placements_parsed"] = placements_str
+                            else:
+                                logger.warning(f"[Unity] Unexpected placements type for {unit_key}: {type(placements_str)}")
+                                unit_with_platform["placements_parsed"] = {}
+                        else:
+                            logger.warning(f"[Unity] Unit {unit_key} has no placements field: {list(unit_with_platform.keys())}")
+                            unit_with_platform["placements_parsed"] = {}
+                        
                         units.append(unit_with_platform)
-                elif isinstance(platform_units, dict):
-                    # If it's a single unit dict, add it
-                    platform_units["platform"] = platform
-                    units.append(platform_units)
+                        logger.info(f"[Unity] Added unit: {unit_with_platform.get('name')}, id: {unit_with_platform.get('id')}, adFormat: {unit_with_platform.get('adFormat')}, platform: {platform}")
             elif isinstance(platform_units, list):
+                # If it's a list (unlikely but handle it)
                 for unit in platform_units:
-                    unit_with_platform = unit.copy()
-                    unit_with_platform["platform"] = platform
-                    units.append(unit_with_platform)
+                    if isinstance(unit, dict):
+                        unit_with_platform = unit.copy()
+                        unit_with_platform["platform"] = platform
+                        # Parse placements JSON string if present
+                        placements_str = unit_with_platform.get("placements", "")
+                        if placements_str:
+                            if isinstance(placements_str, str):
+                                try:
+                                    import json
+                                    try:
+                                        placements = json.loads(placements_str)
+                                    except json.JSONDecodeError:
+                                        cleaned_str = placements_str.replace('""', '"')
+                                        placements = json.loads(cleaned_str)
+                                    unit_with_platform["placements_parsed"] = placements
+                                except (json.JSONDecodeError, TypeError) as e:
+                                    logger.warning(f"[Unity] Failed to parse placements JSON: {placements_str[:100]}, error: {e}")
+                                    unit_with_platform["placements_parsed"] = {}
+                            elif isinstance(placements_str, dict):
+                                unit_with_platform["placements_parsed"] = placements_str
+                        else:
+                            unit_with_platform["placements_parsed"] = {}
+                        units.append(unit_with_platform)
         
         return units
     except Exception as e:

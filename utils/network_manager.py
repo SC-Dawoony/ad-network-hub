@@ -2937,6 +2937,17 @@ class MockNetworkManager:
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"[Unity] Retrieved ad units for project {project_id}")
+                logger.info(f"[Unity] Ad units response type: {type(result)}")
+                if isinstance(result, dict):
+                    logger.info(f"[Unity] Ad units response keys: {list(result.keys())}")
+                    for key, value in result.items():
+                        if isinstance(value, list):
+                            logger.info(f"[Unity] {key} has {len(value)} units")
+                            if value:
+                                logger.info(f"[Unity] First {key} unit keys: {list(value[0].keys())}")
+                                logger.info(f"[Unity] First {key} unit sample: {json.dumps(value[0], indent=2)[:500]}")
+                        elif isinstance(value, dict):
+                            logger.info(f"[Unity] {key} is dict with keys: {list(value.keys())}")
                 return result  # Returns { "apple": {}, "google": {} }
             else:
                 logger.error(f"[Unity] Failed to get ad units: {response.status_code} - {response.text[:200]}")
