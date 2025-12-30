@@ -306,25 +306,50 @@ st.markdown(f"**Network:** {network_display}")
 
 # Check if network supports app creation
 if not config.supports_create_app():
-    st.warning(f"⚠️ {network_display} does not support app creation via API")
-    st.info("Please create apps manually in the network's dashboard")
-    st.stop()
+    if current_network == "applovin":
+        st.warning(f"⚠️ {network_display}는 API를 통한 앱 생성 기능을 지원하지 않습니다.")
+        st.info("💡 AppLovin에서는 앱을 수동으로 생성해야 합니다. 대시보드에서 앱을 생성한 후, 아래 'Create Unit' 섹션에서 Ad Unit을 생성할 수 있습니다.")
+    else:
+        st.warning(f"⚠️ {network_display} does not support app creation via API")
+        st.info("Please create apps manually in the network's dashboard")
+        st.stop()
 
-st.info(f"✅ {network_display} - Create API Available")
+if current_network != "applovin":
+    st.info(f"✅ {network_display} - Create API Available")
 
 st.divider()
 
 # Network selector (if multiple networks available)
 available_networks = get_network_display_names()
 if len(available_networks) > 1:
+    # Sort networks: AppLovin first, then others
+    network_items = list(available_networks.items())
+    applovin_item = None
+    other_items = []
+    for key, display in network_items:
+        if key == "applovin":
+            applovin_item = (key, display)
+        else:
+            other_items.append((key, display))
+    
+    # Reorder: AppLovin first, then others
+    if applovin_item:
+        sorted_items = [applovin_item] + other_items
+    else:
+        sorted_items = network_items
+    
+    # Create sorted dict and list of display names
+    sorted_networks = dict(sorted_items)
+    sorted_display_names = list(sorted_networks.values())
+    
     selected_display = st.selectbox(
         "Select Network",
-        options=list(available_networks.values()),
-        index=list(available_networks.values()).index(network_display) if network_display in available_networks.values() else 0
+        options=sorted_display_names,
+        index=sorted_display_names.index(network_display) if network_display in sorted_display_names else 0
     )
     
-    # Find network key
-    for key, display in available_networks.items():
+    # Find network key from sorted networks
+    for key, display in sorted_networks.items():
         if display == selected_display:
             if key != current_network:
                 SessionManager.switch_network(key)
@@ -338,271 +363,292 @@ st.divider()
 # ============================================================================
 st.subheader("📱 Create App")
 
-# Render form
-with st.form("create_app_form"):
-    st.markdown("**App Information**")
-    
-    # For Pangle, pre-fill user_id and role_id from .env and show all required fields
-    existing_data = {}
-    if current_network == "pangle":
-        import os
-        from dotenv import load_dotenv
-        # Force reload .env file to get latest values
-        load_dotenv(override=True)
-        user_id = os.getenv("PANGLE_USER_ID")
-        role_id = os.getenv("PANGLE_ROLE_ID")
-        if user_id:
-            try:
-                existing_data["user_id"] = int(user_id)
-            except ValueError:
-                pass
-        if role_id:
-            try:
-                existing_data["role_id"] = int(role_id)
-            except ValueError:
-                pass
+# For AppLovin, skip app creation form
+if current_network == "applovin":
+    st.info("💡 AppLovin은 API를 통한 앱 생성 기능을 지원하지 않습니다. 대시보드에서 앱을 생성한 후, 아래 'Create Unit' 섹션에서 Ad Unit을 생성할 수 있습니다.")
+else:
+    # Render form
+    with st.form("create_app_form"):
+        st.markdown("**App Information**")
         
-        # Show user_id and role_id as read-only
-        if existing_data.get("user_id"):
-            st.text_input("User ID* (from .env)", value=str(existing_data["user_id"]), disabled=True, help="Master account ID from .env file")
-        if existing_data.get("role_id"):
-            st.text_input("Role ID* (from .env)", value=str(existing_data["role_id"]), disabled=True, help="Sub account ID from .env file")
+        # For Pangle, pre-fill user_id and role_id from .env and show all required fields
+        existing_data = {}
+        if current_network == "pangle":
+            import os
+            from dotenv import load_dotenv
+            # Force reload .env file to get latest values
+            load_dotenv(override=True)
+            user_id = os.getenv("PANGLE_USER_ID")
+            role_id = os.getenv("PANGLE_ROLE_ID")
+            if user_id:
+                try:
+                    existing_data["user_id"] = int(user_id)
+                except ValueError:
+                    pass
+            if role_id:
+                try:
+                    existing_data["role_id"] = int(role_id)
+                except ValueError:
+                    pass
+            
+            # Show user_id and role_id as read-only
+            if existing_data.get("user_id"):
+                st.text_input("User ID* (from .env)", value=str(existing_data["user_id"]), disabled=True, help="Master account ID from .env file")
+            if existing_data.get("role_id"):
+                st.text_input("Role ID* (from .env)", value=str(existing_data["role_id"]), disabled=True, help="Sub account ID from .env file")
+            
+            # Show fixed values
+            st.info("**Version:** 1.0 (fixed) | **Status:** 2 - Live (fixed)")
+            
+            # Show auto-generated fields info (values will be generated when Create App is clicked)
+            st.info("**Auto-generated (on submit):** Timestamp, Nonce, Sign (from security_key + timestamp + nonce)")
+            st.divider()
         
-        # Show fixed values
-        st.info("**Version:** 1.0 (fixed) | **Status:** 2 - Live (fixed)")
+        # Render form without sections for all networks
+        form_data = DynamicFormRenderer.render_form(config, "app", existing_data=existing_data)
         
-        # Show auto-generated fields info (values will be generated when Create App is clicked)
-        st.info("**Auto-generated (on submit):** Timestamp, Nonce, Sign (from security_key + timestamp + nonce)")
-        st.divider()
-    
-    # Render form without sections for all networks
-    form_data = DynamicFormRenderer.render_form(config, "app", existing_data=existing_data)
-    
-    # For Pangle, ensure user_id and role_id are in form_data (they're read-only but needed for API)
-    if current_network == "pangle":
-        if "user_id" in existing_data:
-            form_data["user_id"] = existing_data["user_id"]
-        if "role_id" in existing_data:
-            form_data["role_id"] = existing_data["role_id"]
-    
-    # Form buttons
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        reset_button = st.form_submit_button("🔄 Reset", use_container_width=True)
-    with col2:
-        submit_button = st.form_submit_button("✅ Create App", use_container_width=True)
-    with col3:
-        # Test Media List API button for Mintegral
+        # For Pangle, ensure user_id and role_id are in form_data (they're read-only but needed for API)
+        if current_network == "pangle":
+            if "user_id" in existing_data:
+                form_data["user_id"] = existing_data["user_id"]
+            if "role_id" in existing_data:
+                form_data["role_id"] = existing_data["role_id"]
+        
+        # Form buttons - conditional layout based on network
         if current_network == "mintegral":
-            test_api_button = st.form_submit_button("🔍 Test Media List API", use_container_width=True, help="Test Mintegral Media List API to check permissions")
+            # 3 columns for Mintegral
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                reset_button = st.form_submit_button("🔄 Reset", use_container_width=True)
+            with col2:
+                submit_button = st.form_submit_button("✅ Create App", use_container_width=True)
+            with col3:
+                test_api_button = st.form_submit_button("🔍 Test Media List API", use_container_width=True, help="Test Mintegral Media List API to check permissions")
         else:
+            # 2 columns for other networks
+            col1, col2 = st.columns(2)
+            with col1:
+                reset_button = st.form_submit_button("🔄 Reset", use_container_width=True)
+            with col2:
+                submit_button = st.form_submit_button("✅ Create App", use_container_width=True)
             test_api_button = False
     
-    if reset_button:
-        st.rerun()
-    
-    # Test Media List API for Mintegral
-    if test_api_button and current_network == "mintegral":
-        with st.spinner("Testing Mintegral Media List API..."):
-            try:
-                network_manager = get_network_manager()
-                apps = network_manager.get_apps(current_network)
-                if apps:
-                    st.success(f"✅ Media List API 호출 성공! {len(apps)}개의 앱을 찾았습니다.")
-                    st.json(apps[:3])  # 최대 3개만 표시
+    # Handle form submission (outside form block)
+    if current_network != "applovin":
+        try:
+            if reset_button:
+                st.rerun()
+        except NameError:
+            pass
+        
+        # Test Media List API for Mintegral
+        try:
+            if test_api_button and current_network == "mintegral":
+                with st.spinner("Testing Mintegral Media List API..."):
+                    try:
+                        network_manager = get_network_manager()
+                        apps = network_manager.get_apps(current_network)
+                        if apps:
+                            st.success(f"✅ Media List API 호출 성공! {len(apps)}개의 앱을 찾았습니다.")
+                            st.json(apps[:3])  # 최대 3개만 표시
+                        else:
+                            st.warning("⚠️ Media List API 호출은 성공했지만 앱이 없습니다. 터미널 로그를 확인하세요.")
+                    except Exception as e:
+                        st.error(f"❌ Media List API 호출 실패: {str(e)}")
+                        st.info("💡 터미널 로그를 확인하여 자세한 에러 정보를 확인하세요.")
+        except NameError:
+            pass
+        
+        # Display persisted create app response if exists (for all networks)
+        response_key = f"{current_network}_last_app_response"
+        if response_key in st.session_state:
+            last_response = st.session_state[response_key]
+            st.info(f"📥 Last Create App Response (persisted) - {network_display}")
+            with st.expander("📥 Last API Response", expanded=True):
+                import json
+                st.json(_mask_sensitive_data(last_response))
+                result = last_response.get('result', {})
+                if result:
+                    st.subheader("📝 Result Data")
+                    st.json(_mask_sensitive_data(result))
+            if st.button("🗑️ Clear Response", key=f"clear_{current_network}_response"):
+                del st.session_state[response_key]
+                st.rerun()
+            st.divider()
+        
+        try:
+            if submit_button:
+                # Validate form data
+                validation_passed = True
+                error_messages = []
+                
+                # Debug: Log form_data to console (visible in terminal where streamlit is running)
+                if current_network == "bigoads":
+                    import sys
+                    print(f"🔍 Debug - Full form_data keys: {list(form_data.keys())}", file=sys.stderr)
+                    print(f"🔍 Debug - platform value: {form_data.get('platform')}", file=sys.stderr)
+                    print(f"🔍 Debug - itunesId value: {repr(form_data.get('itunesId'))}", file=sys.stderr)
+                    print(f"🔍 Debug - platform type: {type(form_data.get('platform'))}", file=sys.stderr)
+                    print(f"🔍 Debug - itunesId type: {type(form_data.get('itunesId'))}", file=sys.stderr)
+                
+                # Common validations
+                if "name" in form_data:
+                    valid, msg = validate_app_name(form_data["name"])
+                    if not valid:
+                        validation_passed = False
+                        error_messages.append(msg)
+                
+                if "pkgName" in form_data:
+                    valid, msg = validate_package_name(form_data["pkgName"])
+                    if not valid:
+                        validation_passed = False
+                        error_messages.append(msg)
+                
+                if "storeUrl" in form_data and form_data.get("storeUrl"):
+                    valid, msg = validate_url(form_data["storeUrl"])
+                    if not valid:
+                        validation_passed = False
+                        error_messages.append(msg)
+                
+                # Network-specific validation (includes itunesId validation for iOS)
+                valid, msg = config.validate_app_data(form_data)
+                # Debug: Log validation result to console (visible in terminal where streamlit is running)
+                if current_network == "bigoads":
+                    import sys
+                    print(f"🔍 Debug - validation result: {valid}, message: {msg}", file=sys.stderr)
+                if not valid:
+                    validation_passed = False
+                    error_messages.append(msg)
+                
+                if not validation_passed:
+                    # Show validation errors as toast notifications (pop-up style)
+                    for error in error_messages:
+                        st.toast(f"❌ {error}", icon="🚫")
                 else:
-                    st.warning("⚠️ Media List API 호출은 성공했지만 앱이 없습니다. 터미널 로그를 확인하세요.")
-            except Exception as e:
-                st.error(f"❌ Media List API 호출 실패: {str(e)}")
-                st.info("💡 터미널 로그를 확인하여 자세한 에러 정보를 확인하세요.")
-    
-    # Display persisted create app response if exists (for all networks)
-    response_key = f"{current_network}_last_app_response"
-    if response_key in st.session_state:
-        last_response = st.session_state[response_key]
-        st.info(f"📥 Last Create App Response (persisted) - {network_display}")
-        with st.expander("📥 Last API Response", expanded=True):
-            import json
-            st.json(_mask_sensitive_data(last_response))
-            result = last_response.get('result', {})
-            if result:
-                st.subheader("📝 Result Data")
-                st.json(_mask_sensitive_data(result))
-        if st.button("🗑️ Clear Response", key=f"clear_{current_network}_response"):
-            del st.session_state[response_key]
-            st.rerun()
-        st.divider()
-    
-    if submit_button:
-        # Validate form data
-        validation_passed = True
-        error_messages = []
-        
-        # Debug: Log form_data to console (visible in terminal where streamlit is running)
-        if current_network == "bigoads":
-            import sys
-            print(f"🔍 Debug - Full form_data keys: {list(form_data.keys())}", file=sys.stderr)
-            print(f"🔍 Debug - platform value: {form_data.get('platform')}", file=sys.stderr)
-            print(f"🔍 Debug - itunesId value: {repr(form_data.get('itunesId'))}", file=sys.stderr)
-            print(f"🔍 Debug - platform type: {type(form_data.get('platform'))}", file=sys.stderr)
-            print(f"🔍 Debug - itunesId type: {type(form_data.get('itunesId'))}", file=sys.stderr)
-        
-        # Common validations
-        if "name" in form_data:
-            valid, msg = validate_app_name(form_data["name"])
-            if not valid:
-                validation_passed = False
-                error_messages.append(msg)
-        
-        if "pkgName" in form_data:
-            valid, msg = validate_package_name(form_data["pkgName"])
-            if not valid:
-                validation_passed = False
-                error_messages.append(msg)
-        
-        if "storeUrl" in form_data and form_data.get("storeUrl"):
-            valid, msg = validate_url(form_data["storeUrl"])
-            if not valid:
-                validation_passed = False
-                error_messages.append(msg)
-        
-        # Network-specific validation (includes itunesId validation for iOS)
-        valid, msg = config.validate_app_data(form_data)
-        # Debug: Log validation result to console (visible in terminal where streamlit is running)
-        if current_network == "bigoads":
-            import sys
-            print(f"🔍 Debug - validation result: {valid}, message: {msg}", file=sys.stderr)
-        if not valid:
-            validation_passed = False
-            error_messages.append(msg)
-        
-        if not validation_passed:
-            # Show validation errors as toast notifications (pop-up style)
-            for error in error_messages:
-                st.toast(f"❌ {error}", icon="🚫")
-        else:
-            # Build payload
-            try:
-                payload = config.build_app_payload(form_data)
-                
-                # Show payload preview
-                with st.expander("📋 Payload Preview"):
-                    st.json(payload)
-                
-                # Make API call
-                with st.spinner("Creating app..."):
-                    network_manager = get_network_manager()
-                    response = network_manager.create_app(current_network, payload)
-                    
-                    # Store response in session_state to persist it (for all networks)
-                    st.session_state[f"{current_network}_last_app_response"] = response
-                    
-                    result = handle_api_response(response)
-                    
-                    if result:
-                        # Extract app code from actual API response based on network
-                        # result is already the normalized response from network_manager
-                        app_code = None
-                        app_id = None
+                    # Build payload
+                    try:
+                        payload = config.build_app_payload(form_data)
                         
-                        if current_network == "ironsource":
-                            # IronSource: result contains appKey directly
-                            app_code = result.get("appKey")
-                        elif current_network == "pangle":
-                            # Pangle: result.data contains site_id, or result itself
-                            app_code = result.get("site_id") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("site_id")
-                        elif current_network == "mintegral":
-                            # Mintegral: result.data contains app_id, or result itself
-                            # Try multiple possible field names
-                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
-                            app_id = data.get("app_id") or data.get("id") or data.get("appId") or result.get("app_id") or result.get("id")
-                            app_code = str(app_id) if app_id else None
-                        elif current_network == "inmobi":
-                            # InMobi: result.data contains appId, or result itself
-                            # Try multiple possible field names
-                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
-                            app_id = data.get("appId") or data.get("id") or data.get("app_id") or result.get("appId") or result.get("id")
-                            app_code = str(app_id) if app_id else None
-                        else:
-                            # BigOAds: result.data contains appCode, or result itself
-                            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
-                            app_code = data.get("appCode") or result.get("appCode")
+                        # Show payload preview
+                        with st.expander("📋 Payload Preview"):
+                            st.json(payload)
                         
-                        if not app_code:
-                            app_code = "N/A"
-                        
-                        app_name = form_data.get("app_name") or form_data.get("appName") or form_data.get("name", "Unknown")
-                        
-                        # For IronSource, Pangle, Mintegral, and InMobi, we don't have platform/pkgName in the same way
-                        if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
-                            platform = None
-                            platform_str = None
-                            pkg_name = None
+                        # Make API call
+                        with st.spinner("Creating app..."):
+                            network_manager = get_network_manager()
+                            response = network_manager.create_app(current_network, payload)
                             
-                            # For IronSource, extract platform from form_data
-                            if current_network == "ironsource":
-                                platform_value = form_data.get("platform", "Android")
-                                platform_str = "android" if platform_value == "Android" else "ios"
-                                platform = 1 if platform_value == "Android" else 2
-                        else:
-                            platform = form_data.get("platform", 1)  # 1 = Android, 2 = iOS
-                            platform_str = "android" if platform == 1 else "ios"
-                            pkg_name = form_data.get("pkgName", "")
-                        
-                        # Save to session with full info for slot creation
-                        app_data = {
-                            "appCode": app_code,  # For IronSource, this is actually appKey
-                            "appKey": app_code if current_network == "ironsource" else None,  # Store appKey separately for IronSource
-                            "siteId": app_code if current_network == "pangle" else None,  # Store siteId separately for Pangle
-                            "app_id": app_id if current_network in ["mintegral", "inmobi"] else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral and InMobi
-                            "name": app_name,
-                            "pkgName": pkg_name,
-                            "platform": platform,
-                            "platformStr": platform_str,
-                            "storeUrl": form_data.get("storeUrl", "") if current_network == "ironsource" else ""  # Store URL for IronSource slot name generation
-                        }
-                        SessionManager.add_created_app(current_network, app_data)
-                        
-                        # Add newly created app to cache so it's immediately available in Create Unit
-                        cached_apps = SessionManager.get_cached_apps(current_network)
-                        new_app = {
-                            "appCode": app_code,
-                            "name": app_name,
-                            "platform": platform,
-                            "status": "Active"
-                        }
-                        # Check if app already exists in cache (avoid duplicates)
-                        if not any(app.get("appCode") == app_code for app in cached_apps):
-                            cached_apps.append(new_app)
-                            SessionManager.cache_apps(current_network, cached_apps)
-                        
-                        st.success("🎉 App created successfully!")
-                        st.balloons()
-                        
-                        # Show result details
-                        st.subheader("📝 Result")
-                        result_col1, result_col2 = st.columns(2)
-                        with result_col1:
-                            st.write(f"**Network:** {network_display}")
-                            st.write(f"**App Code:** {result.get('appCode', app_code)}")
-                        with result_col2:
-                            st.write(f"**App Name:** {form_data.get('name', app_name)}")
-                            # Display platform correctly for all networks
-                            if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
-                                # For these networks, use platform_str or platform_value
+                            # Store response in session_state to persist it (for all networks)
+                            st.session_state[f"{current_network}_last_app_response"] = response
+                            
+                            result = handle_api_response(response)
+                            
+                            if result:
+                                # Extract app code from actual API response based on network
+                                # result is already the normalized response from network_manager
+                                app_code = None
+                                app_id = None
+                                
                                 if current_network == "ironsource":
-                                    platform_value = form_data.get("platform", "Android")
-                                    platform_display = "Android" if platform_value == "Android" else "iOS"
+                                    # IronSource: result contains appKey directly
+                                    app_code = result.get("appKey")
+                                elif current_network == "pangle":
+                                    # Pangle: result.data contains site_id, or result itself
+                                    app_code = result.get("site_id") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("site_id")
+                                elif current_network == "mintegral":
+                                    # Mintegral: result.data contains app_id, or result itself
+                                    # Try multiple possible field names
+                                    data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                                    app_id = data.get("app_id") or data.get("id") or data.get("appId") or result.get("app_id") or result.get("id")
+                                    app_code = str(app_id) if app_id else None
+                                elif current_network == "inmobi":
+                                    # InMobi: result.data contains appId, or result itself
+                                    # Try multiple possible field names
+                                    data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                                    app_id = data.get("appId") or data.get("id") or data.get("app_id") or result.get("appId") or result.get("id")
+                                    app_code = str(app_id) if app_id else None
                                 else:
-                                    platform_display = "Android" if platform_str == "android" else "iOS"
-                                st.write(f"**Platform:** {platform_display}")
-                            elif form_data.get('platform'):
-                                # For other networks, platform is numeric (1 = Android, 2 = iOS)
-                                st.write(f"**Platform:** {'Android' if form_data.get('platform') == 1 else 'iOS'}")
-                        
-            except Exception as e:
-                st.error(f"❌ Error creating app: {str(e)}")
-                SessionManager.log_error(current_network, str(e))
+                                    # BigOAds: result.data contains appCode, or result itself
+                                    data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+                                    app_code = data.get("appCode") or result.get("appCode")
+                                
+                                if not app_code:
+                                    app_code = "N/A"
+                                
+                                app_name = form_data.get("app_name") or form_data.get("appName") or form_data.get("name", "Unknown")
+                                
+                                # For IronSource, Pangle, Mintegral, and InMobi, we don't have platform/pkgName in the same way
+                                if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
+                                    platform = None
+                                    platform_str = None
+                                    pkg_name = None
+                                    
+                                    # For IronSource, extract platform from form_data
+                                    if current_network == "ironsource":
+                                        platform_value = form_data.get("platform", "Android")
+                                        platform_str = "android" if platform_value == "Android" else "ios"
+                                        platform = 1 if platform_value == "Android" else 2
+                                else:
+                                    platform = form_data.get("platform", 1)  # 1 = Android, 2 = iOS
+                                    platform_str = "android" if platform == 1 else "ios"
+                                    pkg_name = form_data.get("pkgName", "")
+                                
+                                # Save to session with full info for slot creation
+                                app_data = {
+                                    "appCode": app_code,  # For IronSource, this is actually appKey
+                                    "appKey": app_code if current_network == "ironsource" else None,  # Store appKey separately for IronSource
+                                    "siteId": app_code if current_network == "pangle" else None,  # Store siteId separately for Pangle
+                                    "app_id": app_id if current_network in ["mintegral", "inmobi"] else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral and InMobi
+                                    "name": app_name,
+                                    "pkgName": pkg_name,
+                                    "platform": platform,
+                                    "platformStr": platform_str,
+                                    "storeUrl": form_data.get("storeUrl", "") if current_network == "ironsource" else ""  # Store URL for IronSource slot name generation
+                                }
+                                SessionManager.add_created_app(current_network, app_data)
+                                
+                                # Add newly created app to cache so it's immediately available in Create Unit
+                                cached_apps = SessionManager.get_cached_apps(current_network)
+                                new_app = {
+                                    "appCode": app_code,
+                                    "name": app_name,
+                                    "platform": platform,
+                                    "status": "Active"
+                                }
+                                # Check if app already exists in cache (avoid duplicates)
+                                if not any(app.get("appCode") == app_code for app in cached_apps):
+                                    cached_apps.append(new_app)
+                                    SessionManager.cache_apps(current_network, cached_apps)
+                                
+                                st.success("🎉 App created successfully!")
+                                st.balloons()
+                                
+                                # Show result details
+                                st.subheader("📝 Result")
+                                result_col1, result_col2 = st.columns(2)
+                                with result_col1:
+                                    st.write(f"**Network:** {network_display}")
+                                    st.write(f"**App Code:** {result.get('appCode', app_code)}")
+                                with result_col2:
+                                    st.write(f"**App Name:** {form_data.get('name', app_name)}")
+                                    # Display platform correctly for all networks
+                                    if current_network in ["ironsource", "pangle", "mintegral", "inmobi"]:
+                                        # For these networks, use platform_str or platform_value
+                                        if current_network == "ironsource":
+                                            platform_value = form_data.get("platform", "Android")
+                                            platform_display = "Android" if platform_value == "Android" else "iOS"
+                                        else:
+                                            platform_display = "Android" if platform_str == "android" else "iOS"
+                                        st.write(f"**Platform:** {platform_display}")
+                                    elif form_data.get('platform'):
+                                        # For other networks, platform is numeric (1 = Android, 2 = iOS)
+                                        st.write(f"**Platform:** {'Android' if form_data.get('platform') == 1 else 'iOS'}")
+                                
+                    except Exception as e:
+                        st.error(f"❌ Error creating app: {str(e)}")
+                        SessionManager.log_error(current_network, str(e))
+        except NameError:
+            pass
 
 # ============================================================================
 # CREATE UNIT SECTION
@@ -614,6 +660,176 @@ st.subheader("🎯 Create Unit")
 if not config.supports_create_unit():
     st.warning(f"⚠️ {network_display} does not support unit creation via API")
     st.info("Please create units manually in the network's dashboard")
+elif current_network == "applovin":
+    # AppLovin-specific unit creation UI
+    st.info("""
+    ⚠️ **주의사항:**
+    
+    이미 활성화된 앱/플랫폼/광고 형식 조합에 대해서는 이 API를 통해 추가 Ad Unit을 생성할 수 없습니다. 
+    추가 생성은 대시보드에서 직접 진행해주세요.
+    """)
+    
+    st.divider()
+    
+    # Common input fields (outside form, shared by all ad formats)
+    st.markdown("**Ad Unit Information**")
+    
+    # App Name input (optional, used for Ad Unit Name generation)
+    app_name = st.text_input(
+        "App Name",
+        placeholder="Glamour Boutique",
+        help="App name (optional, used for Ad Unit Name generation)",
+        key="applovin_app_name"
+    )
+    
+    # Package name input
+    package_name = st.text_input(
+        "Package Name*",
+        placeholder="com.test.app",
+        help="Package name (Android) or Bundle ID (iOS)",
+        key="applovin_package_name"
+    )
+    
+    # Platform radio button
+    platform = st.radio(
+        "Platform*",
+        options=["android", "ios"],
+        format_func=lambda x: "Android" if x == "android" else "iOS",
+        help="Select platform",
+        key="applovin_platform",
+        horizontal=True
+    )
+    
+    st.divider()
+    
+    # AppLovin slot configs (similar to BigOAds)
+    slot_configs_applovin = {
+        "RV": {
+            "name": "Rewarded Video",
+            "ad_format": "REWARD"
+        },
+        "IS": {
+            "name": "Interstitial",
+            "ad_format": "INTER"
+        },
+        "BN": {
+            "name": "Banner",
+            "ad_format": "BANNER"
+        }
+    }
+    
+    # Create 3 columns for RV, IS, BN
+    col1, col2, col3 = st.columns(3)
+    
+    for idx, (slot_key, slot_config) in enumerate(slot_configs_applovin.items()):
+        with [col1, col2, col3][idx]:
+            with st.container():
+                st.markdown(f"### 🎯 {slot_key} ({slot_config['name']})")
+                
+                # Slot name input
+                slot_name_key = f"applovin_slot_{slot_key}_name"
+                
+                # Generate default name based on app_name or package_name
+                if app_name:
+                    # Use app_name: {app_name} {os} {adformat}
+                    os_str = "AOS" if platform == "android" else "iOS"
+                    adformat_map = {"RV": "RV", "IS": "IS", "BN": "BN"}
+                    adformat = adformat_map.get(slot_key, slot_key)
+                    default_name = f"{app_name} {os_str} {adformat}"
+                    st.session_state[slot_name_key] = default_name
+                elif package_name:
+                    # Fallback to package name format if app_name is not provided
+                    pkg_last_part = package_name.split(".")[-1] if "." in package_name else package_name
+                    os_str = "aos" if platform == "android" else "ios"
+                    adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                    adtype = adtype_map.get(slot_key, slot_key.lower())
+                    default_name = f"{pkg_last_part}_{os_str}_applovin_{adtype}_bidding"
+                    st.session_state[slot_name_key] = default_name
+                elif slot_name_key not in st.session_state:
+                    default_name = f"{slot_key.lower()}_ad_unit"
+                    st.session_state[slot_name_key] = default_name
+                
+                # Update slot name if app_name, package_name, or platform changes
+                if app_name:
+                    # Priority: app_name format
+                    os_str = "AOS" if platform == "android" else "iOS"
+                    adformat_map = {"RV": "RV", "IS": "IS", "BN": "BN"}
+                    adformat = adformat_map.get(slot_key, slot_key)
+                    default_name = f"{app_name} {os_str} {adformat}"
+                    st.session_state[slot_name_key] = default_name
+                elif package_name:
+                    # Fallback to package name format
+                    pkg_last_part = package_name.split(".")[-1] if "." in package_name else package_name
+                    os_str = "aos" if platform == "android" else "ios"
+                    adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                    adtype = adtype_map.get(slot_key, slot_key.lower())
+                    default_name = f"{pkg_last_part}_{os_str}_applovin_{adtype}_bidding"
+                    st.session_state[slot_name_key] = default_name
+                
+                slot_name = st.text_input(
+                    "Ad Unit Name*",
+                    value=st.session_state.get(slot_name_key, ""),
+                    key=slot_name_key,
+                    help=f"Name for {slot_config['name']} ad unit"
+                )
+                
+                # Display current settings
+                st.markdown("**Current Settings:**")
+                settings_html = '<div style="min-height: 80px; margin-bottom: 10px;">'
+                settings_html += '<ul style="margin: 0; padding-left: 20px;">'
+                settings_html += f'<li>Ad Format: {slot_config["ad_format"]}</li>'
+                settings_html += f'<li>Platform: {"Android" if platform == "android" else "iOS"}</li>'
+                settings_html += f'<li>Package Name: {package_name if package_name else "Not set"}</li>'
+                settings_html += '</ul></div>'
+                st.markdown(settings_html, unsafe_allow_html=True)
+                
+                # Create button for AppLovin
+                if st.button(f"✅ Create {slot_key} Ad Unit", use_container_width=True, key=f"create_applovin_{slot_key}"):
+                    # Validate inputs
+                    if not slot_name:
+                        st.toast("❌ Ad Unit Name is required", icon="🚫")
+                    elif not package_name:
+                        st.toast("❌ Package Name is required", icon="🚫")
+                    else:
+                        # Build payload
+                        payload = {
+                            "name": slot_name,
+                            "platform": platform,
+                            "package_name": package_name,
+                            "ad_format": slot_config["ad_format"]
+                        }
+                        
+                        # Make API call
+                        with st.spinner(f"Creating {slot_key} ad unit..."):
+                            try:
+                                network_manager = get_network_manager()
+                                response = network_manager.create_unit(current_network, payload)
+                                
+                                if not response:
+                                    st.error("❌ No response from API")
+                                    SessionManager.log_error(current_network, "No response from API")
+                                else:
+                                    result = handle_api_response(response)
+                                    
+                                    if result is not None:
+                                        unit_data = {
+                                            "slotCode": result.get("id", result.get("adUnitId", "N/A")),
+                                            "name": slot_name,
+                                            "appCode": package_name,
+                                            "slotType": slot_config["ad_format"],
+                                            "adType": slot_config["ad_format"],
+                                            "auctionType": "N/A"
+                                        }
+                                        SessionManager.add_created_unit(current_network, unit_data)
+                                        
+                                        st.success(f"✅ {slot_key} ad unit created successfully!")
+                                        st.rerun()
+                                    else:
+                                        # handle_api_response already displayed error
+                                        pass
+                            except Exception as e:
+                                st.error(f"❌ Error creating {slot_key} ad unit: {str(e)}")
+                                SessionManager.log_error(current_network, str(e))
 else:
     network_manager = get_network_manager()
     

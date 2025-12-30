@@ -11,7 +11,7 @@ class SessionManager:
     def initialize():
         """Initialize session state with default values"""
         if 'selected_network' not in st.session_state:
-            st.session_state.selected_network = 'bigoads'
+            st.session_state.selected_network = 'applovin'
         
         if 'apps_cache' not in st.session_state:
             st.session_state.apps_cache = {}
@@ -39,7 +39,7 @@ class SessionManager:
     @staticmethod
     def get_current_network() -> str:
         """Get currently selected network"""
-        return st.session_state.get('selected_network', 'bigoads')
+        return st.session_state.get('selected_network', 'applovin')
     
     @staticmethod
     def cache_apps(network: str, apps: List[Dict]):

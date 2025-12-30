@@ -6,6 +6,7 @@ from .pangle_config import PangleConfig
 from .mintegral_config import MintegralConfig
 from .inmobi_config import InMobiConfig
 from .fyber_config import FyberConfig
+from .applovin_config import AppLovinConfig
 
 # Network registry
 NETWORK_REGISTRY = {
@@ -15,6 +16,7 @@ NETWORK_REGISTRY = {
     'mintegral': MintegralConfig(),
     'inmobi': InMobiConfig(),
     'fyber': FyberConfig(),
+    'applovin': AppLovinConfig(),
     # Future networks will be added here
 }
 

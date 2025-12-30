@@ -843,6 +843,8 @@ class MockNetworkManager:
             return self._create_inmobi_unit(payload)
         elif network == "fyber":
             return self._create_fyber_unit(payload)
+        elif network == "applovin":
+            return self._create_applovin_unit(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create Unit (Mock)")
@@ -2022,6 +2024,96 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _create_applovin_unit(self, payload: Dict) -> Dict:
+        """Create ad unit via AppLovin API
+        
+        API: POST https://o.applovin.com/mediation/v1/ad_unit
+        
+        Args:
+            payload: Unit creation payload with name, platform, package_name, ad_format
+        
+        Returns:
+            API response dict
+        """
+        api_key = _get_env_var("APPLOVIN_API_KEY")
+        
+        if not api_key:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "APPLOVIN_API_KEY must be set in .env file or Streamlit secrets"
+            }
+        
+        url = "https://o.applovin.com/mediation/v1/ad_unit"
+        
+        headers = {
+            "Accept": "application/json",
+            "Api-Key": api_key,
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[AppLovin] API Request: POST {url}")
+        logger.info(f"[AppLovin] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[AppLovin] Request Payload: {json.dumps(payload, indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            logger.info(f"[AppLovin] Response Status: {response.status_code}")
+            
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[AppLovin] Empty response body (status {response.status_code})")
+                return {
+                    "status": 1,
+                    "code": "EMPTY_RESPONSE",
+                    "msg": "Empty response from API"
+                }
+            
+            try:
+                result = response.json()
+                logger.info(f"[AppLovin] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[AppLovin] JSON decode error: {str(e)}")
+                logger.error(f"[AppLovin] Response text: {response_text[:500]}")
+                return {
+                    "status": 1,
+                    "code": "JSON_ERROR",
+                    "msg": f"Invalid JSON response: {str(e)}"
+                }
+            
+            if response.status_code == 200:
+                # Success response
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                # Error response
+                error_msg = result.get("message") or result.get("msg") or result.get("error") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[AppLovin] API Error (Create Unit): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[AppLovin] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[AppLovin] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
     def _create_pangle_unit(self, payload: Dict) -> Dict:
         """Create ad placement (unit) via Pangle API"""
         security_key = _get_env_var("PANGLE_SECURITY_KEY")
@@ -2310,6 +2402,10 @@ class MockNetworkManager:
     
     def _get_bigoads_apps(self) -> List[Dict]:
         """Get apps list from BigOAds API"""
+        # Add delay to avoid QPS limit (BigOAds has strict rate limiting)
+        import time
+        time.sleep(0.5)  # 500ms delay to avoid QPS limit
+        
         url = "https://www.bigossp.com/open/app/list"
         
         # BigOAds API 인증: developerId와 token 필요

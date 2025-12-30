@@ -79,7 +79,8 @@ def find_app_by_package_name(network: str, package_name: str, platform: Optional
                 app.get("pkgName", "") or 
                 app.get("packageName", "") or 
                 app.get("bundleId", "") or
-                app.get("package", "")
+                app.get("package", "") or
+                app.get("pkgNameDisplay", "")  # BigOAds uses pkgNameDisplay
             )
             
             if app_pkg and package_name_lower == app_pkg.lower():
@@ -115,6 +116,17 @@ def _normalize_platform_for_matching(platform: str, network: str) -> str:
     platform_str = str(platform).strip()
     platform_upper = platform_str.upper()
     platform_lower = platform_str.lower()
+    
+    # Handle BigOAds format: 1 = android, 2 = ios
+    if network == "bigoads":
+        try:
+            platform_value = int(platform_str) if platform_str.isdigit() else None
+            if platform_value == 1:
+                return "android"
+            elif platform_value == 2:
+                return "ios"
+        except (ValueError, TypeError):
+            pass
     
     # Handle Mintegral format: "ANDROID" or "IOS"
     if platform_upper == "ANDROID" or platform_upper == "AND":
@@ -185,6 +197,19 @@ def get_fyber_app_by_name(app_name: str, platform: Optional[str] = None) -> Opti
         App dict with appId if found, None otherwise
     """
     return find_app_by_name("fyber", app_name, platform)
+
+
+def get_bigoads_app_by_name(app_name: str, platform: Optional[str] = None) -> Optional[Dict]:
+    """Get BigOAds app by name
+    
+    Args:
+        app_name: App name to search for
+        platform: Optional platform filter ("android" or "ios")
+    
+    Returns:
+        App dict with appCode if found, None otherwise
+    """
+    return find_app_by_name("bigoads", app_name, platform)
 
 
 def get_ironsource_units(app_key: str) -> List[Dict]:
@@ -419,6 +444,72 @@ def find_matching_unit(
             
             # If no unit has platform indicator, return first match
             logger.warning(f"[Fyber] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in name")
+            return matching_units[0] if matching_units else None
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
+    # For BigOAds, match by adType (numeric)
+    if network == "bigoads":
+        # BigOAds uses adType field (2: Banner, 3: Interstitial, 4: Reward Video)
+        matching_units = []
+        target_ad_type = target_format  # target_format is already the numeric adType
+        logger.info(f"[BigOAds] Finding unit: ad_format={ad_format}, target_format={target_format}, target_ad_type={target_ad_type} (type: {type(target_ad_type)})")
+        logger.info(f"[BigOAds] Total units to check: {len(network_units)}")
+        
+        # Debug: Log all units' adType values
+        for idx, unit in enumerate(network_units):
+            unit_ad_type = unit.get("adType")
+            unit_name = unit.get("name", "N/A")
+            unit_slot_code = unit.get("slotCode", "N/A")
+            logger.info(f"[BigOAds] Unit[{idx}]: name={unit_name}, slotCode={unit_slot_code}, adType={unit_ad_type} (type: {type(unit_ad_type)}), all_keys={list(unit.keys())}")
+        
+        for unit in network_units:
+            unit_ad_type = unit.get("adType")
+            unit_name = unit.get("name", "N/A")
+            
+            # Check if adType field exists
+            if unit_ad_type is None:
+                logger.warning(f"[BigOAds] Unit '{unit_name}' has no 'adType' field. Available keys: {list(unit.keys())}")
+                # Try alternative field names
+                unit_ad_type = unit.get("ad_type") or unit.get("adTypeCode") or unit.get("type")
+                if unit_ad_type is not None:
+                    logger.info(f"[BigOAds] Found alternative field: {unit_ad_type}")
+                else:
+                    logger.warning(f"[BigOAds] No adType found in unit '{unit_name}', skipping")
+                    continue
+            
+            logger.info(f"[BigOAds] Checking unit: name={unit_name}, adType={unit_ad_type} (type: {type(unit_ad_type)})")
+            # Compare as integers if possible
+            try:
+                unit_ad_type_int = int(unit_ad_type)
+                target_ad_type_int = int(target_ad_type)
+                if unit_ad_type_int == target_ad_type_int:
+                    logger.info(f"[BigOAds] ✓ Match found: {unit_name} (adType={unit_ad_type_int} == target={target_ad_type_int})")
+                    matching_units.append(unit)
+                else:
+                    logger.info(f"[BigOAds] ✗ No match: {unit_name} (adType={unit_ad_type_int} != target={target_ad_type_int})")
+            except (ValueError, TypeError) as e:
+                # If conversion fails, skip
+                logger.warning(f"[BigOAds] Cannot compare adType: {unit_name}, adType={unit_ad_type}, error={e}")
+                continue
+        
+        logger.info(f"[BigOAds] Total matching units found: {len(matching_units)}")
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in name
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                slot_name = unit.get("name", "").lower()
+                if platform_indicator in slot_name:
+                    logger.info(f"[BigOAds] Found unit with platform indicator '{platform_indicator}' in name: {unit.get('name')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[BigOAds] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in name")
             return matching_units[0] if matching_units else None
         elif len(matching_units) == 1:
             return matching_units[0]
@@ -718,12 +809,124 @@ def get_fyber_units(app_id: str) -> List[Dict]:
         return []
 
 
+def get_bigoads_units(app_code: str) -> List[Dict]:
+    """Get BigOAds ad units (slots) for an app
+    
+    API: POST https://www.bigossp.com/open/slot/list
+    
+    Args:
+        app_code: BigOAds app code
+    
+    Returns:
+        List of ad unit dicts with slotCode, name, adType, auctionType, etc.
+    """
+    try:
+        # Add delay to avoid QPS limit (BigOAds has strict rate limiting)
+        import time
+        time.sleep(0.5)  # 500ms delay to avoid QPS limit
+        
+        network_manager = get_network_manager()
+        # Access private method through the instance
+        developer_id = _get_env_var("BIGOADS_DEVELOPER_ID")
+        token = _get_env_var("BIGOADS_TOKEN")
+        
+        if not developer_id or not token:
+            logger.error("[BigOAds] Cannot get units: BIGOADS_DEVELOPER_ID and BIGOADS_TOKEN must be set")
+            return []
+        
+        # Generate signature using network_manager's method
+        sign, timestamp = network_manager._generate_bigoads_sign(developer_id, token)
+        
+        url = "https://www.bigossp.com/open/slot/list"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "X-BIGO-DeveloperId": developer_id,
+            "X-BIGO-Sign": sign
+        }
+        
+        payload = {
+            "appCode": app_code
+        }
+        
+        logger.info(f"[BigOAds] ========== Get Units API Call ==========")
+        logger.info(f"[BigOAds] App Code: {app_code}")
+        logger.info(f"[BigOAds] API Request: POST {url}")
+        logger.info(f"[BigOAds] Request Payload: {json.dumps(payload, indent=2)}")
+        masked_headers = {k: "***MASKED***" if k in ["X-BIGO-Sign"] else v for k, v in headers.items()}
+        logger.info(f"[BigOAds] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        
+        import requests
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        
+        logger.info(f"[BigOAds] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[BigOAds] Empty response body (status {response.status_code})")
+                return []
+            
+            try:
+                result = response.json()
+                logger.info(f"[BigOAds] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[BigOAds] JSON decode error: {str(e)}")
+                logger.error(f"[BigOAds] Response text: {response_text[:500]}")
+                return []
+            
+            # BigOAds API 응답 형식에 맞게 파싱
+            # Response format: {"code": "100", "status": 0, "result": {"list": [...], "total": ...}}
+            units = []
+            code = result.get("code")
+            status = result.get("status")
+            
+            if code == "100" or status == 0:
+                result_data = result.get("result", {})
+                units = result_data.get("list", [])
+                
+                # Debug: Log all units structure to check field names and adType values
+                if units and len(units) > 0:
+                    logger.info(f"[BigOAds] ========== Units Response Analysis ==========")
+                    logger.info(f"[BigOAds] Total units returned: {len(units)}")
+                    for idx, unit in enumerate(units):
+                        unit_name = unit.get("name", "N/A")
+                        unit_ad_type = unit.get("adType")
+                        unit_slot_code = unit.get("slotCode", "N/A")
+                        logger.info(f"[BigOAds] Unit[{idx}]: name='{unit_name}', slotCode='{unit_slot_code}', adType={unit_ad_type} (type: {type(unit_ad_type)}), all_keys={list(unit.keys())}")
+                    
+                    # Log first unit full structure for detailed inspection
+                    first_unit = units[0]
+                    logger.info(f"[BigOAds] First unit full structure: {json.dumps(first_unit, indent=2)}")
+                else:
+                    logger.warning(f"[BigOAds] No units returned from API!")
+            else:
+                error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                logger.error(f"[BigOAds] API returned code={code}, status={status}: {error_msg}")
+            
+            logger.info(f"[BigOAds] Units count: {len(units)}")
+            return units
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[BigOAds] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[BigOAds] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[BigOAds] API Error (Get Units): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
         network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber")
-        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber, appCode for others, etc.)
+        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber, appCode for BigOAds, etc.)
     
     Returns:
         List of ad unit dicts
@@ -736,9 +939,8 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         return get_mintegral_units(app_code)
     elif network == "fyber":
         return get_fyber_units(app_code)
-    # TODO: Add other networks
-    # elif network == "bigoads":
-    #     return get_bigoads_units(app_code)
+    elif network == "bigoads":
+        return get_bigoads_units(app_code)
     
     logger.warning(f"[{network}] get_network_units not implemented yet")
     return []
@@ -809,6 +1011,14 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": "Banner"
         }
         return format_map.get(ad_format_upper, ad_format.capitalize())
+    elif network == "bigoads":
+        # BigOAds: adType numbers (2: Banner, 3: Interstitial, 4: Reward Video)
+        format_map = {
+            "REWARD": 4,  # Reward Video
+            "INTER": 3,   # Interstitial
+            "BANNER": 2   # Banner
+        }
+        return format_map.get(ad_format_upper, ad_format.lower())
     
     # Default: return lowercase
     return ad_format.lower()
@@ -834,7 +1044,11 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
         result["app_key"] = app.get("appKey")
         result["app_code"] = app.get("appKey")  # For IronSource, appKey is the app code
     elif network == "bigoads":
-        result["app_code"] = app.get("appCode")
+        app_code = app.get("appCode")
+        # Handle "N/A" as None (from _get_bigoads_apps default value)
+        if app_code == "N/A" or not app_code:
+            app_code = None
+        result["app_code"] = app_code
         result["app_id"] = app.get("appId")
     elif network == "inmobi":
         result["app_id"] = app.get("appId") or app.get("id")

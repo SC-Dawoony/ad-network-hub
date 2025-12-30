@@ -343,8 +343,20 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     app_key = app_ids.get("app_key") or app_ids.get("app_code")
                                     app_id = app_ids.get("app_id")
                                     
+                                    # Debug logging for BigOAds
+                                    if actual_network == "bigoads":
+                                        st.write(f"🔍 [BigOAds Debug] App found: {matched_app.get('name', 'N/A')}")
+                                        st.write(f"🔍 [BigOAds Debug] app_ids: {app_ids}")
+                                        st.write(f"🔍 [BigOAds Debug] app_key: {app_key}, app_id: {app_id}")
+                                    
                                     # Get units for this app (sequential: app -> units)
                                     units = get_network_units(actual_network, app_key or app_id or "")
+                                    
+                                    # Debug logging for BigOAds units
+                                    if actual_network == "bigoads":
+                                        st.write(f"🔍 [BigOAds Debug] Units count: {len(units) if units else 0}")
+                                        if units:
+                                            st.write(f"🔍 [BigOAds Debug] First unit: {units[0]}")
                                     
                                     # Find matching unit by ad_format
                                     matched_unit = None
@@ -355,6 +367,15 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             actual_network,
                                             applovin_unit["platform"]
                                         )
+                                        
+                                        # Debug logging for BigOAds unit matching
+                                        if actual_network == "bigoads":
+                                            st.write(f"🔍 [BigOAds Debug] Ad format: {applovin_unit['ad_format']}")
+                                            st.write(f"🔍 [BigOAds Debug] Matched unit: {matched_unit}")
+                                            if matched_unit:
+                                                st.write(f"🔍 [BigOAds Debug] slotCode: {matched_unit.get('slotCode')}")
+                                            else:
+                                                st.write(f"⚠️ [BigOAds Debug] No unit matched!")
                                     
                                     # Extract unit ID
                                     unit_id = ""
@@ -369,6 +390,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         elif actual_network == "fyber":
                                             # Fyber uses placementId or id
                                             unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
+                                        elif actual_network == "bigoads":
+                                            # BigOAds uses slotCode for ad_unit_id
+                                            unit_id = matched_unit.get("slotCode") or matched_unit.get("id") or ""
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or
@@ -382,6 +406,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     # For InMobi, use fixed value for ad_network_app_id and empty ad_network_app_key
                                     # For Mintegral, use empty ad_network_app_id and fixed value for ad_network_app_key
                                     # For Fyber, use app_id for ad_network_app_id and empty ad_network_app_key
+                                    # For BigOAds, use appCode for ad_network_app_id and empty ad_network_app_key
                                     if actual_network == "ironsource":
                                         ad_network_app_id = str(app_key) if app_key else ""
                                         ad_network_app_key = ""
@@ -394,6 +419,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "fyber":
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = ""  # Empty for Fyber
+                                    elif actual_network == "bigoads":
+                                        ad_network_app_id = str(app_key) if app_key else ""  # appCode for BigOAds
+                                        ad_network_app_key = ""  # Empty for BigOAds
                                     else:
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = str(app_key) if app_key else ""
@@ -431,6 +459,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     # For InMobi, still use fixed value for ad_network_app_id
                                     # For Mintegral, still use fixed value for ad_network_app_key
                                     # For Fyber, empty both fields
+                                    # For BigOAds, empty both fields
                                     if actual_network == "inmobi":
                                         ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
                                         ad_network_app_key = ""
@@ -440,6 +469,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "fyber":
                                         ad_network_app_id = ""  # Empty for Fyber (app not found)
                                         ad_network_app_key = ""  # Empty for Fyber
+                                    elif actual_network == "bigoads":
+                                        ad_network_app_id = ""  # Empty for BigOAds (app not found)
+                                        ad_network_app_key = ""  # Empty for BigOAds
                                     else:
                                         ad_network_app_id = ""
                                         ad_network_app_key = ""
