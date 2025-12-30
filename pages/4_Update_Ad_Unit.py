@@ -94,6 +94,7 @@ AD_NETWORKS = [
     "FYBER_BIDDING",
     "INMOBI_BIDDING",
     "IRONSOURCE_BIDDING",
+    "MINTEGRAL_BIDDING",
     "MOLOCO_BIDDING",
     "TIKTOK_BIDDING",
     "UNITY_BIDDING",
@@ -362,6 +363,12 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             unit_id = matched_unit.get("mediationAdUnitId") or matched_unit.get("adUnitId") or ""
                                         elif actual_network == "inmobi":
                                             unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
+                                        elif actual_network == "mintegral":
+                                            # Mintegral uses placement_id
+                                            unit_id = matched_unit.get("placement_id") or matched_unit.get("id") or ""
+                                        elif actual_network == "fyber":
+                                            # Fyber uses placementId or id
+                                            unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or
@@ -373,12 +380,20 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     
                                     # For IronSource, appKey goes to ad_network_app_id
                                     # For InMobi, use fixed value for ad_network_app_id and empty ad_network_app_key
+                                    # For Mintegral, use empty ad_network_app_id and fixed value for ad_network_app_key
+                                    # For Fyber, use app_id for ad_network_app_id and empty ad_network_app_key
                                     if actual_network == "ironsource":
                                         ad_network_app_id = str(app_key) if app_key else ""
                                         ad_network_app_key = ""
                                     elif actual_network == "inmobi":
                                         ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
                                         ad_network_app_key = ""  # Empty for InMobi
+                                    elif actual_network == "mintegral":
+                                        ad_network_app_id = ""  # Empty for Mintegral
+                                        ad_network_app_key = "8dcb744465a574d79bf29f1a7a25c6ce"  # Fixed value for Mintegral
+                                    elif actual_network == "fyber":
+                                        ad_network_app_id = str(app_id) if app_id else ""
+                                        ad_network_app_key = ""  # Empty for Fyber
                                     else:
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = str(app_key) if app_key else ""
@@ -414,9 +429,17 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 else:
                                     # App not found
                                     # For InMobi, still use fixed value for ad_network_app_id
+                                    # For Mintegral, still use fixed value for ad_network_app_key
+                                    # For Fyber, empty both fields
                                     if actual_network == "inmobi":
                                         ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
                                         ad_network_app_key = ""
+                                    elif actual_network == "mintegral":
+                                        ad_network_app_id = ""  # Empty for Mintegral
+                                        ad_network_app_key = "8dcb744465a574d79bf29f1a7a25c6ce"  # Fixed value for Mintegral
+                                    elif actual_network == "fyber":
+                                        ad_network_app_id = ""  # Empty for Fyber (app not found)
+                                        ad_network_app_key = ""  # Empty for Fyber
                                     else:
                                         ad_network_app_id = ""
                                         ad_network_app_key = ""

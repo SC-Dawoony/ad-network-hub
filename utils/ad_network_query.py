@@ -161,6 +161,32 @@ def get_inmobi_app_by_name(app_name: str, platform: Optional[str] = None) -> Opt
     return find_app_by_name("inmobi", app_name, platform)
 
 
+def get_mintegral_app_by_name(app_name: str, platform: Optional[str] = None) -> Optional[Dict]:
+    """Get Mintegral app by appName
+    
+    Args:
+        app_name: App name to search for
+        platform: Optional platform filter ("android" or "ios")
+    
+    Returns:
+        App dict with app_id if found, None otherwise
+    """
+    return find_app_by_name("mintegral", app_name, platform)
+
+
+def get_fyber_app_by_name(app_name: str, platform: Optional[str] = None) -> Optional[Dict]:
+    """Get Fyber app by name
+    
+    Args:
+        app_name: App name to search for
+        platform: Optional platform filter ("android" or "ios")
+    
+    Returns:
+        App dict with appId if found, None otherwise
+    """
+    return find_app_by_name("fyber", app_name, platform)
+
+
 def get_ironsource_units(app_key: str) -> List[Dict]:
     """Get IronSource ad units (placements) for an app
     
@@ -342,6 +368,63 @@ def find_matching_unit(
         else:
             return None
     
+    # For Mintegral, match by ad_type
+    if network == "mintegral":
+        # Mintegral uses ad_type field (e.g., "rewarded_video", "new_interstitial", "banner")
+        matching_units = []
+        for unit in network_units:
+            unit_format = unit.get("ad_type", "").lower()
+            if unit_format == target_format.lower():
+                matching_units.append(unit)
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in placement_name
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                placement_name = unit.get("placement_name", "").lower()
+                if platform_indicator in placement_name:
+                    logger.info(f"[Mintegral] Found unit with platform indicator '{platform_indicator}' in placement_name: {unit.get('placement_name')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[Mintegral] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in placement_name")
+            return matching_units[0] if matching_units else None
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
+    # For Fyber, match by placementType
+    if network == "fyber":
+        # Fyber uses placementType field (e.g., "Rewarded", "Interstitial", "Banner")
+        matching_units = []
+        for unit in network_units:
+            unit_format = unit.get("placementType", "")
+            # Case-insensitive comparison
+            if unit_format.lower() == target_format.lower():
+                matching_units.append(unit)
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in name
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                placement_name = unit.get("name", "").lower()
+                if platform_indicator in placement_name:
+                    logger.info(f"[Fyber] Found unit with platform indicator '{platform_indicator}' in name: {unit.get('name')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[Fyber] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in name")
+            return matching_units[0] if matching_units else None
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
     # For other networks or when platform is not provided, use simple format matching
     for unit in network_units:
         unit_format = unit.get("adFormat", "").lower()
@@ -446,12 +529,201 @@ def get_inmobi_units(app_id: str) -> List[Dict]:
         return []
 
 
+def get_mintegral_units(app_id: str) -> List[Dict]:
+    """Get Mintegral ad units (placements) for an app
+    
+    API: GET https://dev.mintegral.com/v2/placement/open_api_list?app_id={app_id}
+    
+    Args:
+        app_id: Mintegral app ID
+    
+    Returns:
+        List of ad unit dicts with placement_id, placement_name, ad_type, etc.
+    """
+    try:
+        # Mintegral API 인증: skey, time, sign
+        skey = _get_env_var("MINTEGRAL_SKEY")
+        secret = _get_env_var("MINTEGRAL_SECRET")
+        
+        if not skey or not secret:
+            logger.error("[Mintegral] Cannot get units: MINTEGRAL_SKEY and MINTEGRAL_SECRET must be set")
+            return []
+        
+        import time
+        import hashlib
+        
+        # Generate timestamp and signature
+        current_time = int(time.time())
+        time_str = str(current_time)
+        
+        # Generate signature: md5(SECRETmd5(time))
+        time_md5 = hashlib.md5(time_str.encode('utf-8')).hexdigest()
+        sign_string = secret + time_md5
+        signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest()
+        
+        url = "https://dev.mintegral.com/v2/placement/open_api_list"
+        
+        # Query parameters
+        params = {
+            "app_id": int(app_id) if app_id.isdigit() else app_id,
+            "skey": skey,
+            "time": time_str,
+            "sign": signature,
+            "page": 1,
+            "per_page": 100,  # Get more results per page
+        }
+        
+        logger.info(f"[Mintegral] API Request: GET {url}")
+        masked_params = {k: '***MASKED***' if k in ['skey', 'sign'] else v for k, v in params.items()}
+        logger.info(f"[Mintegral] Request Params: {json.dumps(masked_params, indent=2)}")
+        
+        import requests
+        response = requests.get(url, params=params, timeout=30)
+        
+        logger.info(f"[Mintegral] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[Mintegral] Empty response body (status {response.status_code})")
+                return []
+            
+            try:
+                result = response.json()
+                logger.info(f"[Mintegral] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[Mintegral] JSON decode error: {str(e)}")
+                logger.error(f"[Mintegral] Response text: {response_text[:500]}")
+                return []
+            
+            # Mintegral API 응답 형식에 맞게 파싱
+            # Response format: {"code": 200, "data": {"lists": [...], "total": ...}}
+            units = []
+            if isinstance(result, dict):
+                if result.get("code") == 200:
+                    data = result.get("data", {})
+                    if isinstance(data, dict):
+                        units = data.get("lists", data.get("placements", []))
+                    elif isinstance(data, list):
+                        units = data
+                else:
+                    error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                    logger.error(f"[Mintegral] API returned code={result.get('code')}: {error_msg}")
+            elif isinstance(result, list):
+                units = result
+            
+            logger.info(f"[Mintegral] Units count: {len(units)}")
+            return units
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[Mintegral] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[Mintegral] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[Mintegral] API Error (Get Units): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
+def get_fyber_units(app_id: str) -> List[Dict]:
+    """Get Fyber ad units (placements) for an app
+    
+    API: GET https://console.fyber.com/api/management/v1/placement?appId={appId}
+    
+    Args:
+        app_id: Fyber app ID
+    
+    Returns:
+        List of ad unit dicts with placementId, placementName, placementType, etc.
+    """
+    try:
+        network_manager = get_network_manager()
+        # Access private method through the instance
+        access_token = network_manager._get_fyber_access_token()
+        
+        if not access_token:
+            logger.error("[Fyber] Cannot get units: failed to get access token")
+            return []
+        
+        url = "https://console.fyber.com/api/management/v1/placement"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        }
+        
+        params = {
+            "appId": int(app_id) if app_id.isdigit() else app_id,
+        }
+        
+        logger.info(f"[Fyber] API Request: GET {url}")
+        logger.info(f"[Fyber] Request Params: {json.dumps(params, indent=2)}")
+        masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
+        logger.info(f"[Fyber] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        
+        import requests
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        logger.info(f"[Fyber] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[Fyber] Empty response body (status {response.status_code})")
+                return []
+            
+            try:
+                result = response.json()
+                logger.info(f"[Fyber] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[Fyber] JSON decode error: {str(e)}")
+                logger.error(f"[Fyber] Response text: {response_text[:500]}")
+                return []
+            
+            # Fyber API 응답 형식에 맞게 파싱
+            # Response format: can be single placement object, list of placements, or dict with placements array
+            units = []
+            if isinstance(result, list):
+                # Array of placements
+                units = result
+            elif isinstance(result, dict):
+                # Check if it's a dict with placements array or a single placement object
+                if "placementId" in result or "placementType" in result:
+                    # Single placement object (has placementId or placementType field)
+                    units = [result]
+                else:
+                    # Dict with placements array
+                    units = result.get("placements", result.get("data", result.get("list", [])))
+                    if not isinstance(units, list):
+                        units = []
+            
+            logger.info(f"[Fyber] Units count: {len(units)}")
+            return units
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[Fyber] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[Fyber] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[Fyber] API Error (Get Units): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi")
-        app_code: App code (appKey for IronSource, appId for InMobi, appCode for others, etc.)
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber")
+        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber, appCode for others, etc.)
     
     Returns:
         List of ad unit dicts
@@ -460,6 +732,10 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         return get_ironsource_units(app_code)
     elif network == "inmobi":
         return get_inmobi_units(app_code)
+    elif network == "mintegral":
+        return get_mintegral_units(app_code)
+    elif network == "fyber":
+        return get_fyber_units(app_code)
     # TODO: Add other networks
     # elif network == "bigoads":
     #     return get_bigoads_units(app_code)
@@ -517,6 +793,22 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": "BANNER"
         }
         return format_map.get(ad_format_upper, ad_format.upper())
+    elif network == "mintegral":
+        # Mintegral: rewarded_video, new_interstitial, banner
+        format_map = {
+            "REWARD": "rewarded_video",
+            "INTER": "new_interstitial",
+            "BANNER": "banner"
+        }
+        return format_map.get(ad_format_upper, ad_format.lower())
+    elif network == "fyber":
+        # Fyber: Rewarded, Interstitial, Banner
+        format_map = {
+            "REWARD": "Rewarded",
+            "INTER": "Interstitial",
+            "BANNER": "Banner"
+        }
+        return format_map.get(ad_format_upper, ad_format.capitalize())
     
     # Default: return lowercase
     return ad_format.lower()
