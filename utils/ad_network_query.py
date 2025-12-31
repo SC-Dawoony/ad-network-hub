@@ -42,6 +42,35 @@ def find_app_by_name(network: str, app_name: str, platform: Optional[str] = None
             logger.warning(f"[Unity] App '{app_name}' not found by name")
             return None
         
+        # For Fyber, add more detailed logging
+        if network == "fyber":
+            app_name_lower = app_name.lower().strip()
+            logger.info(f"[Fyber] Searching for app by name: '{app_name}', platform filter: {platform}")
+            logger.info(f"[Fyber] Total apps available: {len(apps)}")
+            
+            for idx, app in enumerate(apps):
+                app_name_in_list = app.get("name") or app.get("appName") or ""
+                app_platform = app.get("platform", "")
+                app_bundle = app.get("bundle") or app.get("bundleId", "")
+                
+                logger.info(f"[Fyber] App[{idx}]: name='{app_name_in_list}', platform='{app_platform}', bundle='{app_bundle}'")
+                
+                if app_name_lower in app_name_in_list.lower():
+                    # Check platform if provided
+                    if platform:
+                        platform_normalized = _normalize_platform_for_matching(app_platform, network)
+                        target_platform = platform.lower()
+                        logger.info(f"[Fyber] Platform check: app_platform='{app_platform}' -> normalized='{platform_normalized}', target='{target_platform}'")
+                        if platform_normalized != target_platform:
+                            logger.info(f"[Fyber] Platform mismatch, skipping")
+                            continue
+                    
+                    logger.info(f"[Fyber] ✓ Found matching app: '{app_name_in_list}'")
+                    return app
+            
+            logger.warning(f"[Fyber] App '{app_name}' not found")
+            return None
+        
         # For other networks, use standard name matching with platform check
         app_name_lower = app_name.lower().strip()
         for app in apps:
@@ -120,6 +149,27 @@ def find_app_by_package_name(network: str, package_name: str, platform: Optional
             logger.warning(f"[Unity] App with package name '{package_name}' not found in stores")
             return None
         
+        # For Fyber, check bundle field
+        if network == "fyber":
+            package_name_lower = package_name.lower().strip()
+            for app in apps:
+                # Fyber uses "bundle" field for package name
+                app_bundle = app.get("bundle") or app.get("bundleId") or app.get("packageName", "")
+                
+                if app_bundle and package_name_lower == app_bundle.lower():
+                    # Check platform if provided
+                    if platform:
+                        app_platform = app.get("platform", "")
+                        platform_normalized = _normalize_platform_for_matching(app_platform, network)
+                        if platform_normalized != platform.lower():
+                            continue
+                    
+                    logger.info(f"[Fyber] Found app by bundle: {app_bundle}, platform: {app.get('platform')}")
+                    return app
+            
+            logger.warning(f"[Fyber] App with package name '{package_name}' not found in bundle field")
+            return None
+        
         # For other networks, use standard package name matching
         package_name_lower = package_name.lower().strip()
         for app in apps:
@@ -183,10 +233,17 @@ def _normalize_platform_for_matching(platform: str, network: str) -> str:
     elif platform_upper == "IOS" or platform_upper == "IPHONE":
         return "ios"
     
+    # Handle Fyber format: "android" or "ios" (lowercase)
+    if network == "fyber":
+        if platform_lower in ["android", "and"]:
+            return "android"
+        elif platform_lower in ["ios", "iphone", "iphoneos"]:
+            return "ios"
+    
     # Handle common formats
     if platform_lower in ["android", "1", "and", "aos"]:
         return "android"
-    elif platform_lower in ["ios", "2", "iphone"]:
+    elif platform_lower in ["ios", "2", "iphone", "iphoneos"]:
         return "ios"
     elif platform_str == "Android":
         return "android"
@@ -426,6 +483,43 @@ def match_applovin_unit_to_network(
             app = find_app_by_name(network, app_name, platform)
             if app:
                 return app
+        return None
+    
+    # For Fyber iOS, bundle contains App Store ID, so we need a different strategy
+    if network == "fyber" and platform == "ios":
+        # Strategy 1: Try name matching first (direct match)
+        if app_name:
+            app = find_app_by_name(network, app_name, platform)
+            if app:
+                logger.info(f"[Fyber] Found iOS app by name (direct): '{app_name}'")
+                return app
+        
+        # Strategy 2: Find Android app by package_name, then find iOS app with same name
+        # This works because Android bundle = package name, iOS bundle = iTunes ID
+        if package_name:
+            # First, try to find Android app by package_name
+            android_app = find_app_by_package_name(network, package_name, "android")
+            if android_app:
+                android_app_name = android_app.get("name") or android_app.get("appName") or ""
+                logger.info(f"[Fyber] Found Android app by package_name: '{package_name}', name: '{android_app_name}'")
+                
+                # Now find iOS app with the same name
+                if android_app_name:
+                    ios_app = find_app_by_name(network, android_app_name, "ios")
+                    if ios_app:
+                        logger.info(f"[Fyber] Found iOS app by matching name from Android app: '{android_app_name}'")
+                        return ios_app
+                    else:
+                        logger.warning(f"[Fyber] Android app found but no iOS app with same name '{android_app_name}'")
+        
+        # Strategy 3: Fallback to direct package_name matching (unlikely to work for iOS)
+        if package_name:
+            app = find_app_by_package_name(network, package_name, platform)
+            if app:
+                logger.info(f"[Fyber] Found iOS app by package_name (fallback): '{package_name}'")
+                return app
+        
+        logger.warning(f"[Fyber] Could not find iOS app for package_name='{package_name}', app_name='{app_name}'")
         return None
     
     # For other networks, use standard app matching
@@ -1515,8 +1609,18 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
         result["app_id"] = app.get("app_id") or app.get("id")
         result["app_code"] = str(result["app_id"]) if result["app_id"] else None
     elif network == "fyber":
-        result["app_id"] = app.get("appId") or app.get("id")
-        result["app_code"] = str(result["app_id"]) if result["app_id"] else None
+        # Fyber uses "id" field for appId
+        # Note: _get_fyber_apps converts to standard format with "appId" field
+        # But original API response uses "id" field
+        app_id_value = app.get("id") or app.get("appId")
+        
+        # Handle "N/A" as None (from _get_fyber_apps default value)
+        if app_id_value == "N/A" or app_id_value == "":
+            app_id_value = None
+        
+        result["app_id"] = app_id_value
+        result["app_code"] = str(app_id_value) if app_id_value else None
+        logger.info(f"[Fyber] extract_app_identifiers: app keys={list(app.keys())}, id={app.get('id')}, appId={app.get('appId')}, extracted app_id={app_id_value}")
     elif network == "vungle":
         # Vungle uses vungleAppId from application object
         result["app_id"] = app.get("vungleAppId") or app.get("appId") or app.get("applicationId") or app.get("id")

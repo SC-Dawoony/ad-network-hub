@@ -2681,10 +2681,12 @@ class MockNetworkManager:
                     formatted_apps.append({
                         "appCode": str(app_id_val) if app_id_val else "N/A",
                         "appId": str(app_id_val) if app_id_val else "N/A",
+                        "id": app_id_val,  # Also keep original "id" field for compatibility
                         "name": app_name,
                         "platform": platform,
                         "status": app.get("status") or "Active",
                         "bundleId": bundle_id,
+                        "bundle": bundle_id,  # Also keep "bundle" field for Fyber
                     })
                 
                 logger.info(f"[Fyber] Converted to {len(formatted_apps)} apps in standard format")

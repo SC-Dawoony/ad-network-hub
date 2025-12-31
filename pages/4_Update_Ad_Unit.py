@@ -372,6 +372,15 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     app_key = app_ids.get("app_key") or app_ids.get("app_code")
                                     app_id = app_ids.get("app_id")
                                     
+                                    # Debug logging for Fyber
+                                    if actual_network == "fyber":
+                                        logger.info(f"[Fyber] Matched app: {matched_app.get('name', 'N/A')}")
+                                        logger.info(f"[Fyber] Matched app keys: {list(matched_app.keys())}")
+                                        logger.info(f"[Fyber] Matched app platform: {matched_app.get('platform', 'N/A')}")
+                                        logger.info(f"[Fyber] Matched app appId: {matched_app.get('appId', 'N/A')}, id: {matched_app.get('id', 'N/A')}")
+                                        logger.info(f"[Fyber] Extracted app_ids: {app_ids}")
+                                        logger.info(f"[Fyber] Extracted app_id: {app_id}, app_key: {app_key}")
+                                    
                                     # For Unity, use projectId to get units
                                     if actual_network == "unity":
                                         project_id = app_ids.get("projectId") or app_id
