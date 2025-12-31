@@ -510,7 +510,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     
                                     # For IronSource, appKey goes to ad_network_app_id
                                     # For InMobi, use fixed value for ad_network_app_id and empty ad_network_app_key
-                                    # For Mintegral, use empty ad_network_app_id and fixed value for ad_network_app_key
+                                    # For Mintegral, use app_id for ad_network_app_id and fixed value for ad_network_app_key
                                     # For Fyber, use app_id for ad_network_app_id and empty ad_network_app_key
                                     # For BigOAds, use appCode for ad_network_app_id and empty ad_network_app_key
                                     # For Vungle, use applicationId for ad_network_app_id and empty ad_network_app_key
@@ -521,7 +521,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         ad_network_app_id = "8400e4e3995a4ed2b0be0ef1e893e606"  # Fixed value for InMobi
                                         ad_network_app_key = ""  # Empty for InMobi
                                     elif actual_network == "mintegral":
-                                        ad_network_app_id = ""  # Empty for Mintegral
+                                        ad_network_app_id = str(app_id) if app_id else ""  # Use actual app_id for Mintegral
                                         ad_network_app_key = "8dcb744465a574d79bf29f1a7a25c6ce"  # Fixed value for Mintegral
                                     elif actual_network == "fyber":
                                         ad_network_app_id = str(app_id) if app_id else ""
