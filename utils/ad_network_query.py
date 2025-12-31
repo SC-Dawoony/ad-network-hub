@@ -6,6 +6,7 @@ in the Update Ad Unit page.
 """
 import logging
 import json
+import re
 from typing import Dict, List, Optional, Tuple
 from utils.network_manager import get_network_manager, _get_env_var
 
@@ -521,6 +522,114 @@ def match_applovin_unit_to_network(
         
         logger.warning(f"[Fyber] Could not find iOS app for package_name='{package_name}', app_name='{app_name}'")
         return None
+    
+    # For Mintegral iOS, if standard matching fails, try matching by placement name
+    if network == "mintegral" and platform == "ios":
+        # Try standard matching first
+        if package_name:
+            app = find_app_by_package_name(network, package_name, platform)
+            if app:
+                return app
+        
+        if app_name:
+            app = find_app_by_name(network, app_name, platform)
+            if app:
+                return app
+        
+        # If standard matching failed, try matching by placement name
+        # Compare AppLovin unit name with Mintegral placement names
+        if app_name:
+            logger.info(f"[Mintegral] Standard matching failed for iOS, trying placement name matching with AppLovin name: '{app_name}'")
+            
+            # Normalize AppLovin unit name for comparison
+            # Example: "Glamour Boutique iOS RV" -> "glamourboutique"
+            applovin_name_normalized = re.sub(r'\s+', '', app_name.lower())  # Remove spaces
+            # Remove platform and ad format indicators
+            applovin_name_normalized = re.sub(r'\s*(ios|android|aos)\s*', '', applovin_name_normalized, flags=re.IGNORECASE)
+            applovin_name_normalized = re.sub(r'\s*(rv|is|bn|reward|interstitial|banner)\s*', '', applovin_name_normalized, flags=re.IGNORECASE)
+            applovin_name_normalized = applovin_name_normalized.strip()
+            
+            logger.info(f"[Mintegral] Normalized AppLovin name: '{applovin_name_normalized}'")
+            
+            # Get all Mintegral iOS apps
+            network_manager = get_network_manager()
+            apps = network_manager.get_apps(network)
+            if not apps:
+                logger.warning(f"[Mintegral] No apps found for placement name matching")
+                return None
+            
+            # Filter iOS apps
+            ios_apps = []
+            for app in apps:
+                app_platform = app.get("platform", "")
+                platform_normalized = _normalize_platform_for_matching(app_platform, network)
+                if platform_normalized == "ios":
+                    ios_apps.append(app)
+            
+            logger.info(f"[Mintegral] Found {len(ios_apps)} iOS apps to check")
+            
+            # Check each iOS app's placements
+            for app in ios_apps:
+                app_id = app.get("app_id") or app.get("id")
+                if not app_id:
+                    continue
+                
+                # Get placements for this app
+                placements = get_mintegral_units(str(app_id))
+                if not placements:
+                    continue
+                
+                # Check if any placement name matches
+                for placement in placements:
+                    placement_name = placement.get("placement_name", "")
+                    if not placement_name:
+                        continue
+                    
+                    # Normalize placement name for comparison
+                    # Example: "glamourboutique_ios_mintegral_rv_bidding" -> "glamourboutique"
+                    placement_name_normalized = placement_name.lower()
+                    # Remove common suffixes/prefixes
+                    placement_name_normalized = re.sub(r'_[a-z]+_(ios|android|aos)_', '_', placement_name_normalized)
+                    placement_name_normalized = re.sub(r'_(mintegral|rv|is|bn|rewarded|interstitial|banner|bidding).*$', '', placement_name_normalized)
+                    placement_name_normalized = placement_name_normalized.strip('_')
+                    
+                    # Compare normalized names
+                    if applovin_name_normalized and placement_name_normalized:
+                        # Check if normalized names match (exact or contains)
+                        # Also check if one is a suffix/prefix of the other (for cases like "arrowflow" vs "rrow")
+                        is_match = False
+                        
+                        # Exact match
+                        if applovin_name_normalized == placement_name_normalized:
+                            is_match = True
+                        # Contains match (one contains the other)
+                        elif applovin_name_normalized in placement_name_normalized or \
+                             placement_name_normalized in applovin_name_normalized:
+                            is_match = True
+                        # Suffix/Prefix match: check if shorter string is a suffix or prefix of longer string
+                        else:
+                            shorter = min(applovin_name_normalized, placement_name_normalized, key=len)
+                            longer = max(applovin_name_normalized, placement_name_normalized, key=len)
+                            
+                            # Check if shorter is a suffix of longer (e.g., "rrow" is suffix of "arrowflow")
+                            if len(shorter) >= 3 and longer.endswith(shorter):
+                                is_match = True
+                            # Check if shorter is a prefix of longer
+                            elif len(shorter) >= 3 and longer.startswith(shorter):
+                                is_match = True
+                            # Check if there's significant overlap (at least 3 consecutive characters)
+                            elif len(shorter) >= 3:
+                                for i in range(len(longer) - len(shorter) + 1):
+                                    if longer[i:i+len(shorter)] == shorter:
+                                        is_match = True
+                                        break
+                        
+                        if is_match:
+                            logger.info(f"[Mintegral] Found matching app by placement name: app_id={app_id}, placement_name='{placement_name}', normalized='{placement_name_normalized}', applovin_normalized='{applovin_name_normalized}'")
+                            return app
+            
+            logger.warning(f"[Mintegral] No iOS app found by placement name matching for AppLovin name: '{app_name}'")
+            return None
     
     # For other networks, use standard app matching
     # Try to find app by package name first (more reliable)
