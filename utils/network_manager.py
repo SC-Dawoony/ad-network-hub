@@ -169,6 +169,8 @@ class MockNetworkManager:
             return self._create_inmobi_app(payload)
         elif network == "fyber":
             return self._create_fyber_app(payload)
+        elif network == "unity":
+            return self._create_unity_project(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create App (Mock)")
@@ -1754,6 +1756,437 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _create_unity_project(self, payload: Dict) -> Dict:
+        """Create Unity project via Unity API
+        
+        API: POST https://services.api.unity.com/monetize/v1/organizations/{organizationId}/projects
+        
+        Authentication: Basic Authentication (KEY_ID:SECRET_KEY)
+        """
+        organization_id = _get_env_var("UNITY_ORGANIZATION_ID")
+        if not organization_id:
+            logger.error("[Unity] UNITY_ORGANIZATION_ID not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_ORGANIZATION_ID must be set in .env file or Streamlit secrets"
+            }
+        
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_KEY_ID and UNITY_SECRET_KEY must be set in .env file or Streamlit secrets"
+            }
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        url = f"https://services.api.unity.com/monetize/v1/organizations/{organization_id}/projects"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] API Request: POST {url}")
+        logger.info(f"[Unity] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Unity] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            logger.info(f"[Unity] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Unity] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[Unity] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            # Unity API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                # Extract error message from response
+                error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                
+                # Provide helpful error messages for common errors
+                if response.status_code == 401:
+                    logger.error("[Unity] 💡 인증 오류:")
+                    logger.error("[Unity]   → UNITY_KEY_ID와 UNITY_SECRET_KEY를 확인해주세요.")
+                elif response.status_code == 403:
+                    logger.error("[Unity] 💡 권한 오류:")
+                    logger.error("[Unity]   → API 접근 권한이 없습니다.")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] API Error (Create Project): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Unity] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Unity] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
+    def _update_unity_ad_units(self, project_id: str, store_name: str, ad_units_payload: Dict) -> Dict:
+        """Update Unity ad units (archive existing ad units)
+        
+        API: PATCH https://services.api.unity.com/monetize/v1/projects/{projectId}/stores/{storeName}/adunits
+        
+        Args:
+            project_id: Unity project ID
+            store_name: Store name ("apple" or "google")
+            ad_units_payload: Payload with ad units to update (archive=true)
+        """
+        organization_id = _get_env_var("UNITY_ORGANIZATION_ID")
+        if not organization_id:
+            logger.error("[Unity] UNITY_ORGANIZATION_ID not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_ORGANIZATION_ID must be set in .env file or Streamlit secrets"
+            }
+        
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_KEY_ID and UNITY_SECRET_KEY must be set in .env file or Streamlit secrets"
+            }
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        url = f"https://services.api.unity.com/monetize/v1/projects/{project_id}/stores/{store_name}/adunits"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] API Request: PATCH {url}")
+        logger.info(f"[Unity] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Unity] Request Payload: {json.dumps(_mask_sensitive_data(ad_units_payload), indent=2)}")
+        
+        try:
+            response = requests.patch(url, json=ad_units_payload, headers=headers, timeout=30)
+            
+            logger.info(f"[Unity] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Unity] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[Unity] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            # Unity API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 204:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result if result else {}
+                }
+            else:
+                # Extract error message from response
+                error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                
+                # Provide helpful error messages for common errors
+                if response.status_code == 401:
+                    logger.error("[Unity] 💡 인증 오류:")
+                    logger.error("[Unity]   → UNITY_KEY_ID와 UNITY_SECRET_KEY를 확인해주세요.")
+                elif response.status_code == 403:
+                    logger.error("[Unity] 💡 권한 오류:")
+                    logger.error("[Unity]   → API 접근 권한이 없습니다.")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] API Error (Update Ad Units): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Unity] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Unity] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
+    def _create_unity_placements(self, project_id: str, store_name: str, ad_unit_id: str, placements_payload: List[Dict]) -> Dict:
+        """Create Unity placements (batch create)
+        
+        API: POST https://services.api.unity.com/monetize/v1/projects/{projectId}/stores/{storeName}/adunits/{adUnitId}/placements
+        
+        Args:
+            project_id: Unity project ID
+            store_name: Store name ("apple" or "google")
+            ad_unit_id: Ad Unit ID (e.g., "iOS RV Bidding", "AOS IS Bidding")
+            placements_payload: List of placement objects to create
+        """
+        organization_id = _get_env_var("UNITY_ORGANIZATION_ID")
+        if not organization_id:
+            logger.error("[Unity] UNITY_ORGANIZATION_ID not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_ORGANIZATION_ID must be set in .env file or Streamlit secrets"
+            }
+        
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_KEY_ID and UNITY_SECRET_KEY must be set in .env file or Streamlit secrets"
+            }
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        # URL encode ad_unit_id (may contain spaces like "iOS RV Bidding")
+        import urllib.parse
+        encoded_ad_unit_id = urllib.parse.quote(ad_unit_id, safe='')
+        url = f"https://services.api.unity.com/monetize/v1/projects/{project_id}/stores/{store_name}/adunits/{encoded_ad_unit_id}/placements"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] API Request: POST {url}")
+        logger.info(f"[Unity] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Unity] Request Payload: {json.dumps(_mask_sensitive_data(placements_payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=placements_payload, headers=headers, timeout=30)
+            
+            logger.info(f"[Unity] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Unity] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                # Log detailed error information for 400 errors
+                if response.status_code == 400 and isinstance(result, dict):
+                    logger.error(f"[Unity] ========== 400 Validation Error Details ==========")
+                    logger.error(f"[Unity] Full Response: {json.dumps(result, indent=2)}")
+                    if "errors" in result:
+                        logger.error(f"[Unity] Validation Errors: {json.dumps(result.get('errors'), indent=2)}")
+                    # Check for other error fields
+                    for key in ["error", "errorDetails", "validationErrors", "fieldErrors", "message"]:
+                        if key in result:
+                            logger.error(f"[Unity] {key}: {json.dumps(result.get(key), indent=2)}")
+            except:
+                logger.error(f"[Unity] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            # Unity API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result if result else {}
+                }
+            else:
+                # Extract error message from response
+                error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                
+                # For 400 errors, include detailed error information
+                if response.status_code == 400 and isinstance(result, dict):
+                    if "errors" in result:
+                        errors_detail = result.get("errors")
+                        if errors_detail:
+                            error_msg += f" - Errors: {json.dumps(errors_detail)}"
+                    # Include all error-related fields in the response
+                    error_response = {
+                        "status": 1,
+                        "code": error_code,
+                        "msg": error_msg,
+                        "errors": result.get("errors"),
+                        "error": result.get("error"),
+                        "errorDetails": result.get("errorDetails"),
+                        "validationErrors": result.get("validationErrors"),
+                        "fieldErrors": result.get("fieldErrors")
+                    }
+                    # Remove None values
+                    error_response = {k: v for k, v in error_response.items() if v is not None}
+                    return error_response
+                
+                # Provide helpful error messages for common errors
+                if response.status_code == 401:
+                    logger.error("[Unity] 💡 인증 오류:")
+                    logger.error("[Unity]   → UNITY_KEY_ID와 UNITY_SECRET_KEY를 확인해주세요.")
+                elif response.status_code == 403:
+                    logger.error("[Unity] 💡 권한 오류:")
+                    logger.error("[Unity]   → API 접근 권한이 없습니다.")
+                elif response.status_code == 400:
+                    logger.error("[Unity] 💡 요청 검증 오류:")
+                    logger.error(f"[Unity]   → URL: {url}")
+                    logger.error(f"[Unity]   → adUnitId (original): {ad_unit_id}")
+                    logger.error(f"[Unity]   → adUnitId (encoded): {encoded_ad_unit_id}")
+                    logger.error(f"[Unity]   → Payload: {json.dumps(_mask_sensitive_data(placements_payload), indent=2)}")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] API Error (Create Placements): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Unity] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Unity] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
+    def _create_unity_ad_units(self, project_id: str, store_name: str, ad_units_payload: List[Dict]) -> Dict:
+        """Create Unity ad units (batch create)
+        
+        API: POST https://services.api.unity.com/monetize/v1/projects/{projectId}/stores/{storeName}/adunits
+        
+        Args:
+            project_id: Unity project ID
+            store_name: Store name ("apple" or "google")
+            ad_units_payload: List of ad unit objects to create
+        """
+        organization_id = _get_env_var("UNITY_ORGANIZATION_ID")
+        if not organization_id:
+            logger.error("[Unity] UNITY_ORGANIZATION_ID not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_ORGANIZATION_ID must be set in .env file or Streamlit secrets"
+            }
+        
+        # Get Unity API credentials for Basic Auth
+        key_id = _get_env_var("UNITY_KEY_ID")
+        secret_key = _get_env_var("UNITY_SECRET_KEY")
+        
+        if not key_id or not secret_key:
+            logger.error("[Unity] UNITY_KEY_ID or UNITY_SECRET_KEY not found")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "UNITY_KEY_ID and UNITY_SECRET_KEY must be set in .env file or Streamlit secrets"
+            }
+        
+        # Create Basic Auth header
+        credentials = f"{key_id}:{secret_key}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        url = f"https://services.api.unity.com/monetize/v1/projects/{project_id}/stores/{store_name}/adunits"
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[Unity] API Request: POST {url}")
+        logger.info(f"[Unity] Request Headers: {json.dumps(_mask_sensitive_data(headers), indent=2)}")
+        logger.info(f"[Unity] Request Payload: {json.dumps(_mask_sensitive_data(ad_units_payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, json=ad_units_payload, headers=headers, timeout=30)
+            
+            logger.info(f"[Unity] Response Status: {response.status_code}")
+            
+            try:
+                result = response.json()
+                logger.info(f"[Unity] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except:
+                logger.error(f"[Unity] Response Text: {response.text}")
+                result = {"code": response.status_code, "msg": response.text}
+            
+            # Unity API 응답 형식에 맞게 정규화
+            if response.status_code == 200 or response.status_code == 201:
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result if result else {}
+                }
+            else:
+                # Extract error message from response
+                error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"
+                error_code = result.get("code") or response.status_code
+                
+                # Provide helpful error messages for common errors
+                if response.status_code == 401:
+                    logger.error("[Unity] 💡 인증 오류:")
+                    logger.error("[Unity]   → UNITY_KEY_ID와 UNITY_SECRET_KEY를 확인해주세요.")
+                elif response.status_code == 403:
+                    logger.error("[Unity] 💡 권한 오류:")
+                    logger.error("[Unity]   → API 접근 권한이 없습니다.")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Unity] API Error (Create Ad Units): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Unity] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Unity] Error Response (text): {e.response.text}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": str(e)
+            }
+    
     def _create_fyber_unit(self, payload: Dict) -> Dict:
         """Create placement (unit) via Fyber (DT) API
         
@@ -3104,9 +3537,23 @@ def handle_api_response(response: Dict) -> Optional[Dict]:
         st.error(f"❌ Error: {error_code} - {user_friendly_msg}")
         
         # Show original error message in expander for debugging
-        with st.expander("📥 Full Error Response", expanded=False):
+        with st.expander("📥 Full Error Response", expanded=True):
             st.json(_mask_sensitive_data(response))
             st.info(f"**Original error message:** {error_msg}")
+            
+            # Show validation errors if available
+            if response.get("errors"):
+                st.subheader("❌ Validation Errors")
+                st.json(response.get("errors"))
+            if response.get("errorDetails"):
+                st.subheader("❌ Error Details")
+                st.json(response.get("errorDetails"))
+            if response.get("validationErrors"):
+                st.subheader("❌ Validation Errors")
+                st.json(response.get("validationErrors"))
+            if response.get("fieldErrors"):
+                st.subheader("❌ Field Errors")
+                st.json(response.get("fieldErrors"))
         
         return None
 
