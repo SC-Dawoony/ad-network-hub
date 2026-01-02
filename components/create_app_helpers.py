@@ -131,10 +131,17 @@ def get_bigoads_pkg_name_display(pkg_name: str, bundle_id: str, network_manager,
                         # Simple name matching (case-insensitive, partial match)
                         if app_app_name.lower().strip() == app_name.lower().strip():
                             # Found Android version, use its package name
+                            # Extract last part and convert to lowercase for consistency
                             if app_pkg_name_display:
-                                return app_pkg_name_display
+                                if "." in app_pkg_name_display:
+                                    last_part = app_pkg_name_display.split(".")[-1].lower()
+                                    return last_part
+                                return app_pkg_name_display.lower()
                             elif app_pkg_name:
-                                return app_pkg_name
+                                if "." in app_pkg_name:
+                                    last_part = app_pkg_name.split(".")[-1].lower()
+                                    return last_part
+                                return app_pkg_name.lower()
                             break
             # If no match found for iTunes ID, return empty to avoid using iTunes ID
             logger.warning(f"Could not find Android package name for iTunes ID: {search_key}. App name: {app_name}")
@@ -148,8 +155,12 @@ def get_bigoads_pkg_name_display(pkg_name: str, bundle_id: str, network_manager,
                 # Match by pkgName or pkgNameDisplay
                 if app_pkg_name == search_key or app_pkg_name_display == search_key:
                     # Return pkgNameDisplay if available, otherwise return original
+                    # Extract last part and convert to lowercase for consistency
                     if app_pkg_name_display:
-                        return app_pkg_name_display
+                        if "." in app_pkg_name_display:
+                            last_part = app_pkg_name_display.split(".")[-1].lower()
+                            return last_part
+                        return app_pkg_name_display.lower()
                     break
     except Exception as e:
         logger.warning(f"Failed to fetch BigOAds apps for pkgNameDisplay lookup: {str(e)}")
@@ -159,7 +170,11 @@ def get_bigoads_pkg_name_display(pkg_name: str, bundle_id: str, network_manager,
         return ""
     
     # Fallback: return original pkg_name or bundle_id for valid package names
-    return search_key
+    # Extract last part and convert to lowercase for consistency
+    if "." in search_key:
+        last_part = search_key.split(".")[-1].lower()
+        return last_part
+    return search_key.lower()
 
 
 def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None) -> str:
@@ -205,13 +220,13 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
     else:
         last_part = final_pkg_name
     
-    # For IronSource, ALWAYS convert last_part to lowercase (whether from pkg_name, bundle_id, or BigOAds pkgNameDisplay)
-    # This ensures consistent lowercase naming for IronSource ad units
-    if network.lower() == "ironsource":
+    # For IronSource and InMobi, ALWAYS convert last_part to lowercase (whether from pkg_name, bundle_id, or BigOAds pkgNameDisplay)
+    # This ensures consistent lowercase naming for IronSource and InMobi ad units
+    if network.lower() in ["ironsource", "inmobi"]:
         last_part = last_part.lower()
         # Double-check: ensure it's actually lowercase (defensive programming)
         if last_part != last_part.lower():
-            logger.warning(f"IronSource: last_part was not lowercase: {last_part}, forcing lowercase")
+            logger.warning(f"{network}: last_part was not lowercase: {last_part}, forcing lowercase")
             last_part = last_part.lower()
     
     # Normalize platform_str first, then map to os: Android -> aos, iOS -> ios
