@@ -39,7 +39,19 @@ def render_create_unit_common_ui(
     last_app_info = SessionManager.get_last_created_app_info(current_network)
     if selected_app_code and not app_info_to_use:
         # Try to get app info again if not already set
-        if last_app_info and last_app_info.get("appCode") == selected_app_code:
+        # For IronSource, check if selected_app_code is an app name (grouped app)
+        if current_network == "ironsource" and selected_app_code in app_info_map:
+            app_info_to_use = app_info_map[selected_app_code]
+            # If it's a grouped app, merge with last_app_info if available
+            if last_app_info and last_app_info.get("appCode") == selected_app_code:
+                # Merge last_app_info data (has both appKeys)
+                app_info_to_use["appKey"] = last_app_info.get("appKey", app_info_to_use.get("appKey"))
+                app_info_to_use["appKeyIOS"] = last_app_info.get("appKeyIOS", app_info_to_use.get("appKeyIOS"))
+                app_info_to_use["platform"] = last_app_info.get("platform", app_info_to_use.get("platform"))
+                app_info_to_use["platformStr"] = last_app_info.get("platformStr", app_info_to_use.get("platformStr"))
+                app_info_to_use["hasAndroid"] = last_app_info.get("hasAndroid", app_info_to_use.get("hasAndroid", False))
+                app_info_to_use["hasIOS"] = last_app_info.get("hasIOS", app_info_to_use.get("hasIOS", False))
+        elif last_app_info and last_app_info.get("appCode") == selected_app_code:
             app_info_to_use = last_app_info
         elif selected_app_code in app_info_map:
             app_info_to_use = app_info_map[selected_app_code]
@@ -304,50 +316,543 @@ def render_create_unit_common_ui(
     else:
         slot_configs = slot_configs_bigoads
     
-    # Create 3 columns for RV, IS, BN
-    col1, col2, col3 = st.columns(3)
+    # For IronSource, "Activate All Ad Units" button is no longer needed
+    # Create Ad Unit already activates them automatically
+    # The entire activate button section has been removed
     
-    for idx, (slot_key, slot_config) in enumerate(slot_configs.items()):
-        with [col1, col2, col3][idx]:
-            with st.container():
-                st.markdown(f"### 🎯 {slot_key} ({slot_config['name']})")
+    # For IronSource, skip RV/IS/BN sections and only show instance results
+    if current_network == "ironsource":
+        # IronSource Create Ad Unit section
+        # Get app keys from Create App response (default) - minimize space
+        ironsource_response_key = f"{current_network}_last_app_response"
+        ironsource_response = st.session_state.get(ironsource_response_key)
+        
+        default_android_app_key = None
+        default_ios_app_key = None
+        default_app_name = None
+        
+        if ironsource_response and ironsource_response.get("status") == 0:
+            result_data = ironsource_response.get("result", {})
+            if isinstance(result_data, list):
+                for res in result_data:
+                    platform = res.get("platform", "")
+                    if platform == "Android":
+                        default_android_app_key = res.get("appKey")
+                    elif platform == "iOS":
+                        default_ios_app_key = res.get("appKey")
+                    if not default_app_name:
+                        default_app_name = res.get("name")
+            else:
+                platform = result_data.get("platform", "")
+                if platform == "Android":
+                    default_android_app_key = result_data.get("appKey")
+                elif platform == "iOS":
+                    default_ios_app_key = result_data.get("appKey")
+                default_app_name = result_data.get("name")
+        
+        # Also check session state for app info
+        last_app_info = SessionManager.get_last_created_app_info(current_network)
+        if last_app_info:
+            default_android_app_key = default_android_app_key or last_app_info.get("appKey")
+            default_ios_app_key = default_ios_app_key or last_app_info.get("appKeyIOS")
+            default_app_name = default_app_name or last_app_info.get("name")
+        
+        # App list 조회를 expander로 감싸기 (Deactivate Existing Ad Units처럼)
+        with st.expander("📝 App List 조회", expanded=True):
+            # App list API 조회 버튼과 Select App을 한 줄에 배치
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                if st.button("🔍 GET App List (API 조회)", use_container_width=True, key="ironsource_fetch_app_list_for_create_unit"):
+                    with st.spinner("Loading apps from API..."):
+                        try:
+                            api_apps = network_manager.get_apps(current_network)
+                            if api_apps:
+                                st.session_state["ironsource_api_apps_for_create_unit"] = api_apps
+                                st.success(f"✅ Loaded {len(api_apps)} apps from API")
+                            else:
+                                st.warning("⚠️ No apps found")
+                        except Exception as e:
+                            st.error(f"❌ Failed to load apps: {str(e)}")
+                            logger.exception("Error loading IronSource apps for create unit")
+            
+            # Display app list if available
+            android_app_key = default_android_app_key
+            ios_app_key = default_ios_app_key
+            
+            with col2:
+                if "ironsource_api_apps_for_create_unit" in st.session_state:
+                    api_apps = st.session_state["ironsource_api_apps_for_create_unit"]
+                    if api_apps:
+                        # Group apps by name (Android + iOS)
+                        app_groups = {}
+                        for app in api_apps:
+                            app_name_group = app.get("name", "Unknown")
+                            platform = app.get("platform", "").lower()
+                            app_key = app.get("appKey", "")
+                            
+                            if app_name_group not in app_groups:
+                                app_groups[app_name_group] = {"android": None, "ios": None, "android_bundle": None, "ios_bundle": None, "app_name": app_name_group}
+                            
+                            if platform == "android" and app_key:
+                                app_groups[app_name_group]["android"] = app_key
+                                app_groups[app_name_group]["android_bundle"] = app.get("bundleId", "")
+                            elif platform == "ios" and app_key:
+                                app_groups[app_name_group]["ios"] = app_key
+                                app_groups[app_name_group]["ios_bundle"] = app.get("bundleId", "")
+                        
+                        # Display grouped apps
+                        selected_app_name = st.selectbox(
+                            "Select App",
+                            options=[""] + list(app_groups.keys()),
+                            format_func=lambda x: f"{x} (Android + iOS)" if x and app_groups.get(x, {}).get("android") and app_groups.get(x, {}).get("ios") else (f"{x} (Android)" if x and app_groups.get(x, {}).get("android") else (f"{x} (iOS)" if x and app_groups.get(x, {}).get("ios") else x)),
+                            key="ironsource_select_app_for_create_unit"
+                        )
+                        
+                        if selected_app_name and selected_app_name in app_groups:
+                            selected_group = app_groups[selected_app_name]
+                            if selected_group["android"]:
+                                android_app_key = selected_group["android"]
+                                st.session_state["_ironsource_selected_android_app_key"] = selected_group["android"]
+                                st.session_state["_ironsource_android_bundle_id"] = selected_group["android_bundle"]
+                            if selected_group["ios"]:
+                                ios_app_key = selected_group["ios"]
+                                st.session_state["_ironsource_selected_ios_app_key"] = selected_group["ios"]
+                                st.session_state["_ironsource_ios_bundle_id"] = selected_group["ios_bundle"]
+                            if selected_group["app_name"]:
+                                default_app_name = selected_group["app_name"]
+        
+        if not android_app_key and not ios_app_key:
+            st.info("💡 App Key를 입력하거나 Create App을 먼저 실행해주세요.")
+        else:
+            # Create Ad Units for Android
+            if android_app_key:
+                st.markdown("### Android")
                 
-                if current_network == "ironsource":
-                    _render_ironsource_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, network_manager, current_network
-                    )
-                elif current_network == "pangle":
-                    _render_pangle_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, network_manager, current_network
-                    )
-                elif current_network == "mintegral":
-                    _render_mintegral_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, apps, network_manager, current_network
-                    )
-                elif current_network == "inmobi":
-                    _render_inmobi_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, apps, network_manager, current_network
-                    )
-                elif current_network == "fyber":
-                    _render_fyber_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, apps, network_manager, current_network
-                    )
-                else:
-                    # BigOAds and other networks
-                    _render_bigoads_slot_ui(
-                        slot_key, slot_config, selected_app_code, app_info_to_use,
-                        app_name, apps, network_manager, current_network,
-                        AD_TYPE_MAP, AUCTION_TYPE_MAP, MUSIC_SWITCH_MAP,
-                        AUTO_REFRESH_MAP, BANNER_SIZE_MAP,
-                        AD_TYPE_REVERSE, AUCTION_TYPE_REVERSE,
-                        MUSIC_SWITCH_REVERSE, AUTO_REFRESH_REVERSE,
-                        BANNER_SIZE_REVERSE
-                    )
+                # Get bundleId and app_name from API or session state
+                bundle_id = st.session_state.get("_ironsource_android_bundle_id", "")
+                app_name_for_slot = default_app_name or ""
+                
+                # Try to get from API apps list if available
+                if not bundle_id and "ironsource_api_apps_for_create_unit" in st.session_state:
+                    api_apps = st.session_state["ironsource_api_apps_for_create_unit"]
+                    for app in api_apps:
+                        if app.get("appKey") == android_app_key and app.get("platform", "").lower() == "android":
+                            bundle_id = app.get("bundleId", "")
+                            app_name_for_slot = app.get("name", app_name_for_slot)
+                            break
+                
+                # Try to get from last_app_info
+                if not bundle_id and last_app_info:
+                    android_app = last_app_info.get("androidApp", {})
+                    bundle_id = android_app.get("bundleId") or last_app_info.get("bundleId", "")
+                    app_name_for_slot = app_name_for_slot or last_app_info.get("name", "")
+                
+                # Check if bundleId is available before proceeding
+                if not bundle_id:
+                    st.warning("⚠️ Bundle ID를 찾을 수 없습니다. API에서 App을 조회해주세요.")
+                    st.stop()
+                
+                # Generate slot names for Android
+                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                ad_format_map = {"RV": "rewarded", "IS": "interstitial", "BN": "banner"}
+                android_ad_units = []
+                for slot_key in ["RV", "IS", "BN"]:
+                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                    slot_name = _generate_slot_name("", "android", slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                    android_ad_units.append({
+                        "slot_key": slot_key,
+                        "slot_name": slot_name,
+                        "ad_format": ad_format_map[slot_key]
+                    })
+                    
+                # Display RV, IS, BN sections (버튼 높이 맞추기)
+                # 버튼 높이를 맞추기 위한 CSS (한 번만 적용)
+                st.markdown("""
+                <style>
+                div[data-testid='column']:has(button[key*='create_android_rv_ad_unit']) > div,
+                div[data-testid='column']:has(button[key*='create_android_is_ad_unit']) > div,
+                div[data-testid='column']:has(button[key*='create_android_bn_ad_unit']) > div {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    height: 100% !important;
+                }
+                div[data-testid='column']:has(button[key*='create_android_rv_ad_unit']) button,
+                div[data-testid='column']:has(button[key*='create_android_is_ad_unit']) button,
+                div[data-testid='column']:has(button[key*='create_android_bn_ad_unit']) button {
+                    margin-top: auto !important;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns(3)
+                
+                slot_names = {"RV": "Reward Video", "IS": "Interstitial", "BN": "Banner"}
+                
+                for idx, ad_unit in enumerate(android_ad_units):
+                    with [col1, col2, col3][idx]:
+                        # 높이를 맞추기 위해 container 사용
+                        with st.container():
+                            st.markdown(f"### 🎯 {ad_unit['slot_key']} ({slot_names[ad_unit['slot_key']]})")
+                            st.write(f"**Slot Name:** {ad_unit['slot_name']}")
+                            st.write(f"**Ad Format:** {ad_unit['ad_format']}")
+                            # Display reward settings for RV
+                            if ad_unit['ad_format'] == "rewarded":
+                                st.write(f"**Reward Item Name:** Reward")
+                                st.write(f"**Reward Amount:** 1")
+                            else:
+                                # 높이 맞추기 위해 빈 공간 추가 (RV의 Reward Item Name + Reward Amount와 같은 높이)
+                                st.write("")  # IS, BN의 경우 빈 줄 추가
+                                st.write("")
+                            
+                            if st.button(f"✨ Create {ad_unit['slot_key']} Ad Unit", use_container_width=True, type="primary", key=f"create_android_{ad_unit['slot_key'].lower()}_ad_unit"):
+                                with st.spinner(f"🚀 Creating Android {ad_unit['slot_key']} ad unit..."):
+                                    try:
+                                        payload = {
+                                            "mediationAdUnitName": ad_unit['slot_name'],
+                                            "adFormat": ad_unit['ad_format']
+                                        }
+                                        # Add reward object for rewarded ad format (required by API)
+                                        if ad_unit['ad_format'] == "rewarded":
+                                            payload["reward"] = {
+                                                "rewardItemName": "Reward",
+                                                "rewardAmount": 1
+                                            }
+                                        
+                                        create_response = network_manager._create_ironsource_placements(android_app_key, [payload])
+                                        result = handle_api_response(create_response)
+                                        
+                                        # Check if response indicates success (status 0 or code 0, even with empty result)
+                                        if create_response.get("status") == 0 or create_response.get("code") == 0:
+                                            # After creating, automatically activate it
+                                            with st.spinner("✅ Activating created ad unit..."):
+                                                from utils.ad_network_query import get_ironsource_units
+                                                existing_units = get_ironsource_units(android_app_key)
+                                                
+                                                if existing_units:
+                                                    for unit in existing_units:
+                                                        mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
+                                                        if mediation_adunit_id:
+                                                            unit_name = unit.get("mediationAdUnitName", "")
+                                                            if unit_name == ad_unit['slot_name']:
+                                                                activate_payload = [{
+                                                                    "mediationAdUnitId": mediation_adunit_id,
+                                                                    "isPaused": False
+                                                                }]
+                                                                activate_response = network_manager._update_ironsource_ad_units(android_app_key, activate_payload)
+                                                                if activate_response.get("status") == 0:
+                                                                    st.success(f"✅ Successfully created and activated Android {ad_unit['slot_key']} ad unit!")
+                                                                else:
+                                                                    st.success(f"✅ Successfully created Android {ad_unit['slot_key']} ad unit!")
+                                                                    st.warning("⚠️ Created but activation failed. Please activate manually.")
+                                                                break
+                                                else:
+                                                    st.success(f"✅ Successfully created Android {ad_unit['slot_key']} ad unit!")
+                                            
+                                            st.balloons()
+                                        else:
+                                            # Error already displayed by handle_api_response
+                                            pass
+                                    except Exception as e:
+                                        st.error(f"❌ Error creating Android {ad_unit['slot_key']} ad unit: {str(e)}")
+                                        logger.exception(f"Error creating IronSource Android {ad_unit['slot_key']} ad unit")
+                
+                if st.button("✨ Create All 3 Ad Units (Android: RV, IS, BN)", use_container_width=True, type="primary", key="create_android_ad_units"):
+                    with st.spinner("🚀 Creating Android ad units..."):
+                        try:
+                            create_payloads = []
+                            for ad_unit in android_ad_units:
+                                payload = {
+                                    "mediationAdUnitName": ad_unit['slot_name'],
+                                    "adFormat": ad_unit['ad_format']
+                                }
+                                # Add reward object for rewarded ad format (required by API)
+                                if ad_unit['ad_format'] == "rewarded":
+                                    payload["reward"] = {
+                                        "rewardItemName": "Reward",
+                                        "rewardAmount": 1
+                                    }
+                                create_payloads.append(payload)
+                            
+                            create_response = network_manager._create_ironsource_placements(android_app_key, create_payloads)
+                            result = handle_api_response(create_response)
+                            
+                            # Check if response indicates success (status 0 or code 0, even with empty result)
+                            if create_response.get("status") == 0 or create_response.get("code") == 0:
+                                # After creating, automatically activate them
+                                with st.spinner("✅ Activating created ad units..."):
+                                    from utils.ad_network_query import get_ironsource_units
+                                    existing_units = get_ironsource_units(android_app_key)
+                                    
+                                    if existing_units:
+                                        activate_payloads = []
+                                        for unit in existing_units:
+                                            # GET API returns mediationAdUnitId (uppercase U)
+                                            mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
+                                            if mediation_adunit_id:
+                                                # Check if this unit matches one we just created
+                                                unit_name = unit.get("mediationAdUnitName", "")
+                                                if any(unit_name == ad_unit['slot_name'] for ad_unit in android_ad_units):
+                                                    activate_payloads.append({
+                                                        "mediationAdUnitId": mediation_adunit_id,  # uppercase U
+                                                        "isPaused": False
+                                                    })
+                                        
+                                        if activate_payloads:
+                                            activate_response = network_manager._update_ironsource_ad_units(android_app_key, activate_payloads)
+                                            if activate_response.get("status") == 0:
+                                                st.success(f"✅ Successfully created and activated {len(create_payloads)} Android ad units!")
+                                            else:
+                                                st.success(f"✅ Successfully created {len(create_payloads)} Android ad units!")
+                                                st.warning("⚠️ Created but activation failed. Please activate manually.")
+                                        else:
+                                            st.success(f"✅ Successfully created {len(create_payloads)} Android ad units!")
+                                    else:
+                                        st.success(f"✅ Successfully created {len(create_payloads)} Android ad units!")
+                                
+                                st.balloons()
+                            else:
+                                # Error already displayed by handle_api_response
+                                pass
+                        except Exception as e:
+                            st.error(f"❌ Error creating Android ad units: {str(e)}")
+                            logger.exception("Error creating IronSource Android ad units")
+            
+            # Create Ad Units for iOS
+            if ios_app_key:
+                st.markdown("### iOS")
+                
+                # Get bundleId and app_name from API or session state
+                bundle_id = st.session_state.get("_ironsource_ios_bundle_id", "")
+                app_name_for_slot = default_app_name or ""
+                
+                # Try to get from API apps list if available
+                if not bundle_id and "ironsource_api_apps_for_create_unit" in st.session_state:
+                    api_apps = st.session_state["ironsource_api_apps_for_create_unit"]
+                    for app in api_apps:
+                        if app.get("appKey") == ios_app_key and app.get("platform", "").lower() == "ios":
+                            bundle_id = app.get("bundleId", "")
+                            app_name_for_slot = app.get("name", app_name_for_slot)
+                            break
+                
+                # Try to get from last_app_info
+                if not bundle_id and last_app_info:
+                    ios_app = last_app_info.get("iosApp", {})
+                    bundle_id = ios_app.get("bundleId") or last_app_info.get("bundleIdIOS", "")
+                    app_name_for_slot = app_name_for_slot or last_app_info.get("name", "")
+                
+                # Check if bundleId is available before proceeding
+                if not bundle_id:
+                    st.warning("⚠️ Bundle ID를 찾을 수 없습니다. API에서 App을 조회해주세요.")
+                    st.stop()
+                
+                # Generate slot names for iOS
+                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                ad_format_map = {"RV": "rewarded", "IS": "interstitial", "BN": "banner"}
+                ios_ad_units = []
+                for slot_key in ["RV", "IS", "BN"]:
+                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                    slot_name = _generate_slot_name("", "ios", slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                    ios_ad_units.append({
+                        "slot_key": slot_key,
+                        "slot_name": slot_name,
+                        "ad_format": ad_format_map[slot_key]
+                    })
+                    
+                # Display RV, IS, BN sections (버튼 높이 맞추기)
+                # 버튼 높이를 맞추기 위한 CSS (한 번만 적용)
+                st.markdown("""
+                <style>
+                div[data-testid='column']:has(button[key*='create_ios_rv_ad_unit']) > div,
+                div[data-testid='column']:has(button[key*='create_ios_is_ad_unit']) > div,
+                div[data-testid='column']:has(button[key*='create_ios_bn_ad_unit']) > div {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    height: 100% !important;
+                }
+                div[data-testid='column']:has(button[key*='create_ios_rv_ad_unit']) button,
+                div[data-testid='column']:has(button[key*='create_ios_is_ad_unit']) button,
+                div[data-testid='column']:has(button[key*='create_ios_bn_ad_unit']) button {
+                    margin-top: auto !important;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns(3)
+                
+                slot_names = {"RV": "Reward Video", "IS": "Interstitial", "BN": "Banner"}
+                
+                for idx, ad_unit in enumerate(ios_ad_units):
+                    with [col1, col2, col3][idx]:
+                        # 높이를 맞추기 위해 container 사용
+                        with st.container():
+                            st.markdown(f"### 🎯 {ad_unit['slot_key']} ({slot_names[ad_unit['slot_key']]})")
+                            st.write(f"**Slot Name:** {ad_unit['slot_name']}")
+                            st.write(f"**Ad Format:** {ad_unit['ad_format']}")
+                            
+                            # RV의 경우 Reward 정보 표시, IS/BN의 경우 빈 공간으로 높이 맞추기
+                            if ad_unit['ad_format'] == "rewarded":
+                                st.write(f"**Reward Item Name:** Reward")
+                                st.write(f"**Reward Amount:** 1")
+                            else:
+                                # IS, BN의 경우 RV의 Reward Item Name + Reward Amount와 같은 높이를 위해 빈 줄 추가
+                                st.write("")  # 빈 줄 1
+                                st.write("")  # 빈 줄 2
+                            
+                            if st.button(f"✨ Create {ad_unit['slot_key']} Ad Unit", use_container_width=True, type="primary", key=f"create_ios_{ad_unit['slot_key'].lower()}_ad_unit"):
+                                with st.spinner(f"🚀 Creating iOS {ad_unit['slot_key']} ad unit..."):
+                                    try:
+                                        payload = {
+                                            "mediationAdUnitName": ad_unit['slot_name'],
+                                            "adFormat": ad_unit['ad_format']
+                                        }
+                                        # Add reward object for rewarded ad format (required by API)
+                                        if ad_unit['ad_format'] == "rewarded":
+                                            payload["reward"] = {
+                                                "rewardItemName": "Reward",
+                                                "rewardAmount": 1
+                                            }
+                                        
+                                        create_response = network_manager._create_ironsource_placements(ios_app_key, [payload])
+                                        result = handle_api_response(create_response)
+                                        
+                                        # Check if response indicates success (status 0 or code 0, even with empty result)
+                                        if create_response.get("status") == 0 or create_response.get("code") == 0:
+                                            # After creating, automatically activate it
+                                            with st.spinner("✅ Activating created ad unit..."):
+                                                from utils.ad_network_query import get_ironsource_units
+                                                existing_units = get_ironsource_units(ios_app_key)
+                                                
+                                                if existing_units:
+                                                    for unit in existing_units:
+                                                        mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
+                                                        if mediation_adunit_id:
+                                                            unit_name = unit.get("mediationAdUnitName", "")
+                                                            if unit_name == ad_unit['slot_name']:
+                                                                activate_payload = [{
+                                                                    "mediationAdUnitId": mediation_adunit_id,
+                                                                    "isPaused": False
+                                                                }]
+                                                                activate_response = network_manager._update_ironsource_ad_units(ios_app_key, activate_payload)
+                                                                if activate_response.get("status") == 0:
+                                                                    st.success(f"✅ Successfully created and activated iOS {ad_unit['slot_key']} ad unit!")
+                                                                else:
+                                                                    st.success(f"✅ Successfully created iOS {ad_unit['slot_key']} ad unit!")
+                                                                    st.warning("⚠️ Created but activation failed. Please activate manually.")
+                                                                break
+                                                else:
+                                                    st.success(f"✅ Successfully created iOS {ad_unit['slot_key']} ad unit!")
+                                            
+                                            st.balloons()
+                                        else:
+                                            # Error already displayed by handle_api_response
+                                            pass
+                                    except Exception as e:
+                                        st.error(f"❌ Error creating iOS {ad_unit['slot_key']} ad unit: {str(e)}")
+                                        logger.exception(f"Error creating IronSource iOS {ad_unit['slot_key']} ad unit")
+                    
+                    st.divider()
+                    if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key="create_ios_ad_units"):
+                        with st.spinner("🚀 Creating iOS ad units..."):
+                            try:
+                                create_payloads = []
+                                for ad_unit in ios_ad_units:
+                                    payload = {
+                                        "mediationAdUnitName": ad_unit['slot_name'],
+                                        "adFormat": ad_unit['ad_format']
+                                    }
+                                    # Add reward object for rewarded ad format (required by API)
+                                    if ad_unit['ad_format'] == "rewarded":
+                                        payload["reward"] = {
+                                            "rewardItemName": "Reward",
+                                            "rewardAmount": 1
+                                        }
+                                    create_payloads.append(payload)
+                                
+                                create_response = network_manager._create_ironsource_placements(ios_app_key, create_payloads)
+                                result = handle_api_response(create_response)
+                                
+                                # Check if response indicates success (status 0 or code 0, even with empty result)
+                                if create_response.get("status") == 0 or create_response.get("code") == 0:
+                                    # After creating, automatically activate them
+                                    with st.spinner("✅ Activating created ad units..."):
+                                        from utils.ad_network_query import get_ironsource_units
+                                        existing_units = get_ironsource_units(ios_app_key)
+                                        
+                                        if existing_units:
+                                            activate_payloads = []
+                                            for unit in existing_units:
+                                                # GET API returns mediationAdUnitId (uppercase U)
+                                                mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
+                                                if mediation_adunit_id:
+                                                    # Check if this unit matches one we just created
+                                                    unit_name = unit.get("mediationAdUnitName", "")
+                                                    if any(unit_name == ad_unit['slot_name'] for ad_unit in ios_ad_units):
+                                                        activate_payloads.append({
+                                                            "mediationAdUnitId": mediation_adunit_id,  # uppercase U
+                                                            "isPaused": False
+                                                        })
+                                            
+                                            if activate_payloads:
+                                                activate_response = network_manager._update_ironsource_ad_units(ios_app_key, activate_payloads)
+                                                if activate_response.get("status") == 0:
+                                                    st.success(f"✅ Successfully created and activated {len(create_payloads)} iOS ad units!")
+                                                else:
+                                                    st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
+                                                    st.warning("⚠️ Created but activation failed. Please activate manually.")
+                                            else:
+                                                st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
+                                        else:
+                                            st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
+                                    
+                                    st.balloons()
+                                else:
+                                    # Error already displayed by handle_api_response
+                                    pass
+                            except Exception as e:
+                                st.error(f"❌ Error creating iOS ad units: {str(e)}")
+                                logger.exception("Error creating IronSource iOS ad units")
+    else:
+        st.divider()
+        
+        # Create 3 columns for RV, IS, BN
+        col1, col2, col3 = st.columns(3)
+        
+        for idx, (slot_key, slot_config) in enumerate(slot_configs.items()):
+            with [col1, col2, col3][idx]:
+                with st.container():
+                    st.markdown(f"### 🎯 {slot_key} ({slot_config['name']})")
+                    
+                    if current_network == "pangle":
+                        _render_pangle_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, network_manager, current_network
+                        )
+                    elif current_network == "mintegral":
+                        _render_mintegral_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network
+                        )
+                    elif current_network == "inmobi":
+                        _render_inmobi_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network
+                        )
+                    elif current_network == "fyber":
+                        _render_fyber_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network
+                        )
+                    else:
+                        # BigOAds and other networks
+                        _render_bigoads_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network,
+                            AD_TYPE_MAP, AUCTION_TYPE_MAP, MUSIC_SWITCH_MAP,
+                            AUTO_REFRESH_MAP, BANNER_SIZE_MAP,
+                            AD_TYPE_REVERSE, AUCTION_TYPE_REVERSE,
+                            MUSIC_SWITCH_REVERSE, AUTO_REFRESH_REVERSE,
+                            BANNER_SIZE_REVERSE
+                        )
 
 
 def _render_ironsource_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
@@ -358,13 +863,31 @@ def _render_ironsource_slot_ui(slot_key, slot_config, selected_app_code, app_inf
     
     if selected_app_code and app_info_to_use:
         if slot_name_key not in st.session_state or st.session_state.get(auto_gen_flag_key, False):
-            bundle_id = app_info_to_use.get("bundleId", "")
-            platform_str = app_info_to_use.get("platformStr", "android")
+            # For IronSource, determine which platform to use
+            has_android = app_info_to_use.get("hasAndroid", False)
+            has_ios = app_info_to_use.get("hasIOS", False)
+            platform = app_info_to_use.get("platform", "")
+            
+            # Use Android bundleId by default if both platforms available
+            if platform == "both" or (has_android and has_ios):
+                bundle_id = app_info_to_use.get("bundleId", "")  # Android bundleId
+                platform_str = "android"
+            elif has_android:
+                bundle_id = app_info_to_use.get("bundleId", "")  # Android bundleId
+                platform_str = "android"
+            elif has_ios:
+                bundle_id = app_info_to_use.get("bundleIdIOS", "")  # iOS bundleId
+                platform_str = "ios"
+            else:
+                bundle_id = app_info_to_use.get("bundleId", "") or app_info_to_use.get("bundleIdIOS", "")
+                platform_str = app_info_to_use.get("platformStr", "android")
+            
             app_name_for_slot = app_info_to_use.get("name", app_name)
             if bundle_id:
                 slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                 slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                default_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                # pkg_name is first param, bundle_id is separate param
+                default_name = _generate_slot_name("", platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
                 st.session_state[slot_name_key] = default_name
                 st.session_state[auto_gen_flag_key] = True
             elif slot_name_key not in st.session_state:
@@ -391,7 +914,8 @@ def _render_ironsource_slot_ui(slot_key, slot_config, selected_app_code, app_inf
                 app_name_for_slot = app_info_to_use.get("name", app_name)
                 slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                 slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                expected_name = _generate_slot_name(bundle_id, platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                # pkg_name is first param, bundle_id is separate param
+                expected_name = _generate_slot_name("", platform_str, slot_type, "ironsource", store_url=None, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
                 if mediation_ad_unit_name != expected_name:
                     st.session_state[auto_gen_flag_key] = False
     
@@ -409,70 +933,102 @@ def _render_ironsource_slot_ui(slot_key, slot_config, selected_app_code, app_inf
     settings_html += '</ul></div>'
     st.markdown(settings_html, unsafe_allow_html=True)
     
-    if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_ironsource_{slot_key}"):
-        if not mediation_ad_unit_name:
-            st.toast("❌ Mediation Ad Unit Name is required", icon="🚫")
-        else:
-            payload = {
-                "mediationAdUnitName": mediation_ad_unit_name,
-                "adFormat": slot_config['adFormat'],
-            }
-            
-            if slot_key == "RV" and slot_config.get("adFormat") == "rewarded":
-                reward_item_name = slot_config.get("rewardItemName", "Reward")
-                reward_amount = slot_config.get("rewardAmount", 1)
-                payload["reward"] = {
-                    "rewardItemName": reward_item_name,
-                    "rewardAmount": reward_amount
-                }
-            
-            with st.spinner(f"Creating {slot_key} placement..."):
-                try:
-                    from utils.network_manager import get_network_manager
-                    network_manager = get_network_manager()
-                    response = network_manager.create_unit(current_network, payload, app_key=selected_app_code)
+    if st.button(f"✅ Activate {slot_key} Ad Unit", use_container_width=True, key=f"activate_ironsource_{slot_key}"):
+        with st.spinner(f"Activating {slot_key} ad unit..."):
+            try:
+                from utils.network_manager import get_network_manager
+                from utils.ad_network_query import get_ironsource_units
+                network_manager = get_network_manager()
+                
+                # For IronSource, determine which appKey to use based on selected app
+                app_key_to_use = selected_app_code
+                if current_network == "ironsource" and app_info_to_use:
+                    has_android = app_info_to_use.get("hasAndroid", False)
+                    has_ios = app_info_to_use.get("hasIOS", False)
+                    platform = app_info_to_use.get("platform", "")
                     
-                    if not response:
-                        st.error("❌ No response from API")
-                        SessionManager.log_error(current_network, "No response from API")
+                    # If both platforms available, use Android by default
+                    if platform == "both" or (has_android and has_ios):
+                        app_key_to_use = app_info_to_use.get("appKey")  # Android appKey
+                    elif has_android:
+                        app_key_to_use = app_info_to_use.get("appKey")  # Android appKey
+                    elif has_ios:
+                        app_key_to_use = app_info_to_use.get("appKeyIOS")  # iOS appKey
+                
+                # Fallback to selected_app_code if app_key_to_use is not determined
+                if not app_key_to_use:
+                    app_key_to_use = selected_app_code
+                
+                # Step 1: Get existing ad units
+                existing_units = get_ironsource_units(app_key_to_use)
+                
+                if not existing_units:
+                    st.error("❌ No existing ad units found. Please create ad units first in IronSource dashboard.")
+                    SessionManager.log_error(current_network, "No existing ad units found")
+                else:
+                    # Step 2: Find matching ad unit by adFormat
+                    ad_format = slot_config['adFormat']
+                    matching_unit = None
+                    for unit in existing_units:
+                        if unit.get("adFormat") == ad_format:
+                            matching_unit = unit
+                            break
+                    
+                    if not matching_unit:
+                        st.error(f"❌ No ad unit found for adFormat: {ad_format}")
+                        SessionManager.log_error(current_network, f"No ad unit found for adFormat: {ad_format}")
                     else:
-                        result = handle_api_response(response)
+                        mediation_adunit_id = matching_unit.get("mediationAdunitId") or matching_unit.get("id")
                         
-                        if result is not None and isinstance(result, dict):
-                            slot_code = result.get("adUnitId") or result.get("id") or result.get("placement_id") or result.get("placementId")
+                        if not mediation_adunit_id:
+                            st.error("❌ mediationAdunitId not found in ad unit")
+                            SessionManager.log_error(current_network, "mediationAdunitId not found")
+                        else:
+                            # Step 3: Update (activate) ad unit
+                            update_payload = {
+                                "mediationAdunitId": mediation_adunit_id,
+                                "isPaused": False  # Activate
+                            }
                             
-                            if slot_code or not result:
-                                if slot_code:
-                                    unit_data = {
-                                        "slotCode": slot_code,
-                                        "name": mediation_ad_unit_name,
-                                        "appCode": selected_app_code,
-                                        "slotType": slot_config['adFormat'],
-                                        "adType": slot_config['adFormat'],
-                                        "auctionType": "N/A"
-                                    }
-                                    SessionManager.add_created_unit(current_network, unit_data)
-                                    
-                                    cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
-                                    if not cached_units:
-                                        cached_units = []
-                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
-                                        cached_units.append(unit_data)
-                                        SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                            update_response = network_manager._update_ironsource_ad_units(app_key_to_use, [update_payload])
+                            update_result = handle_api_response(update_response)
+                            
+                            if update_result:
+                                # Step 4: Get instances
+                                instances_response = network_manager._get_ironsource_instances(app_key_to_use)
                                 
-                                st.success(f"✅ {slot_key} placement created successfully!")
+                                if instances_response.get("status") == 0:
+                                    instances = instances_response.get("result", [])
+                                    
+                                    # Filter instances by adFormat
+                                    matching_instances = [inst for inst in instances if inst.get("adFormat") == ad_format]
+                                    
+                                    st.success(f"✅ {slot_key} ad unit activated successfully!")
+                                    
+                                    if matching_instances:
+                                        st.subheader("📡 Instances")
+                                        for inst in matching_instances:
+                                            instance_id = inst.get("instanceId", "N/A")
+                                            ad_format_display = inst.get("adFormat", "N/A")
+                                            network_name = inst.get("networkName", "N/A")
+                                            instance_name = inst.get("instanceName", "")
+                                            is_bidder = inst.get("isBidder", False)
+                                            is_live = inst.get("isLive", False)
+                                            
+                                            st.write(f"**Instance ID:** {instance_id} | **Ad Format:** {ad_format_display}")
+                                            st.write(f"  - Network: {network_name} | Instance Name: {instance_name or 'N/A'}")
+                                            st.write(f"  - Is Bidder: {is_bidder} | Is Live: {is_live}")
+                                            st.divider()
+                                else:
+                                    st.warning("⚠️ Ad unit activated but failed to fetch instances")
+                                
                                 st.rerun()
                             else:
-                                st.success(f"✅ {slot_key} placement created successfully!")
-                                st.rerun()
-                        elif result is None:
-                            pass
-                        else:
-                            st.error(f"❌ Unexpected response format: {type(result)}")
-                            SessionManager.log_error(current_network, f"Unexpected response format: {type(result)}")
-                except Exception as e:
-                    st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
-                    SessionManager.log_error(current_network, str(e))
+                                st.error(f"❌ Failed to activate {slot_key} ad unit")
+                                SessionManager.log_error(current_network, f"Failed to activate {slot_key} ad unit")
+            except Exception as e:
+                st.error(f"❌ Error activating {slot_key} ad unit: {str(e)}")
+                SessionManager.log_error(current_network, str(e))
 
 
 def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,

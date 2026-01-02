@@ -63,7 +63,7 @@ if not config.supports_create_app():
 if current_network != "applovin":
     st.info(f"✅ {network_display} - Create API Available")
 
-    st.divider()
+st.divider()
 
 # Network selector (if multiple networks available)
 available_networks = get_network_display_names()
@@ -136,10 +136,33 @@ render_create_app_ui(current_network, network_display, config)
 render_unity_update_ad_units(current_network)
 
 # ============================================================================
-# CREATE UNIT SECTION
+# IRONSOURCE DEACTIVATE AD-UNITS SECTION (Before Create Unit)
+# ============================================================================
+if current_network == "ironsource":
+    from components.ironsource_deactivate_ad_units import render_ironsource_deactivate_ad_units
+    render_ironsource_deactivate_ad_units(current_network)
+
+# ============================================================================
+# CREATE UNIT / CREATE AD UNIT SECTION
 # ============================================================================
 st.divider()
-st.subheader("🎯 Create Unit")
+
+# For IronSource, show "Create Ad Unit" (minimize space like GET Instance)
+if current_network == "ironsource":
+    st.subheader("🎯 Create Ad Unit")
+    # Minimize space between subheader and buttons (like GET Instance)
+    st.markdown("""
+    <style>
+    div[data-testid='stVerticalBlock']:has(> div[data-testid='stButton']) {
+        margin-top: -1rem !important;
+    }
+    div[data-testid='stVerticalBlock']:has(> div[data-testid='stSelectbox']) {
+        margin-top: -1rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.subheader("🎯 Create Unit")
 
 # Check if network supports unit creation
 if not config.supports_create_unit():
@@ -149,6 +172,19 @@ elif current_network == "applovin":
     render_applovin_create_unit_ui()
 elif current_network == "unity":
     render_unity_create_unit_ui(current_network)
+elif current_network == "ironsource":
+    # For IronSource, skip App Code selector and go directly to Create Ad Unit UI
+    network_manager = get_network_manager()
+    render_create_unit_common_ui(
+        current_network=current_network,
+        selected_app_code="",  # Not used for IronSource
+        app_name="",
+        app_info_to_use=None,
+        apps=[],
+        app_info_map={},
+        network_manager=network_manager,
+        config=config
+    )
 else:
     network_manager = get_network_manager()
     
@@ -176,6 +212,13 @@ else:
         network_manager=network_manager,
         config=config
     )
+
+# ============================================================================
+# IRONSOURCE GET INSTANCES SECTION (After Create Unit)
+# ============================================================================
+if current_network == "ironsource":
+    from components.ironsource_get_instances import render_ironsource_get_instances
+    render_ironsource_get_instances(current_network)
 
 # Help section
 with st.expander("ℹ️ Help"):

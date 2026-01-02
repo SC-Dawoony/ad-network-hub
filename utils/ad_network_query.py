@@ -319,6 +319,35 @@ def get_bigoads_app_by_name(app_name: str, platform: Optional[str] = None) -> Op
     return find_app_by_name("bigoads", app_name, platform)
 
 
+def get_ironsource_instances(app_key: str) -> List[Dict]:
+    """Get IronSource instances for an app
+    
+    API: GET https://platform.ironsrc.com/levelPlay/network/instances/v4/{appKey}/
+    
+    Args:
+        app_key: IronSource app key
+    
+    Returns:
+        List of instance dicts with instanceId, adFormat, networkName, etc.
+    """
+    try:
+        network_manager = get_network_manager()
+        instances_response = network_manager._get_ironsource_instances(app_key)
+        
+        if instances_response.get("status") == 0:
+            instances = instances_response.get("result", [])
+            logger.info(f"[IronSource] Instances count: {len(instances)}")
+            return instances
+        else:
+            logger.error(f"[IronSource] Failed to get instances: {instances_response.get('msg', 'Unknown error')}")
+            return []
+    except Exception as e:
+        logger.error(f"[IronSource] API Error (Get Instances): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_ironsource_units(app_key: str) -> List[Dict]:
     """Get IronSource ad units (placements) for an app
     
@@ -666,33 +695,31 @@ def find_matching_unit(
     """
     target_format = map_ad_format_to_network_format(ad_format, network)
     
-    # For IronSource, if platform is provided and multiple units match the format,
-    # prioritize units with platform indicator in mediationAdUnitName
-    if network == "ironsource" and platform:
-        platform_normalized = platform.lower()
-        platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+    # For IronSource, use GET Instance API (instances instead of ad units)
+    # Instances have instanceId, adFormat, networkName, etc.
+    if network == "ironsource":
+        # First, collect all matching instances by adFormat
+        matching_instances = []
+        for instance in network_units:
+            instance_format = instance.get("adFormat", "").lower()
+            if instance_format == target_format.lower():
+                matching_instances.append(instance)
         
-        # First, collect all matching units
-        matching_units = []
-        for unit in network_units:
-            unit_format = unit.get("adFormat", "").lower()
-            if unit_format == target_format.lower():
-                matching_units.append(unit)
-        
-        # If multiple matches, prioritize by platform indicator in mediationAdUnitName
-        if len(matching_units) > 1:
-            for unit in matching_units:
-                mediation_name = unit.get("mediationAdUnitName", "").lower()
-                if platform_indicator in mediation_name:
-                    logger.info(f"[IronSource] Found unit with platform indicator '{platform_indicator}' in mediationAdUnitName: {unit.get('mediationAdUnitName')}")
-                    return unit
+        # If multiple matches, prioritize bidding instances (isBidder: true)
+        if len(matching_instances) > 1:
+            # First try to find bidding instances
+            bidding_instances = [inst for inst in matching_instances if inst.get("isBidder", False)]
+            if bidding_instances:
+                logger.info(f"[IronSource] Found {len(bidding_instances)} bidding instances for format '{target_format}'")
+                return bidding_instances[0]  # Return first bidding instance
             
-            # If no unit has platform indicator, return first match
-            logger.warning(f"[IronSource] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in mediationAdUnitName")
-            return matching_units[0]
-        elif len(matching_units) == 1:
-            return matching_units[0]
+            # If no bidding instances, return first match
+            logger.warning(f"[IronSource] Multiple instances found for format '{target_format}' but none are bidding instances")
+            return matching_instances[0]
+        elif len(matching_instances) == 1:
+            return matching_instances[0]
         else:
+            logger.warning(f"[IronSource] No instances found for format '{target_format}'")
             return None
     
     # For InMobi, match by placementType
@@ -1571,7 +1598,8 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         List of ad unit dicts
     """
     if network == "ironsource":
-        return get_ironsource_units(app_code)
+        # For Update Ad Unit page, use GET Instance API instead of GET Ad Units API
+        return get_ironsource_instances(app_code)
     elif network == "inmobi":
         return get_inmobi_units(app_code)
     elif network == "mintegral":

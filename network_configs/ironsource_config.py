@@ -56,7 +56,11 @@ class IronSourceConfig(NetworkConfig):
         ]
     
     def get_app_creation_fields(self) -> List[Field]:
-        """Get fields for app creation"""
+        """Get fields for app creation
+        
+        Note: For IronSource, we support creating apps for both iOS and Android simultaneously.
+        Store URLs are separated by platform.
+        """
         return [
             Field(
                 name="appName",
@@ -66,19 +70,20 @@ class IronSourceConfig(NetworkConfig):
                 placeholder="Enter application name"
             ),
             Field(
-                name="platform",
-                field_type="radio",
-                required=True,
-                label="Platform",
-                options=[("iOS", "iOS"), ("Android", "Android")],
-                default="Android"
+                name="iosStoreUrl",
+                field_type="text",
+                required=False,
+                label="iOS Store URL (Optional)",
+                placeholder="https://apps.apple.com/us/app/...",
+                help_text="iOS App Store URL. Leave empty if iOS app is not needed."
             ),
             Field(
-                name="storeUrl",
+                name="androidStoreUrl",
                 field_type="text",
-                required=True,
-                label="Store URL",
-                placeholder="https://apps.apple.com/us/app/... or https://play.google.com/store/apps/details?id=..."
+                required=False,
+                label="Android Store URL (Optional)",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL. Leave empty if Android app is not needed."
             ),
             Field(
                 name="taxonomy",
@@ -86,7 +91,7 @@ class IronSourceConfig(NetworkConfig):
                 required=True,
                 label="Taxonomy (Sub-genre)",
                 options=self._get_taxonomies(),
-                help_text="Application sub-genre"
+                help_text="Application sub-genre (applies to both platforms)"
             ),
             Field(
                 name="coppa",
@@ -94,7 +99,8 @@ class IronSourceConfig(NetworkConfig):
                 required=True,
                 label="COPPA",
                 options=[("No", 0), ("Yes", 1)],
-                default=0
+                default=0,
+                help_text="Applies to both platforms"
             ),
         ]
     
@@ -219,16 +225,30 @@ class IronSourceConfig(NetworkConfig):
     
     def validate_app_data(self, data: Dict) -> Tuple[bool, str]:
         """Validate app creation data"""
-        required_fields = ["storeUrl", "taxonomy", "coppa"]
+        # At least one Store URL must be provided
+        ios_store_url = data.get("iosStoreUrl", "").strip()
+        android_store_url = data.get("androidStoreUrl", "").strip()
         
-        for field in required_fields:
-            if field not in data or data[field] is None or data[field] == "":
-                return False, f"Field '{field}' is required"
+        if not ios_store_url and not android_store_url:
+            return False, "At least one Store URL (iOS or Android) must be provided"
         
-        # Validate storeUrl format
-        store_url = data.get("storeUrl", "")
-        if not (store_url.startswith("https://") or store_url.startswith("http://")):
-            return False, "Store URL must start with http:// or https://"
+        # Validate iOS Store URL format if provided
+        if ios_store_url:
+            if not (ios_store_url.startswith("https://") or ios_store_url.startswith("http://")):
+                return False, "iOS Store URL must start with http:// or https://"
+            if "apps.apple.com" not in ios_store_url:
+                return False, "iOS Store URL must be from apps.apple.com"
+        
+        # Validate Android Store URL format if provided
+        if android_store_url:
+            if not (android_store_url.startswith("https://") or android_store_url.startswith("http://")):
+                return False, "Android Store URL must start with http:// or https://"
+            if "play.google.com" not in android_store_url:
+                return False, "Android Store URL must be from play.google.com"
+        
+        # Validate taxonomy
+        if not data.get("taxonomy"):
+            return False, "Taxonomy (Sub-genre) is required"
         
         # Validate coppa value
         coppa = data.get("coppa")
@@ -271,12 +291,25 @@ class IronSourceConfig(NetworkConfig):
         
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
-        """Build API payload for app creation"""
+    def build_app_payload(self, form_data: Dict, platform: str = "android") -> Dict:
+        """Build API payload for app creation
+        
+        Args:
+            form_data: Form data containing app information
+            platform: "iOS" or "Android" to build payload for specific platform
+        
+        Returns:
+            Payload dict for the specified platform
+        """
+        if platform.lower() == "ios":
+            store_url = form_data.get("iosStoreUrl", "").strip()
+        else:
+            store_url = form_data.get("androidStoreUrl", "").strip()
+        
         payload = {
             "appName": form_data.get("appName"),
-            "platform": form_data.get("platform"),  # "iOS" or "Android"
-            "storeUrl": form_data.get("storeUrl"),
+            "platform": platform,  # "iOS" or "Android"
+            "storeUrl": store_url,
             "taxonomy": form_data.get("taxonomy"),
             "coppa": form_data.get("coppa", 0),
         }

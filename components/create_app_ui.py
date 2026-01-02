@@ -1,6 +1,7 @@
 """Create App UI component"""
 import streamlit as st
 import logging
+from typing import List, Tuple
 from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
 from utils.network_manager import get_network_manager, handle_api_response, _mask_sensitive_data
@@ -184,26 +185,79 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             else:
                 # Build payload
                 try:
-                    payload = config.build_app_payload(form_data)
-                    
-                    # Show payload preview
-                    with st.expander("📋 Payload Preview"):
-                        st.json(payload)
-                    
-                    # Make API call
-                    with st.spinner("Creating app..."):
-                        network_manager = get_network_manager()
-                        response = network_manager.create_app(current_network, payload)
+                    # For IronSource and InMobi, handle both iOS and Android platforms
+                    if current_network in ["ironsource", "inmobi"]:
+                        ios_store_url = form_data.get("iosStoreUrl", "").strip()
+                        android_store_url = form_data.get("androidStoreUrl", "").strip()
+                        
+                        if not ios_store_url and not android_store_url:
+                            st.error("❌ At least one Store URL (iOS or Android) must be provided")
+                        else:
+                            results = []
+                            platforms_created = []
+                            
+                            # Create Android app if URL provided
+                            if android_store_url:
+                                with st.spinner("Creating Android app..."):
+                                    android_payload = config.build_app_payload(form_data, platform="Android")
+                                    network_manager = get_network_manager()
+                                    android_response = network_manager.create_app(current_network, android_payload)
+                                    
+                                    if android_response:
+                                        android_result = handle_api_response(android_response)
+                                        if android_result:
+                                            results.append(("Android", android_result, android_response))
+                                            platforms_created.append("Android")
+                            
+                            # Create iOS app if URL provided
+                            if ios_store_url:
+                                with st.spinner("Creating iOS app..."):
+                                    ios_payload = config.build_app_payload(form_data, platform="iOS")
+                                    network_manager = get_network_manager()
+                                    ios_response = network_manager.create_app(current_network, ios_payload)
+                                    
+                                    if ios_response:
+                                        ios_result = handle_api_response(ios_response)
+                                        if ios_result:
+                                            results.append(("iOS", ios_result, ios_response))
+                                            platforms_created.append("iOS")
+                            
+                            # Store responses and process results
+                            if results:
+                                # Store the last response (for backward compatibility)
+                                st.session_state[f"{current_network}_last_app_response"] = results[-1][2]
                                 
-                        # Store response in session_state to persist it (for all networks)
-                        st.session_state[f"{current_network}_last_app_response"] = response
+                                # Process all results
+                                if current_network == "ironsource":
+                                    _process_ironsource_create_app_results(
+                                        current_network, network_display, form_data, results
+                                    )
+                                elif current_network == "inmobi":
+                                    _process_inmobi_create_app_results(
+                                        current_network, network_display, form_data, results
+                                    )
+                    else:
+                        # For other networks, use original logic
+                        payload = config.build_app_payload(form_data)
                         
-                        result = handle_api_response(response)
+                        # Show payload preview
+                        with st.expander("📋 Payload Preview"):
+                            st.json(payload)
                         
-                        if result:
-                            _process_create_app_result(
-                                current_network, network_display, form_data, result
-                            )
+                        # Make API call
+                        with st.spinner("Creating app..."):
+                            network_manager = get_network_manager()
+                            response = network_manager.create_app(current_network, payload)
+                                    
+                            # Store response in session_state to persist it (for all networks)
+                            st.session_state[f"{current_network}_last_app_response"] = response
+                            
+                            result = handle_api_response(response)
+                            
+                            if result:
+                                _process_create_app_result(
+                                    current_network, network_display, form_data, result
+                                )
                 
                 except Exception as e:
                     st.error(f"❌ Error creating app: {str(e)}")
@@ -403,4 +457,201 @@ def _process_create_app_result(current_network: str, network_display: str, form_
             elif form_data.get('platform'):
                 # For other networks, platform is numeric (1 = Android, 2 = iOS)
                 st.write(f"**Platform:** {'Android' if form_data.get('platform') == 1 else 'iOS'}")
+
+
+def _process_ironsource_create_app_results(current_network: str, network_display: str, form_data: dict, results: List[Tuple[str, dict, dict]]):
+    """Process IronSource create app results for multiple platforms
+    
+    Args:
+        current_network: Current network identifier
+        network_display: Display name for the network
+        form_data: Form data submitted by user
+        results: List of tuples (platform, result, response) for each platform created
+    """
+    app_name = form_data.get("appName", "Unknown")
+    ios_store_url = form_data.get("iosStoreUrl", "").strip()
+    android_store_url = form_data.get("androidStoreUrl", "").strip()
+    
+    # Store both appKeys
+    android_app_key = None
+    ios_app_key = None
+    android_result_data = None
+    ios_result_data = None
+    
+    for platform, result, response in results:
+        app_key = result.get("appKey")
+        if platform == "Android":
+            android_app_key = app_key
+            android_result_data = result
+        elif platform == "iOS":
+            ios_app_key = app_key
+            ios_result_data = result
+    
+    # Save combined app data with both appKeys
+    app_data = {
+        "appCode": app_name,  # Use app name as primary identifier
+        "appKey": android_app_key,  # Android appKey (primary)
+        "appKeyIOS": ios_app_key,  # iOS appKey
+        "name": app_name,
+        "platform": "both" if android_app_key and ios_app_key else ("android" if android_app_key else "ios"),
+        "platformStr": "both" if android_app_key and ios_app_key else ("android" if android_app_key else "ios"),
+        "storeUrl": android_store_url if android_store_url else ios_store_url,
+        "iosStoreUrl": ios_store_url,
+        "androidStoreUrl": android_store_url,
+        "hasAndroid": bool(android_app_key),
+        "hasIOS": bool(ios_app_key)
+    }
+    SessionManager.add_created_app(current_network, app_data)
+    
+    # Add both apps to cache
+    cached_apps = SessionManager.get_cached_apps(current_network)
+    
+    if android_app_key:
+        android_app = {
+            "appCode": android_app_key,
+            "appKey": android_app_key,
+            "name": app_name,
+            "platform": "Android",
+            "status": "Active",
+            "storeUrl": android_store_url
+        }
+        if not any(app.get("appKey") == android_app_key for app in cached_apps):
+            cached_apps.append(android_app)
+    
+    if ios_app_key:
+        ios_app = {
+            "appCode": ios_app_key,
+            "appKey": ios_app_key,
+            "name": app_name,
+            "platform": "iOS",
+            "status": "Active",
+            "storeUrl": ios_store_url
+        }
+        if not any(app.get("appKey") == ios_app_key for app in cached_apps):
+            cached_apps.append(ios_app)
+    
+    SessionManager.cache_apps(current_network, cached_apps)
+    
+    # Show success message
+    platforms_str = " and ".join([p for p, _, _ in results])
+    st.success(f"🎉 App created successfully for {platforms_str}!")
+    st.balloons()
+    
+    # Show result details
+    st.subheader("📝 Result")
+    result_col1, result_col2 = st.columns(2)
+    with result_col1:
+        st.write(f"**Network:** {network_display}")
+        st.write(f"**App Name:** {app_name}")
+        st.write("**App Keys:**")
+        if android_app_key:
+            st.write(f"  - **Android:** {android_app_key}")
+        if ios_app_key:
+            st.write(f"  - **iOS:** {ios_app_key}")
+    with result_col2:
+        st.write(f"**Platforms:** {', '.join([p for p, _, _ in results])}")
+        if android_store_url:
+            st.write(f"**Android Store URL:** {android_store_url[:50]}...")
+        if ios_store_url:
+            st.write(f"**iOS Store URL:** {ios_store_url[:50]}...")
+
+
+def _process_inmobi_create_app_results(current_network: str, network_display: str, form_data: dict, results: List[Tuple[str, dict, dict]]):
+    """Process InMobi create app results for multiple platforms
+    
+    Args:
+        current_network: Current network identifier
+        network_display: Display name for the network
+        form_data: Form data submitted by user
+        results: List of tuples (platform, result, response) for each platform created
+    """
+    app_name = form_data.get("appName", "Unknown")
+    ios_store_url = form_data.get("iosStoreUrl", "").strip()
+    android_store_url = form_data.get("androidStoreUrl", "").strip()
+    
+    # Store both appIds
+    android_app_id = None
+    ios_app_id = None
+    android_result_data = None
+    ios_result_data = None
+    
+    for platform, result, response in results:
+        # InMobi: result contains appId
+        data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+        app_id = data.get("appId") or data.get("id") or data.get("app_id") or result.get("appId") or result.get("id")
+        
+        if platform == "Android":
+            android_app_id = app_id
+            android_result_data = result
+        elif platform == "iOS":
+            ios_app_id = app_id
+            ios_result_data = result
+    
+    # Save combined app data with both appIds
+    app_data = {
+        "appCode": app_name,  # Use app name as primary identifier
+        "appId": android_app_id,  # Android appId (primary)
+        "appIdIOS": ios_app_id,  # iOS appId
+        "name": app_name,
+        "platform": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
+        "platformStr": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
+        "storeUrl": android_store_url if android_store_url else ios_store_url,
+        "iosStoreUrl": ios_store_url,
+        "androidStoreUrl": android_store_url,
+        "hasAndroid": bool(android_app_id),
+        "hasIOS": bool(ios_app_id)
+    }
+    SessionManager.add_created_app(current_network, app_data)
+    
+    # Add both apps to cache
+    cached_apps = SessionManager.get_cached_apps(current_network)
+    
+    if android_app_id:
+        android_app = {
+            "appCode": str(android_app_id),
+            "appId": android_app_id,
+            "name": app_name,
+            "platform": "Android",
+            "status": "Active",
+            "storeUrl": android_store_url
+        }
+        if not any(app.get("appId") == android_app_id for app in cached_apps):
+            cached_apps.append(android_app)
+    
+    if ios_app_id:
+        ios_app = {
+            "appCode": str(ios_app_id),
+            "appId": ios_app_id,
+            "name": app_name,
+            "platform": "iOS",
+            "status": "Active",
+            "storeUrl": ios_store_url
+        }
+        if not any(app.get("appId") == ios_app_id for app in cached_apps):
+            cached_apps.append(ios_app)
+    
+    SessionManager.cache_apps(current_network, cached_apps)
+    
+    # Show success message
+    platforms_str = " and ".join([p for p, _, _ in results])
+    st.success(f"🎉 App created successfully for {platforms_str}!")
+    st.balloons()
+    
+    # Show result details
+    st.subheader("📝 Result")
+    result_col1, result_col2 = st.columns(2)
+    with result_col1:
+        st.write(f"**Network:** {network_display}")
+        st.write(f"**App Name:** {app_name}")
+        st.write("**App IDs:**")
+        if android_app_id:
+            st.write(f"  - **Android:** {android_app_id}")
+        if ios_app_id:
+            st.write(f"  - **iOS:** {ios_app_id}")
+    with result_col2:
+        st.write(f"**Platforms:** {', '.join([p for p, _, _ in results])}")
+        if android_store_url:
+            st.write(f"**Android Store URL:** {android_store_url[:50]}...")
+        if ios_store_url:
+            st.write(f"**iOS Store URL:** {ios_store_url[:50]}...")
 

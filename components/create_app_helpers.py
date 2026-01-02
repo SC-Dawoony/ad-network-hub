@@ -177,22 +177,42 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
     - Always append "_bidding"
     """
     # Get package name (prefer BigOAds pkgNameDisplay)
-    final_pkg_name = pkg_name
+    # If pkg_name is empty, use bundle_id as fallback
+    source_pkg_name = pkg_name if pkg_name else (bundle_id if bundle_id else "")
+    final_pkg_name = source_pkg_name
+    
     if network_manager and (pkg_name or bundle_id):
         bigoads_pkg = get_bigoads_pkg_name_display(pkg_name, bundle_id, network_manager, app_name, platform_str)
         if bigoads_pkg:
             final_pkg_name = bigoads_pkg
-        elif not bigoads_pkg and pkg_name and pkg_name.startswith("id") and pkg_name[2:].isdigit():
+        elif not bigoads_pkg and source_pkg_name and source_pkg_name.startswith("id") and source_pkg_name[2:].isdigit():
             # iTunes ID but couldn't find Android version - this should not happen if app_name is provided
             # Return empty to avoid using iTunes ID
-            logger.warning(f"Could not find package name for iTunes ID: {pkg_name}. App name: {app_name}")
+            logger.warning(f"Could not find package name for iTunes ID: {source_pkg_name}. App name: {app_name}")
             return ""
+        elif not bigoads_pkg and bundle_id and not pkg_name:
+            # If pkg_name was empty but bundle_id exists, use bundle_id
+            final_pkg_name = bundle_id
+    
+    # If final_pkg_name is still empty, return empty string
+    if not final_pkg_name:
+        logger.warning(f"Could not generate slot name: pkg_name={pkg_name}, bundle_id={bundle_id}")
+        return ""
     
     # Extract last part after "."
     if "." in final_pkg_name:
         last_part = final_pkg_name.split(".")[-1]
     else:
         last_part = final_pkg_name
+    
+    # For IronSource, ALWAYS convert last_part to lowercase (whether from pkg_name, bundle_id, or BigOAds pkgNameDisplay)
+    # This ensures consistent lowercase naming for IronSource ad units
+    if network.lower() == "ironsource":
+        last_part = last_part.lower()
+        # Double-check: ensure it's actually lowercase (defensive programming)
+        if last_part != last_part.lower():
+            logger.warning(f"IronSource: last_part was not lowercase: {last_part}, forcing lowercase")
+            last_part = last_part.lower()
     
     # Normalize platform_str first, then map to os: Android -> aos, iOS -> ios
     normalized_platform = normalize_platform_str(platform_str, network)

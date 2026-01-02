@@ -1009,6 +1009,282 @@ class MockNetworkManager:
                 "msg": str(e)
             }
     
+    def _update_ironsource_ad_units(self, app_key: str, ad_units: List[Dict]) -> Dict:
+        """Update (activate) ad units via IronSource API
+        
+        API: PUT https://platform.ironsrc.com/levelPlay/adUnits/v1/{appKey}
+        
+        Args:
+            app_key: Application key from IronSource platform
+            ad_units: List of ad unit objects to update
+                Each ad unit must have:
+                - mediationAdUnitId (required, uppercase U): ad unit ID from GET request
+                - isPaused (optional): false to activate
+                - mediationAdUnitName (optional): new name
+        """
+        headers = self._get_ironsource_headers()
+        if not headers:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
+            }
+        
+        url = f"https://platform.ironsrc.com/levelPlay/adUnits/v1/{app_key}"
+        
+        # Validate ad_units
+        if not ad_units:
+            return {
+                "status": 1,
+                "code": "INVALID_PAYLOAD",
+                "msg": "Ad units list is empty"
+            }
+        
+        # Validate each ad unit has required fields
+        for idx, ad_unit in enumerate(ad_units):
+            if not isinstance(ad_unit, dict):
+                return {
+                    "status": 1,
+                    "code": "INVALID_PAYLOAD",
+                    "msg": f"Ad unit at index {idx} must be a dictionary"
+                }
+            # Check both uppercase and lowercase versions
+            if not (ad_unit.get("mediationAdUnitId") or ad_unit.get("mediationAdunitId")):
+                return {
+                    "status": 1,
+                    "code": "INVALID_PAYLOAD",
+                    "msg": f"mediationAdUnitId is required for ad unit at index {idx}"
+                }
+        
+        # Log request
+        logger.info(f"[IronSource] API Request: PUT {url}")
+        masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
+        logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        logger.info(f"[IronSource] Request Body: {json.dumps(_mask_sensitive_data(ad_units), indent=2)}")
+        
+        try:
+            # API accepts an array of ad units
+            response = requests.put(url, json=ad_units, headers=headers, timeout=30)
+            
+            # Log response status
+            logger.info(f"[IronSource] Response Status: {response.status_code}")
+            
+            # Check response status before parsing
+            if response.status_code >= 400:
+                # Error response
+                try:
+                    error_body = response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or response.text
+                    error_code = error_body.get("code") or error_body.get("errorCode") or str(response.status_code)
+                except:
+                    error_msg = response.text or f"HTTP {response.status_code}"
+                    error_code = str(response.status_code)
+                    logger.error(f"[IronSource] Error Response (text): {error_msg}")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+            
+            # Success response - handle empty or invalid JSON
+            response_text = response.text.strip()
+            if not response_text:
+                # Empty response
+                logger.warning(f"[IronSource] Empty response body (status {response.status_code})")
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success (empty response)",
+                    "result": {}
+                }
+            
+            try:
+                result = response.json()
+                # Log response
+                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+            except json.JSONDecodeError as e:
+                # Invalid JSON response
+                logger.error(f"[IronSource] JSON decode error: {str(e)}")
+                logger.error(f"[IronSource] Response text: {response_text[:500]}")
+                return {
+                    "status": 1,
+                    "code": "JSON_ERROR",
+                    "msg": f"Invalid JSON response: {str(e)}. Response: {response_text[:200]}"
+                }
+            
+            # IronSource API response format may vary, normalize it
+            return {
+                "status": 0,
+                "code": 0,
+                "msg": "Success",
+                "result": result
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[IronSource] API Error (Update Ad Units): {str(e)}")
+            error_msg = str(e)
+            error_code = "API_ERROR"
+            
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or error_msg
+                    error_code = error_body.get("code") or error_body.get("errorCode") or error_code
+                except:
+                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
+                    if e.response.text:
+                        error_msg = e.response.text
+            
+            return {
+                "status": 1,
+                "code": error_code,
+                "msg": error_msg
+            }
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"[IronSource] Unexpected Error (Update Ad Units): {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "status": 1,
+                "code": "UNEXPECTED_ERROR",
+                "msg": str(e)
+            }
+    
+    def _get_ironsource_instances(self, app_key: str) -> Dict:
+        """Get instances via IronSource API
+        
+        API: GET https://platform.ironsrc.com/levelPlay/network/instances/v4/
+        
+        Args:
+            app_key: Application key from IronSource platform
+        
+        Returns:
+            Dict with status, code, msg, and result (list of instances)
+        """
+        headers = self._get_ironsource_headers()
+        if not headers:
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
+            }
+        
+        # API 문서에 따르면 appKey는 path parameter로 전달 (예시: /v4/142401ac1/)
+        # 하지만 query parameter도 지원할 수 있으므로 두 가지 방법 모두 시도
+        url = f"https://platform.ironsrc.com/levelPlay/network/instances/v4/{app_key}/"
+        
+        # Log request
+        logger.info(f"[IronSource] API Request: GET {url}")
+        masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
+        logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            # Log response status
+            logger.info(f"[IronSource] Response Status: {response.status_code}")
+            
+            # Check response status before parsing
+            if response.status_code >= 400:
+                # Error response
+                try:
+                    error_body = response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    # Handle nested JSON string in error message
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or response.text
+                    error_code = error_body.get("code") or error_body.get("errorCode") or str(response.status_code)
+                    
+                    # If error_msg is a JSON string, try to parse it
+                    if isinstance(error_msg, str) and error_msg.startswith("{") and error_msg.endswith("}"):
+                        try:
+                            parsed_error = json.loads(error_msg)
+                            error_msg = parsed_error.get("errorMessage") or parsed_error.get("message") or parsed_error.get("msg") or error_msg
+                            error_code = parsed_error.get("code") or parsed_error.get("errorCode") or error_code
+                        except:
+                            pass
+                except:
+                    error_msg = response.text or f"HTTP {response.status_code}"
+                    error_code = str(response.status_code)
+                    logger.error(f"[IronSource] Error Response (text): {error_msg}")
+                
+                return {
+                    "status": 1,
+                    "code": error_code,
+                    "msg": error_msg
+                }
+            
+            # Success response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[IronSource] Empty response body (status {response.status_code})")
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success (empty response)",
+                    "result": []
+                }
+            
+            try:
+                result = response.json()
+                # Log response
+                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                # Normalize response - should be a list
+                instances = result if isinstance(result, list) else result.get("instances", result.get("data", result.get("list", [])))
+                if not isinstance(instances, list):
+                    instances = []
+                
+            except json.JSONDecodeError as e:
+                # Invalid JSON response
+                logger.error(f"[IronSource] JSON decode error: {str(e)}")
+                logger.error(f"[IronSource] Response text: {response_text[:500]}")
+                return {
+                    "status": 1,
+                    "code": "JSON_ERROR",
+                    "msg": f"Invalid JSON response: {str(e)}. Response: {response_text[:200]}"
+                }
+            
+            return {
+                "status": 0,
+                "code": 0,
+                "msg": "Success",
+                "result": instances
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[IronSource] API Error (Get Instances): {str(e)}")
+            error_msg = str(e)
+            error_code = "API_ERROR"
+            
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
+                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or error_msg
+                    error_code = error_body.get("code") or error_body.get("errorCode") or error_code
+                except:
+                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
+                    if e.response.text:
+                        error_msg = e.response.text
+            
+            return {
+                "status": 1,
+                "code": error_code,
+                "msg": error_msg
+            }
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"[IronSource] Unexpected Error (Get Instances): {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "status": 1,
+                "code": "UNEXPECTED_ERROR",
+                "msg": str(e)
+            }
+    
     def _generate_bigoads_sign(self, developer_id: str, token: str) -> tuple[str, str]:
         """Generate BigOAds API signature
         

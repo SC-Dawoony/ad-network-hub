@@ -436,7 +436,8 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     unit_id = ""
                                     if matched_unit:
                                         if actual_network == "ironsource":
-                                            unit_id = matched_unit.get("mediationAdUnitId") or matched_unit.get("adUnitId") or ""
+                                            # For IronSource, use instanceId from GET Instance API
+                                            unit_id = str(matched_unit.get("instanceId", "")) if matched_unit.get("instanceId") else ""
                                         elif actual_network == "inmobi":
                                             unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
                                         elif actual_network == "mintegral":

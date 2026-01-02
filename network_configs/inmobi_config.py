@@ -52,16 +52,26 @@ class InMobiConfig(NetworkConfig):
     def get_app_creation_fields(self) -> List[Field]:
         """Get fields for app creation
         
-        Order: storeUrl, childDirected, locationAccess, appName (as per API documentation)
+        Note: For InMobi, we support creating apps for both iOS and Android simultaneously.
+        Store URLs are separated by platform.
+        Order: iosStoreUrl, androidStoreUrl, childDirected, locationAccess, appName (as per API documentation)
         """
         return [
             Field(
-                name="storeUrl",
+                name="iosStoreUrl",
                 field_type="text",
-                required=True,
-                label="Store URL*",
-                placeholder="https://apps.apple.com/... or https://play.google.com/store/apps/details?id=...",
-                help_text="App store/Play store URL of the app"
+                required=False,
+                label="iOS Store URL (Optional)",
+                placeholder="https://apps.apple.com/us/app/...",
+                help_text="iOS App Store URL. Leave empty if iOS app is not needed."
+            ),
+            Field(
+                name="androidStoreUrl",
+                field_type="text",
+                required=False,
+                label="Android Store URL (Optional)",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL. Leave empty if Android app is not needed."
             ),
             Field(
                 name="childDirected",
@@ -190,9 +200,22 @@ class InMobiConfig(NetworkConfig):
     
     def validate_app_data(self, data: Dict) -> Tuple[bool, str]:
         """Validate app creation data"""
-        # Required fields
-        if not data.get("storeUrl"):
-            return False, "Store URL is required"
+        # At least one Store URL must be provided
+        ios_store_url = data.get("iosStoreUrl", "").strip()
+        android_store_url = data.get("androidStoreUrl", "").strip()
+        
+        if not ios_store_url and not android_store_url:
+            return False, "At least one Store URL (iOS or Android) must be provided"
+        
+        # Validate iOS Store URL format if provided
+        if ios_store_url:
+            if not (ios_store_url.startswith("http://") or ios_store_url.startswith("https://")):
+                return False, "iOS Store URL must be a valid URL starting with http:// or https://"
+        
+        # Validate Android Store URL format if provided
+        if android_store_url:
+            if not (android_store_url.startswith("http://") or android_store_url.startswith("https://")):
+                return False, "Android Store URL must be a valid URL starting with http:// or https://"
         
         if "childDirected" not in data:
             return False, "Child Directed is required"
@@ -202,12 +225,6 @@ class InMobiConfig(NetworkConfig):
         
         if "locationAccess" not in data:
             return False, "Location Access is required"
-        
-        # Validate storeUrl format
-        store_url = data.get("storeUrl", "").strip()
-        if store_url:
-            if not (store_url.startswith("http://") or store_url.startswith("https://")):
-                return False, "Store URL must be a valid URL starting with http:// or https://"
         
         return True, ""
     
@@ -248,12 +265,27 @@ class InMobiConfig(NetworkConfig):
         
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
-        """Build API payload for app creation"""
-        # Store URL is required and must not be empty
-        store_url = form_data.get("storeUrl", "").strip()
+    def build_app_payload(self, form_data: Dict, platform: Optional[str] = None) -> Dict:
+        """Build API payload for app creation
+        
+        Args:
+            form_data: Form data from UI
+            platform: Optional platform string ("iOS" or "Android") to select the appropriate store URL
+        """
+        # Select store URL based on platform
+        if platform == "iOS":
+            store_url = form_data.get("iosStoreUrl", "").strip()
+        elif platform == "Android":
+            store_url = form_data.get("androidStoreUrl", "").strip()
+        else:
+            # Fallback: use storeUrl if provided (for backward compatibility)
+            store_url = form_data.get("storeUrl", "").strip()
+            if not store_url:
+                # Try to get from platform-specific fields
+                store_url = form_data.get("iosStoreUrl", "").strip() or form_data.get("androidStoreUrl", "").strip()
+        
         if not store_url:
-            raise ValueError("Store URL is required and cannot be empty")
+            raise ValueError(f"Store URL is required for {platform or 'the selected platform'}")
         
         payload = {
             "storeUrl": store_url,

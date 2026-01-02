@@ -21,9 +21,10 @@ def render_app_code_selector(current_network: str, network_manager):
     # Load apps from cache (from Create App POST responses)
     cached_apps = SessionManager.get_cached_apps(current_network)
     
-    # For BigOAds, IronSource, Mintegral, and InMobi, also fetch from API and get latest 3 apps
+    # For IronSource, use Create App response as default (no auto API call)
+    # For other networks (BigOAds, Mintegral, InMobi), fetch from API automatically
     api_apps = []
-    if current_network in ["bigoads", "ironsource", "mintegral", "inmobi"]:
+    if current_network in ["bigoads", "mintegral", "inmobi"]:
         try:
             with st.spinner("Loading apps from API..."):
                 api_apps = network_manager.get_apps(current_network)
@@ -35,25 +36,64 @@ def render_app_code_selector(current_network: str, network_manager):
             logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
-    # Merge cached apps with API apps (prioritize cached, but add unique API apps)
-    # For BigOAds, IronSource, Mintegral, and InMobi, prioritize API apps (they are more recent)
-    if current_network in ["bigoads", "ironsource", "mintegral", "inmobi"] and api_apps:
-        # Use API apps first, then add cached apps that are not in API
+    # For IronSource, add manual "조회" button to fetch apps from API
+    if current_network == "ironsource":
+        # Check if user wants to fetch apps from API
+        fetch_apps_key = "ironsource_fetch_apps_from_api"
+        if fetch_apps_key not in st.session_state:
+            st.session_state[fetch_apps_key] = False
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.info("💡 **Tip:** Create App에서 생성한 앱이 기본값으로 표시됩니다. API에서 최근 앱을 조회하려면 버튼을 클릭하세요.")
+        with col2:
+            if st.button("🔍 최근 생성한 App 조회", use_container_width=True, key="ironsource_fetch_apps_btn"):
+                st.session_state[fetch_apps_key] = True
+        
+        # Fetch apps from API if button was clicked
+        if st.session_state[fetch_apps_key]:
+            try:
+                with st.spinner("Loading apps from API..."):
+                    api_apps = network_manager.get_apps(current_network)
+                    if api_apps:
+                        st.success(f"✅ Loaded {len(api_apps)} apps from API")
+                        # Reset the flag after fetching
+                        st.session_state[fetch_apps_key] = False
+            except Exception as e:
+                logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
+                st.error(f"❌ Failed to load apps: {str(e)}")
+                api_apps = []
+                st.session_state[fetch_apps_key] = False
+    
+    # Merge cached apps with API apps
+    # For IronSource, prioritize cached apps (from Create App response)
+    if current_network == "ironsource":
+        # Use cached apps first (from Create App response)
+        apps = cached_apps.copy() if cached_apps else []
+        # Add API apps that are not in cache
+        if api_apps:
+            cached_app_keys = {app.get("appKey") or app.get("appCode") for app in apps if app.get("appKey") or app.get("appCode")}
+            for api_app in api_apps:
+                api_key = api_app.get("appKey") or api_app.get("appCode")
+                if api_key and api_key not in cached_app_keys:
+                    apps.append(api_app)
+    elif current_network in ["bigoads", "mintegral", "inmobi"] and api_apps:
+        # For other networks, prioritize API apps (they are more recent)
         apps = api_apps.copy()
-        # For IronSource, check appKey; for BigOAds, check appCode
-        if current_network == "ironsource":
-            api_app_keys = {app.get("appKey") or app.get("appCode") for app in api_apps if app.get("appKey") or app.get("appCode")}
-            if cached_apps:
-                for cached_app in cached_apps:
-                    cached_key = cached_app.get("appKey") or cached_app.get("appCode")
-                    if cached_key and cached_key not in api_app_keys:
-                        apps.append(cached_app)
-        else:  # BigOAds
+        # For BigOAds, check appCode
+        if current_network == "bigoads":
             api_app_codes = {app.get("appCode") for app in api_apps if app.get("appCode")}
             if cached_apps:
                 for cached_app in cached_apps:
                     cached_code = cached_app.get("appCode")
                     if cached_code and cached_code not in api_app_codes:
+                        apps.append(cached_app)
+        else:  # Mintegral, InMobi
+            api_app_ids = {app.get("appId") or app.get("appCode") for app in api_apps if app.get("appId") or app.get("appCode")}
+            if cached_apps:
+                for cached_app in cached_apps:
+                    cached_id = cached_app.get("appId") or cached_app.get("appCode")
+                    if cached_id and cached_id not in api_app_ids:
                         apps.append(cached_app)
     else:
         # For other networks, use cached apps
@@ -70,68 +110,194 @@ def render_app_code_selector(current_network: str, network_manager):
     app_code_map = {}
     app_info_map = {}  # Store full app info for Quick Create
     
-    if apps:
+    # For IronSource, group apps by name (to show iOS + Android together)
+    if current_network == "ironsource":
+        # Group apps by name
+        apps_by_name = {}
         for app in apps:
-            # For IronSource, use appKey; for InMobi, use appId or appCode; for others, use appCode
-            if current_network == "ironsource":
-                app_code = app.get("appKey") or app.get("appCode", "N/A")
-            elif current_network == "inmobi":
-                app_code = app.get("appId") or app.get("appCode", "N/A")
-            else:
-                app_code = app.get("appCode", "N/A")
-            
             app_name = app.get("name", "Unknown")
+            app_key = app.get("appKey") or app.get("appCode", "N/A")
             platform = app.get("platform", "")
-            display_text = f"{app_code} ({app_name})"
-            if platform and platform != "N/A":
-                display_text += f" - {platform}"
-            app_options.append(display_text)
-            app_code_map[display_text] = app_code
-            # Store app info for Quick Create
-            # For IronSource, use platformNum and platformStr from API response
-            if current_network == "ironsource":
-                platform_num = app.get("platformNum", 1 if platform == "Android" else 2)
-                platform_str = app.get("platformStr", "android" if platform == "Android" else "ios")
-                store_url = app.get("storeUrl", "")
-            else:
-                platform_num = 1 if platform == "Android" else 2
-                platform_str = "android" if platform == "Android" else "ios"
-                store_url = ""
             
-            app_info_map[app_code] = {
-                "appCode": app_code,
-                "appKey": app_code if current_network == "ironsource" else None,  # Store appKey for IronSource
-                "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi"] else None,  # Store app_id for Mintegral and InMobi
-                "name": app_name,
-                "platform": platform_num,  # 1 or 2
-                "platformStr": platform_str,  # "android" or "ios"
-                "pkgName": app.get("pkgName", ""),  # From API response
-                "bundleId": app.get("bundleId", "") if current_network in ["ironsource", "inmobi"] else "",  # bundleId for IronSource and InMobi (for placement name generation)
-                "storeUrl": store_url,  # Store URL (optional)
-                "platformDisplay": platform  # "Android" or "iOS" for display
-            }
+            if app_name not in apps_by_name:
+                apps_by_name[app_name] = {
+                    "android": None,
+                    "ios": None,
+                    "android_app_key": None,
+                    "ios_app_key": None
+                }
+            
+            if platform == "Android":
+                apps_by_name[app_name]["android"] = app
+                apps_by_name[app_name]["android_app_key"] = app_key
+            elif platform == "iOS":
+                apps_by_name[app_name]["ios"] = app
+                apps_by_name[app_name]["ios_app_key"] = app_key
+        
+        # Create display options grouped by app name
+        for app_name, app_data in apps_by_name.items():
+            has_android = app_data["android"] is not None
+            has_ios = app_data["ios"] is not None
+            
+            if has_android and has_ios:
+                # Both platforms available
+                display_text = f"{app_name} (Android + iOS)"
+                app_options.append(display_text)
+                # Store both appKeys (use app name as key)
+                app_code_map[display_text] = app_name  # Use app name as identifier
+                app_info_map[app_name] = {
+                    "appCode": app_name,
+                    "appKey": app_data["android_app_key"],  # Android appKey (primary)
+                    "appKeyIOS": app_data["ios_app_key"],  # iOS appKey
+                    "name": app_name,
+                    "platform": "both",
+                    "platformStr": "both",
+                    "hasAndroid": True,
+                    "hasIOS": True,
+                    "androidApp": app_data["android"],
+                    "iosApp": app_data["ios"]
+                }
+            elif has_android:
+                # Android only
+                display_text = f"{app_name} (Android)"
+                app_options.append(display_text)
+                app_code_map[display_text] = app_data["android_app_key"]
+                app_info_map[app_data["android_app_key"]] = {
+                    "appCode": app_data["android_app_key"],
+                    "appKey": app_data["android_app_key"],
+                    "name": app_name,
+                    "platform": 1,
+                    "platformStr": "android",
+                    "hasAndroid": True,
+                    "hasIOS": False,
+                    "androidApp": app_data["android"]
+                }
+            elif has_ios:
+                # iOS only
+                display_text = f"{app_name} (iOS)"
+                app_options.append(display_text)
+                app_code_map[display_text] = app_data["ios_app_key"]
+                app_info_map[app_data["ios_app_key"]] = {
+                    "appCode": app_data["ios_app_key"],
+                    "appKey": app_data["ios_app_key"],
+                    "appKeyIOS": app_data["ios_app_key"],
+                    "name": app_name,
+                    "platform": 2,
+                    "platformStr": "ios",
+                    "hasAndroid": False,
+                    "hasIOS": True,
+                    "iosApp": app_data["ios"]
+                }
+    else:
+        # For other networks, use original logic
+        if apps:
+            for app in apps:
+                # For InMobi, use appId or appCode; for others, use appCode
+                if current_network == "inmobi":
+                    app_code = app.get("appId") or app.get("appCode", "N/A")
+                else:
+                    app_code = app.get("appCode", "N/A")
+                
+                app_name = app.get("name", "Unknown")
+                platform = app.get("platform", "")
+                display_text = f"{app_code} ({app_name})"
+                if platform and platform != "N/A":
+                    display_text += f" - {platform}"
+                app_options.append(display_text)
+                app_code_map[display_text] = app_code
+                # Store app info for Quick Create
+                if current_network == "inmobi":
+                    platform_num = 1 if platform == "Android" else 2
+                    platform_str = "android" if platform == "Android" else "ios"
+                    store_url = ""
+                else:
+                    platform_num = 1 if platform == "Android" else 2
+                    platform_str = "android" if platform == "Android" else "ios"
+                    store_url = ""
+                
+                app_info_map[app_code] = {
+                    "appCode": app_code,
+                    "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi"] else None,
+                    "name": app_name,
+                    "platform": platform_num,
+                    "platformStr": platform_str,
+                    "pkgName": app.get("pkgName", ""),
+                    "bundleId": app.get("bundleId", "") if current_network == "inmobi" else "",
+                    "storeUrl": store_url,
+                    "platformDisplay": platform
+                }
     
     # Always add "Manual Entry" option (even if apps exist)
     manual_entry_option = "✏️ Enter manually"
     app_options.append(manual_entry_option)
     
+    # Get last created app code and info (from Create App response)
+    last_created_app_code = SessionManager.get_last_created_app_code(current_network)
+    last_app_info = SessionManager.get_last_created_app_info(current_network)
+    
+    # For IronSource, if last_app_info exists and has both platforms, add it to options if not already present
+    if current_network == "ironsource" and last_app_info:
+        last_app_name = last_app_info.get("name", "")
+        if last_app_name:
+            # Check if this app is already in app_options
+            app_already_in_list = False
+            for opt in app_options:
+                if opt.startswith(last_app_name + " ("):
+                    app_already_in_list = True
+                    break
+            
+            # If not in list, add it at the beginning (highest priority)
+            if not app_already_in_list:
+                has_android = last_app_info.get("hasAndroid", False)
+                has_ios = last_app_info.get("hasIOS", False)
+                
+                if has_android and has_ios:
+                    display_text = f"{last_app_name} (Android + iOS)"
+                    app_options.insert(0, display_text)
+                    app_code_map[display_text] = last_app_name
+                    # Add to app_info_map if not already there
+                    if last_app_name not in app_info_map:
+                        app_info_map[last_app_name] = {
+                            "appCode": last_app_name,
+                            "appKey": last_app_info.get("appKey"),
+                            "appKeyIOS": last_app_info.get("appKeyIOS"),
+                            "name": last_app_name,
+                            "platform": "both",
+                            "platformStr": "both",
+                            "hasAndroid": True,
+                            "hasIOS": True,
+                            "androidApp": None,  # Will be filled from cache if available
+                            "iosApp": None
+                        }
+                elif has_android:
+                    display_text = f"{last_app_name} (Android)"
+                    app_options.insert(0, display_text)
+                    app_code_map[display_text] = last_app_info.get("appKey")
+                elif has_ios:
+                    display_text = f"{last_app_name} (iOS)"
+                    app_options.insert(0, display_text)
+                    app_code_map[display_text] = last_app_info.get("appKeyIOS")
+    
     # If no apps, default to manual entry
-    if not apps:
+    if not apps and not (current_network == "ironsource" and last_app_info):
         default_index = 0  # Manual entry will be the only option
         st.info("💡 No apps found. You can enter App Code manually below.")
     else:
-        # Get last created app code and info
-        last_created_app_code = SessionManager.get_last_created_app_code(current_network)
-        last_app_info = SessionManager.get_last_created_app_info(current_network)
-        
         # Find default selection index
         default_index = 0
         if last_created_app_code:
-            # Try to find the last created app in the list
-            for idx, app in enumerate(apps):
-                if app.get("appCode") == last_created_app_code:
-                    default_index = idx
-                    break
+            # For IronSource, try to find by app name first
+            if current_network == "ironsource":
+                for idx, opt in enumerate(app_options):
+                    if opt.startswith(last_created_app_code + " ("):
+                        default_index = idx
+                        break
+            else:
+                # For other networks, try to find the last created app in the list
+                for idx, app in enumerate(apps):
+                    if app.get("appCode") == last_created_app_code:
+                        default_index = idx
+                        break
     
     # Unity network doesn't need App Code selection
     if current_network == "unity":
@@ -246,20 +412,70 @@ def render_app_code_selector(current_network: str, network_manager):
                 selected_app_code = selected_app_display.strip()
         
         # Extract app name from display text
-        app_name = "Unknown"
-        if selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
+        # For IronSource grouped apps, the format is "App Name (Android + iOS)"
+        if current_network == "ironsource" and " (Android + iOS)" in selected_app_display:
+            app_name = selected_app_display.replace(" (Android + iOS)", "")
+        elif current_network == "ironsource" and " (Android)" in selected_app_display:
+            app_name = selected_app_display.replace(" (Android)", "")
+        elif current_network == "ironsource" and " (iOS)" in selected_app_display:
+            app_name = selected_app_display.replace(" (iOS)", "")
+        elif selected_app_display != manual_entry_option and "(" in selected_app_display and ")" in selected_app_display:
             app_name = selected_app_display.split("(")[1].split(")")[0]
+        else:
+            app_name = "Unknown"
     
     # When app code is selected, immediately generate and update slot names
     if selected_app_code:
-        # Get pkgNameDisplay/pkgName and platform from apps list
-        selected_app_data = None
-        for app in apps:
-            # For IronSource, check appKey; for others, check appCode
-            app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
-            if app_identifier == selected_app_code:
-                selected_app_data = app
-                break
+        # For IronSource, handle grouped apps differently
+        if current_network == "ironsource":
+            # First check last_app_info (from Create App response)
+            last_app_info = SessionManager.get_last_created_app_info(current_network)
+            if last_app_info and last_app_info.get("appCode") == selected_app_code:
+                # Use cached apps to get bundleId
+                cached_apps = SessionManager.get_cached_apps(current_network)
+                if last_app_info.get("hasAndroid"):
+                    android_app_key = last_app_info.get("appKey")
+                    for cached_app in cached_apps:
+                        if cached_app.get("appKey") == android_app_key:
+                            selected_app_data = cached_app
+                            break
+                elif last_app_info.get("hasIOS"):
+                    ios_app_key = last_app_info.get("appKeyIOS")
+                    for cached_app in cached_apps:
+                        if cached_app.get("appKey") == ios_app_key:
+                            selected_app_data = cached_app
+                            break
+                else:
+                    selected_app_data = None
+            elif selected_app_code in app_info_map:
+                # Check if this is a grouped app (has both Android and iOS)
+                app_info = app_info_map[selected_app_code]
+                if app_info.get("platform") == "both":
+                    # Use Android app for slot name generation (primary)
+                    selected_app_data = app_info.get("androidApp")
+                elif app_info.get("hasAndroid"):
+                    selected_app_data = app_info.get("androidApp")
+                elif app_info.get("hasIOS"):
+                    selected_app_data = app_info.get("iosApp")
+                else:
+                    selected_app_data = None
+            else:
+                # Try to find in apps list
+                selected_app_data = None
+                for app in apps:
+                    app_identifier = app.get("appKey") or app.get("appCode")
+                    if app_identifier == selected_app_code:
+                        selected_app_data = app
+                        break
+        else:
+            # For other networks, use original logic
+            selected_app_data = None
+            for app in apps:
+                # For InMobi, check appId; for others, check appCode
+                app_identifier = app.get("appId") if current_network == "inmobi" else app.get("appCode")
+                if app_identifier == selected_app_code:
+                    selected_app_data = app
+                    break
         
         if selected_app_data:
             # Get pkgNameDisplay (for BigOAds) or pkgName/bundleId
@@ -291,7 +507,44 @@ def render_app_code_selector(current_network: str, network_manager):
     app_info_to_use = None
     if selected_app_code:
         last_app_info = SessionManager.get_last_created_app_info(current_network)
-        if last_app_info and last_app_info.get("appCode") == selected_app_code:
+        
+        # For IronSource, prioritize last_app_info (from Create App response)
+        if current_network == "ironsource":
+            # Check if selected_app_code matches last_app_info (app name)
+            if last_app_info and last_app_info.get("appCode") == selected_app_code:
+                # Use last_app_info as base
+                app_info_to_use = last_app_info.copy()
+                # Try to get bundleId from cached apps
+                cached_apps = SessionManager.get_cached_apps(current_network)
+                if app_info_to_use.get("hasAndroid"):
+                    android_app_key = app_info_to_use.get("appKey")
+                    for cached_app in cached_apps:
+                        if cached_app.get("appKey") == android_app_key:
+                            app_info_to_use["androidApp"] = cached_app
+                            app_info_to_use["bundleId"] = cached_app.get("bundleId", "")
+                            app_info_to_use["storeUrl"] = cached_app.get("storeUrl", "")
+                            break
+                if app_info_to_use.get("hasIOS"):
+                    ios_app_key = app_info_to_use.get("appKeyIOS")
+                    for cached_app in cached_apps:
+                        if cached_app.get("appKey") == ios_app_key:
+                            app_info_to_use["iosApp"] = cached_app
+                            app_info_to_use["bundleIdIOS"] = cached_app.get("bundleId", "")
+                            app_info_to_use["storeUrlIOS"] = cached_app.get("storeUrl", "")
+                            break
+            elif selected_app_code in app_info_map:
+                app_info_to_use = app_info_map[selected_app_code]
+                # If it's a grouped app, ensure we have bundleId from the apps
+                if app_info_to_use.get("platform") == "both":
+                    android_app = app_info_to_use.get("androidApp", {})
+                    ios_app = app_info_to_use.get("iosApp", {})
+                    if android_app:
+                        app_info_to_use["bundleId"] = android_app.get("bundleId", "")
+                        app_info_to_use["storeUrl"] = android_app.get("storeUrl", "")
+                    if ios_app:
+                        app_info_to_use["bundleIdIOS"] = ios_app.get("bundleId", "")
+                        app_info_to_use["storeUrlIOS"] = ios_app.get("storeUrl", "")
+        elif last_app_info and last_app_info.get("appCode") == selected_app_code:
             app_info_to_use = last_app_info
         elif selected_app_code in app_info_map:
             app_info_to_use = app_info_map[selected_app_code]
