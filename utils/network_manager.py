@@ -2855,7 +2855,9 @@ class MockNetworkManager:
                         "appCode": app.get("appCode", "N/A"),
                         "name": app.get("name", "Unknown"),
                         "platform": platform_str,
+                        "platformNum": platform_value,  # Keep original numeric value (1 or 2) for matching
                         "status": app.get("status", "N/A"),
+                        "pkgName": app.get("pkgName", ""),  # Add pkgName for package name matching
                         "pkgNameDisplay": app.get("pkgNameDisplay", "")  # For BigOAds slot name generation
                     })
                 

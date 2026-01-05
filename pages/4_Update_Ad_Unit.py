@@ -411,7 +411,19 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     
                                     # Debug logging for BigOAds
                                     if actual_network == "bigoads":
+                                        logger.info(f"[BigOAds] ========== Debug Info ==========")
+                                        logger.info(f"[BigOAds] Ad Format: {applovin_unit.get('ad_format')}")
+                                        logger.info(f"[BigOAds] Platform: {applovin_unit.get('platform')}")
+                                        logger.info(f"[BigOAds] Matched app: {matched_app.get('name', 'N/A')}")
+                                        logger.info(f"[BigOAds] Matched app keys: {list(matched_app.keys())}")
+                                        logger.info(f"[BigOAds] Matched app appCode: {matched_app.get('appCode', 'N/A')}")
+                                        logger.info(f"[BigOAds] Matched app platform: {matched_app.get('platform', 'N/A')}")
+                                        logger.info(f"[BigOAds] Extracted app_ids: {app_ids}")
+                                        logger.info(f"[BigOAds] Extracted app_code: {app_ids.get('app_code')}, app_key: {app_key}, app_id: {app_id}")
+                                        st.write(f"🔍 [BigOAds Debug] Ad Format: {applovin_unit.get('ad_format')}")
+                                        st.write(f"🔍 [BigOAds Debug] Platform: {applovin_unit.get('platform')}")
                                         st.write(f"🔍 [BigOAds Debug] App found: {matched_app.get('name', 'N/A')}")
+                                        st.write(f"🔍 [BigOAds Debug] appCode from matched_app: {matched_app.get('appCode', 'N/A')}")
                                         st.write(f"🔍 [BigOAds Debug] app_ids: {app_ids}")
                                         st.write(f"🔍 [BigOAds Debug] app_key: {app_key}, app_id: {app_id}")
                                     
@@ -448,12 +460,27 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         
                                         # Debug logging for BigOAds unit matching
                                         if actual_network == "bigoads":
+                                            st.write(f"🔍 [BigOAds Debug] ========== Unit Matching ==========")
                                             st.write(f"🔍 [BigOAds Debug] Ad format: {applovin_unit['ad_format']}")
+                                            st.write(f"🔍 [BigOAds Debug] Platform: {applovin_unit['platform']}")
+                                            st.write(f"🔍 [BigOAds Debug] Total units available: {len(units)}")
+                                            if units:
+                                                st.write(f"🔍 [BigOAds Debug] All units adType: {[u.get('adType') for u in units]}")
+                                                st.write(f"🔍 [BigOAds Debug] All units name: {[u.get('name') for u in units]}")
                                             st.write(f"🔍 [BigOAds Debug] Matched unit: {matched_unit}")
                                             if matched_unit:
-                                                st.write(f"🔍 [BigOAds Debug] slotCode: {matched_unit.get('slotCode')}")
+                                                st.write(f"🔍 [BigOAds Debug] Matched unit name: {matched_unit.get('name', 'N/A')}")
+                                                st.write(f"🔍 [BigOAds Debug] Matched unit slotCode: {matched_unit.get('slotCode', 'N/A')}")
+                                                st.write(f"🔍 [BigOAds Debug] Matched unit adType: {matched_unit.get('adType', 'N/A')}")
                                             else:
                                                 st.write(f"⚠️ [BigOAds Debug] No unit matched!")
+                                                st.write(f"⚠️ [BigOAds Debug] This means ad_network_app_id should still be set from app_key: {app_key}")
+                                    else:
+                                        # No units found
+                                        if actual_network == "bigoads":
+                                            st.write(f"⚠️ [BigOAds Debug] No units returned from API!")
+                                            st.write(f"⚠️ [BigOAds Debug] app_key used for API call: {app_key}")
+                                            st.write(f"⚠️ [BigOAds Debug] This means ad_network_app_id should still be set from app_key: {app_key}")
                                     
                                     # Extract unit ID
                                     unit_id = ""
@@ -553,6 +580,16 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "bigoads":
                                         ad_network_app_id = str(app_key) if app_key else ""  # appCode for BigOAds
                                         ad_network_app_key = ""  # Empty for BigOAds
+                                        
+                                        # Debug logging for BigOAds ad_network_app_id
+                                        if not ad_network_app_id:
+                                            st.write(f"⚠️ [BigOAds Debug] ========== ad_network_app_id is EMPTY ==========")
+                                            st.write(f"⚠️ [BigOAds Debug] app_key value: {app_key}")
+                                            st.write(f"⚠️ [BigOAds Debug] app_id value: {app_id}")
+                                            st.write(f"⚠️ [BigOAds Debug] app_ids dict: {app_ids}")
+                                            st.write(f"⚠️ [BigOAds Debug] matched_app appCode: {matched_app.get('appCode') if matched_app else 'N/A'}")
+                                        else:
+                                            st.write(f"✅ [BigOAds Debug] ad_network_app_id set to: {ad_network_app_id}")
                                     elif actual_network == "vungle":
                                         # Vungle uses vungleAppId from application object
                                         # app_id should already contain vungleAppId from match_applovin_unit_to_network

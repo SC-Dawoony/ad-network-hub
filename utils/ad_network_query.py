@@ -1739,6 +1739,8 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
             app_code = None
         result["app_code"] = app_code
         result["app_id"] = app.get("appId")
+        # Debug logging for BigOAds
+        logger.info(f"[BigOAds] extract_app_identifiers: app keys={list(app.keys())}, appCode={app.get('appCode')}, extracted app_code={app_code}")
     elif network == "inmobi":
         result["app_id"] = app.get("appId") or app.get("id")
         result["app_code"] = str(result["app_id"]) if result["app_id"] else None
