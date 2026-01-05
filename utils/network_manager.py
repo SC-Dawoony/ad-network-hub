@@ -1450,17 +1450,20 @@ class MockNetworkManager:
             }
         
         # Generate timestamp and signature
-        timestamp = int(time.time())
-        sign = self._generate_mintegral_signature(secret, timestamp)
+        # Reference: use 'time' as string parameter, not 'timestamp'
+        current_time = int(time.time())
+        signature = self._generate_mintegral_signature(secret, current_time)
         
         # Add authentication fields to payload
+        # Reference: use 'time' as string, not 'timestamp'
         api_payload = payload.copy()
         api_payload["skey"] = skey
-        api_payload["timestamp"] = timestamp
-        api_payload["sign"] = sign
+        api_payload["time"] = str(current_time)  # Use 'time' as string, not 'timestamp'
+        api_payload["sign"] = signature
         
+        # Reference: use application/x-www-form-urlencoded for Mintegral API
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/x-www-form-urlencoded"
         }
         
         logger.info(f"[Mintegral] API Request: POST {url}")
@@ -1468,7 +1471,8 @@ class MockNetworkManager:
         logger.info(f"[Mintegral] Request Body: {json.dumps(_mask_sensitive_data(api_payload), indent=2)}")
         
         try:
-            response = requests.post(url, json=api_payload, headers=headers)
+            # Use data= instead of json= for form-urlencoded
+            response = requests.post(url, data=api_payload, headers=headers, timeout=30)
             
             logger.info(f"[Mintegral] Response Status: {response.status_code}")
             
@@ -1479,25 +1483,50 @@ class MockNetworkManager:
             logger.info(f"[Mintegral] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
             
             # Mintegral API response format normalization
-            # Check common success indicators
-            if result.get("code") == 0 or result.get("ret_code") == 0 or result.get("status") == 0:
-                # Handle empty result object - this is a valid success response
-                result_data = result.get("data")
-                if result_data is None:
-                    # If "data" field doesn't exist, check if "result" field exists
-                    result_data = result.get("result", {})
-                
-                # If result_data is empty dict and msg indicates empty response, keep it as is
-                # This is a valid success case for Mintegral API
-                msg = result.get("msg", "Success")
-                if not result_data and "empty response" in msg.lower():
-                    # This is expected - empty result is valid for Mintegral create unit
-                    result_data = {}
-                
+            # Success: code must be 0 or 200 (positive or zero)
+            # Error: code is negative (e.g., -2007, -2004)
+            top_level_code = result.get("code")
+            
+            if top_level_code is not None:
+                if top_level_code == 0 or top_level_code == 200:
+                    # Success
+                    logger.info(f"[Mintegral] ✅ Success (code: {top_level_code})")
+                    # Handle empty result object - this is a valid success response
+                    result_data = result.get("data")
+                    if result_data is None:
+                        # If "data" field doesn't exist, check if "result" field exists
+                        result_data = result.get("result", {})
+                    
+                    # If result_data is empty dict and msg indicates empty response, keep it as is
+                    # This is a valid success case for Mintegral API
+                    msg = result.get("msg", "Success")
+                    if not result_data and "empty response" in msg.lower():
+                        # This is expected - empty result is valid for Mintegral create unit
+                        result_data = {}
+                    
+                    return {
+                        "status": 0,
+                        "code": 0,
+                        "msg": msg,
+                        "result": result_data if result_data else {}
+                    }
+                else:
+                    # Error: negative code or non-zero positive code
+                    error_msg = result.get("msg") or result.get("message") or result.get("error") or "Unknown error"
+                    logger.error(f"[Mintegral] ❌ Error: code={top_level_code}, msg={error_msg}")
+                    return {
+                        "status": 1,
+                        "code": top_level_code,
+                        "msg": error_msg
+                    }
+            
+            # Fallback: if code is not present, check status field
+            if result.get("status") == 0:
+                result_data = result.get("data") or result.get("result", {})
                 return {
                     "status": 0,
                     "code": 0,
-                    "msg": msg,
+                    "msg": result.get("msg", "Success"),
                     "result": result_data if result_data else {}
                 }
             else:

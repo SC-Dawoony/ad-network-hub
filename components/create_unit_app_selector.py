@@ -213,14 +213,10 @@ def render_app_code_selector(current_network: str, network_manager):
                 app_options.append(display_text)
                 app_code_map[display_text] = app_code
                 # Store app info for Quick Create
-                if current_network == "inmobi":
-                    platform_num = 1 if platform == "Android" else 2
-                    platform_str = "android" if platform == "Android" else "ios"
-                    store_url = ""
-                else:
-                    platform_num = 1 if platform == "Android" else 2
-                    platform_str = "android" if platform == "Android" else "ios"
-                    store_url = ""
+                # Use normalize_platform_str to handle different platform formats (e.g., "ANDROID", "IOS" for Mintegral)
+                platform_str = normalize_platform_str(platform, current_network)
+                platform_num = 1 if platform_str == "android" else 2
+                store_url = ""
                 
                 app_info_map[app_code] = {
                     "appCode": app_code,
@@ -687,10 +683,15 @@ def render_app_code_selector(current_network: str, network_manager):
                         if current_network == "bigoads" and "pkgNameDisplay" in app:
                             app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
                         
-                        # For Mintegral, get pkgName from API response
+                        # For Mintegral, get pkgName and app_id from API response
                         if current_network == "mintegral":
                             app_info_to_use["pkgName"] = app.get("pkgName", "")
                             app_info_to_use["name"] = app.get("name", app_name)
+                            # Update app_id from selected app
+                            app_id_from_app = app.get("app_id") or app.get("appId") or app.get("id")
+                            if app_id_from_app:
+                                app_info_to_use["app_id"] = app_id_from_app
+                                app_info_to_use["appId"] = app_id_from_app
                         
                         # For InMobi, get bundleId and pkgName from API response
                         if current_network == "inmobi":

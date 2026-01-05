@@ -83,8 +83,9 @@ def render_create_unit_common_ui(
                         platform_str_val = app.get("platformStr", "android")
                         store_url = app.get("storeUrl", "")
                     else:
-                        platform_num = 1 if platform_str == "Android" else (2 if platform_str == "iOS" else 1)
-                        platform_str_val = "android" if platform_str == "Android" else ("ios" if platform_str == "iOS" else "android")
+                        # Use _normalize_platform_str to handle different platform formats (e.g., "ANDROID", "IOS" for Mintegral)
+                        platform_str_val = _normalize_platform_str(platform_str, current_network)
+                        platform_num = 1 if platform_str_val == "android" else 2
                         store_url = ""
                     
                     app_info_to_use = {
@@ -1552,20 +1553,49 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
     )
     
     app_id_key = f"mintegral_slot_{slot_key}_app_id"
-    last_app_info = SessionManager.get_last_created_app_info(current_network)
-    app_id_from_app = None
-    if last_app_info:
-        app_id_from_app = last_app_info.get("app_id") or last_app_info.get("appId") or last_app_info.get("appCode")
     
+    # Priority: 1) app_info_to_use, 2) last_app_info, 3) apps list, 4) session_state
+    app_id_from_app = None
+    
+    # First, try to get app_id from app_info_to_use (from selected app)
+    if app_info_to_use:
+        app_id_from_app = app_info_to_use.get("app_id") or app_info_to_use.get("appId") or app_info_to_use.get("appCode")
+        logger.info(f"[Mintegral] app_info_to_use app_id: {app_id_from_app}, keys: {list(app_info_to_use.keys())}")
+    
+    # If not found, try last_app_info (from Create App response)
+    if not app_id_from_app:
+        last_app_info = SessionManager.get_last_created_app_info(current_network)
+        if last_app_info:
+            app_id_from_app = last_app_info.get("app_id") or last_app_info.get("appId") or last_app_info.get("appCode")
+            logger.info(f"[Mintegral] last_app_info app_id: {app_id_from_app}, keys: {list(last_app_info.keys()) if last_app_info else []}")
+    
+    # If still not found, try to get from apps list using selected_app_code
+    if not app_id_from_app and selected_app_code:
+        for app in apps:
+            app_identifier = app.get("appCode") or app.get("app_id") or app.get("appId") or app.get("id")
+            if app_identifier == selected_app_code or str(app_identifier) == str(selected_app_code):
+                app_id_from_app = app.get("app_id") or app.get("appId") or app.get("id")
+                logger.info(f"[Mintegral] Found app_id from apps list: {app_id_from_app}")
+                break
+    
+    # Calculate default_app_id
     if app_id_from_app:
         try:
             default_app_id = max(1, int(app_id_from_app)) if app_id_from_app else 1
-        except (ValueError, TypeError):
+            logger.info(f"[Mintegral] Using app_id_from_app: {app_id_from_app} -> default_app_id: {default_app_id}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"[Mintegral] Failed to convert app_id_from_app to int: {app_id_from_app}, error: {e}")
             default_app_id = 1
     else:
+        # Check session_state, but prefer app_id_from_app if available
         default_app_id = st.session_state.get(app_id_key, 1)
         if default_app_id < 1:
             default_app_id = 1
+        logger.info(f"[Mintegral] No app_id found, using session_state: {default_app_id}")
+    
+    # Only update session_state if we have a valid app_id_from_app
+    if app_id_from_app and default_app_id > 1:
+        st.session_state[app_id_key] = default_app_id
     
     app_id = st.number_input(
         "App ID*",
@@ -1668,13 +1698,27 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
         if not placement_name:
             st.toast("❌ Placement Name is required", icon="🚫")
         elif not app_id or app_id <= 0:
-            st.toast("❌ App ID is required", icon="🚫")
+            st.error(f"❌ App ID is required and must be greater than 0. Current value: {app_id}")
+            st.write(f"**Debug Info:**")
+            st.write(f"- app_info_to_use: {app_info_to_use}")
+            st.write(f"- selected_app_code: {selected_app_code}")
+            st.write(f"- last_app_info: {SessionManager.get_last_created_app_info(current_network)}")
         else:
+            # Ensure app_id is a valid integer
+            try:
+                app_id_int = int(app_id)
+                if app_id_int <= 0:
+                    st.error(f"❌ App ID must be greater than 0. Current value: {app_id_int}")
+                    st.stop()
+            except (ValueError, TypeError):
+                st.error(f"❌ App ID must be a valid integer. Current value: {app_id} (type: {type(app_id)})")
+                st.stop()
+            
             payload = {
-                "app_id": int(app_id),
+                "app_id": app_id_int,
                 "placement_name": placement_name,
                 "ad_type": slot_config["ad_type"],
-                "integrate_type": slot_config["integrate_type"],
+                "integrate_type": slot_config.get("integrate_type", "sdk"),
                 "hb_unit_name": placement_name,
             }
             
@@ -1687,6 +1731,15 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
             elif slot_key == "BN":
                 payload["show_close_button"] = slot_config.get("show_close_button", 0)
                 payload["auto_fresh"] = slot_config.get("auto_fresh", 0)
+            
+            # Log payload for debugging
+            logger.info(f"[Mintegral] Create Unit Payload: {payload}")
+            logger.info(f"[Mintegral] Payload keys: {list(payload.keys())}")
+            logger.info(f"[Mintegral] app_id type: {type(payload['app_id'])}, value: {payload['app_id']}")
+            logger.info(f"[Mintegral] placement_name: {payload['placement_name']}")
+            logger.info(f"[Mintegral] ad_type: {payload['ad_type']}")
+            logger.info(f"[Mintegral] integrate_type: {payload['integrate_type']}")
+            logger.info(f"[Mintegral] hb_unit_name: {payload['hb_unit_name']}")
             
             with st.spinner(f"Creating {slot_key} placement..."):
                 try:

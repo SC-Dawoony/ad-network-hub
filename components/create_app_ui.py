@@ -315,10 +315,17 @@ def _process_create_app_result(current_network: str, network_display: str, form_
         # Pangle: result.data contains site_id, or result itself
         app_code = result.get("site_id") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("site_id")
     elif current_network == "mintegral":
-        # Mintegral: result.data contains app_id, or result itself
-        # Try multiple possible field names
-        data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
-        app_id = data.get("app_id") or data.get("id") or data.get("appId") or result.get("app_id") or result.get("id")
+        # Mintegral: result.result contains app_id
+        # Response format: {"status": 0, "code": 0, "msg": "Success", "result": {"app_id": 441875, ...}}
+        result_data = result.get("result", {}) if isinstance(result.get("result"), dict) else {}
+        app_id = result_data.get("app_id") or result_data.get("id") or result_data.get("appId")
+        # Fallback to data field if result.result doesn't have app_id
+        if not app_id:
+            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+            app_id = data.get("app_id") or data.get("id") or data.get("appId")
+        # Final fallback to result itself
+        if not app_id:
+            app_id = result.get("app_id") or result.get("id")
         app_code = str(app_id) if app_id else None
     elif current_network == "inmobi":
         # InMobi: result.data contains appId, or result itself
