@@ -203,9 +203,32 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
         if filtered_units:
             st.info(f"📊 검색 결과: {len(filtered_units)}개 (전체: {len(ad_units_list)}개)")
             
+            # Sort by platform ASC, ad_format DESC (alphabetical order: REWARD > INTER > BANNER)
+            def sort_key(unit):
+                platform = unit.get("platform", "").lower()
+                ad_format = unit.get("ad_format", "")
+                # For platform: android < ios (ASC)
+                # For ad_format: alphabetical order DESC (REWARD > INTER > BANNER)
+                # Use tuple with negative for DESC: (platform ASC, -ad_format for DESC)
+                # But since we can't negate strings, we'll use a two-step sort
+                return (platform, ad_format)
+            
+            # First sort by platform ASC, then by ad_format DESC
+            # Sort by platform first
+            filtered_units_sorted = sorted(filtered_units, key=lambda x: x.get("platform", "").lower())
+            # Then sort by ad_format DESC within each platform group
+            from itertools import groupby
+            result = []
+            for platform_key, group in groupby(filtered_units_sorted, key=lambda x: x.get("platform", "").lower()):
+                group_list = list(group)
+                # Sort group by ad_format DESC (reverse alphabetical: REWARD > INTER > BANNER)
+                group_list_sorted = sorted(group_list, key=lambda x: x.get("ad_format", ""), reverse=True)
+                result.extend(group_list_sorted)
+            filtered_units_sorted = result
+            
             # Create table with checkbox
             table_data = []
-            for unit in filtered_units:
+            for unit in filtered_units_sorted:
                 table_data.append({
                     "선택": False,
                     "id": unit.get("id", ""),

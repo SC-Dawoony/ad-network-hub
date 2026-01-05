@@ -332,71 +332,150 @@ def render_app_code_selector(current_network: str, network_manager):
         selected_app_code = manual_app_code.strip() if manual_app_code else ""
         app_name = "Manual Entry"
         
-        # If appKey is entered manually, fetch app info from API
-        if selected_app_code and current_network == "ironsource":
-            try:
-                with st.spinner(f"Loading app info for {selected_app_code}..."):
-                    # Fetch specific app using appKey as filter
-                    fetched_apps = network_manager.get_apps(current_network, app_key=selected_app_code)
-                    if fetched_apps:
-                        # Add fetched app to apps list if not already present
-                        fetched_app = fetched_apps[0]
-                        fetched_app_key = fetched_app.get("appKey") or fetched_app.get("appCode")
-                        
-                        # Check if app already exists in apps list
-                        existing_app = None
-                        for app in apps:
-                            app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
-                            if app_identifier == fetched_app_key:
-                                existing_app = app
-                                break
-                        
-                        if not existing_app:
-                            # Add to apps list
-                            apps.append(fetched_app)
-                            # Update app_options and maps
-                            fetched_app_name = fetched_app.get("name", "Unknown")
-                            fetched_platform = fetched_app.get("platform", "")
-                            display_text = f"{fetched_app_key} ({fetched_app_name})"
-                            if fetched_platform and fetched_platform != "N/A":
-                                display_text += f" - {fetched_platform}"
+        # If appKey/appId is entered manually, fetch app info from API
+        if selected_app_code:
+            if current_network == "ironsource":
+                try:
+                    with st.spinner(f"Loading app info for {selected_app_code}..."):
+                        # Fetch specific app using appKey as filter
+                        fetched_apps = network_manager.get_apps(current_network, app_key=selected_app_code)
+                        if fetched_apps:
+                            # Add fetched app to apps list if not already present
+                            fetched_app = fetched_apps[0]
+                            fetched_app_key = fetched_app.get("appKey") or fetched_app.get("appCode")
                             
-                            # Insert at the beginning (before manual entry option)
-                            app_options.insert(-1, display_text)
-                            app_code_map[display_text] = fetched_app_key
+                            # Check if app already exists in apps list
+                            existing_app = None
+                            for app in apps:
+                                app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
+                                if app_identifier == fetched_app_key:
+                                    existing_app = app
+                                    break
                             
-                            # Store app info
-                            if current_network == "ironsource":
-                                platform_num = fetched_app.get("platformNum", 1 if fetched_platform == "Android" else 2)
-                                platform_str = fetched_app.get("platformStr", "android" if fetched_platform == "Android" else "ios")
-                                bundle_id = fetched_app.get("bundleId", "")
-                                store_url = fetched_app.get("storeUrl", "")
+                            if not existing_app:
+                                # Add to apps list
+                                apps.append(fetched_app)
+                                # Update app_options and maps
+                                fetched_app_name = fetched_app.get("name", "Unknown")
+                                fetched_platform = fetched_app.get("platform", "")
+                                display_text = f"{fetched_app_key} ({fetched_app_name})"
+                                if fetched_platform and fetched_platform != "N/A":
+                                    display_text += f" - {fetched_platform}"
+                                
+                                # Insert at the beginning (before manual entry option)
+                                app_options.insert(-1, display_text)
+                                app_code_map[display_text] = fetched_app_key
+                                
+                                # Store app info
+                                if current_network == "ironsource":
+                                    platform_num = fetched_app.get("platformNum", 1 if fetched_platform == "Android" else 2)
+                                    platform_str = fetched_app.get("platformStr", "android" if fetched_platform == "Android" else "ios")
+                                    bundle_id = fetched_app.get("bundleId", "")
+                                    store_url = fetched_app.get("storeUrl", "")
+                                else:
+                                    platform_num = 1 if fetched_platform == "Android" else 2
+                                    platform_str = "android" if fetched_platform == "Android" else "ios"
+                                    bundle_id = ""
+                                    store_url = ""
+                                
+                                app_info_map[fetched_app_key] = {
+                                    "appCode": fetched_app_key,
+                                    "appKey": fetched_app_key if current_network == "ironsource" else None,
+                                    "name": fetched_app_name,
+                                    "platform": platform_num,
+                                    "platformStr": platform_str,
+                                    "pkgName": fetched_app.get("pkgName", ""),
+                                    "bundleId": bundle_id,
+                                    "storeUrl": store_url,
+                                    "platformDisplay": fetched_platform
+                                }
+                                
+                                st.success(f"✅ Found app: {fetched_app_name}")
                             else:
-                                platform_num = 1 if fetched_platform == "Android" else 2
-                                platform_str = "android" if fetched_platform == "Android" else "ios"
-                                bundle_id = ""
-                                store_url = ""
-                            
-                            app_info_map[fetched_app_key] = {
-                                "appCode": fetched_app_key,
-                                "appKey": fetched_app_key if current_network == "ironsource" else None,
-                                "name": fetched_app_name,
-                                "platform": platform_num,
-                                "platformStr": platform_str,
-                                "pkgName": fetched_app.get("pkgName", ""),
-                                "bundleId": bundle_id,
-                                "storeUrl": store_url,
-                                "platformDisplay": fetched_platform
-                            }
-                            
-                            st.success(f"✅ Found app: {fetched_app_name}")
+                                st.info(f"ℹ️ App {fetched_app_key} already in list")
                         else:
-                            st.info(f"ℹ️ App {fetched_app_key} already in list")
+                            st.warning(f"⚠️ App with key '{selected_app_code}' not found")
+                except Exception as e:
+                    logger.warning(f"[{current_network}] Failed to fetch app info: {str(e)}")
+                    st.warning(f"⚠️ Failed to load app info: {str(e)}")
+            elif current_network == "fyber":
+                try:
+                    # Try to parse app_id from entered code
+                    app_id = None
+                    try:
+                        app_id = int(selected_app_code)
+                    except (ValueError, TypeError):
+                        # Try to extract numeric part
+                        import re
+                        numeric_match = re.search(r'\d+', str(selected_app_code))
+                        if numeric_match:
+                            app_id = int(numeric_match.group())
+                    
+                    if app_id:
+                        with st.spinner(f"Loading app info for App ID {app_id}..."):
+                            # Fetch specific app using appId
+                            # For Fyber, pass app_id as app_key (get_apps will parse it)
+                            fetched_apps = network_manager.get_apps(current_network, app_key=str(app_id))
+                            if fetched_apps:
+                                # Add fetched app to apps list if not already present
+                                fetched_app = fetched_apps[0]
+                                fetched_app_id = fetched_app.get("appId") or fetched_app.get("id") or str(app_id)
+                                
+                                # Check if app already exists in apps list
+                                existing_app = None
+                                for app in apps:
+                                    app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                                    if str(app_identifier) == str(fetched_app_id):
+                                        existing_app = app
+                                        break
+                                
+                                if not existing_app:
+                                    # Add to apps list
+                                    apps.append(fetched_app)
+                                    # Update app_options and maps
+                                    fetched_app_name = fetched_app.get("name", "Unknown")
+                                    fetched_platform = fetched_app.get("platform", "")
+                                    fetched_bundle = fetched_app.get("bundle") or fetched_app.get("bundleId", "")
+                                    display_text = f"{fetched_app_id} ({fetched_app_name})"
+                                    if fetched_platform and fetched_platform != "N/A":
+                                        display_text += f" - {fetched_platform}"
+                                    
+                                    # Insert at the beginning (before manual entry option)
+                                    app_options.insert(-1, display_text)
+                                    app_code_map[display_text] = str(fetched_app_id)
+                                    
+                                    # Store app info
+                                    platform_num = 1 if fetched_platform.lower() == "android" else 2
+                                    platform_str = "android" if fetched_platform.lower() == "android" else "ios"
+                                    
+                                    app_info_map[str(fetched_app_id)] = {
+                                        "appCode": str(fetched_app_id),
+                                        "app_id": fetched_app_id,
+                                        "appId": fetched_app_id,
+                                        "name": fetched_app_name,
+                                        "platform": platform_num,
+                                        "platformStr": platform_str,
+                                        "pkgName": fetched_bundle,
+                                        "bundleId": fetched_bundle,
+                                        "bundle": fetched_bundle,
+                                        "storeUrl": "",
+                                        "platformDisplay": fetched_platform
+                                    }
+                                    
+                                    st.success(f"✅ Found app: {fetched_app_name}")
+                                    
+                                    # Update selected_app_code to use the fetched app_id
+                                    selected_app_code = str(fetched_app_id)
+                                else:
+                                    st.info(f"ℹ️ App {fetched_app_id} already in list")
+                                    selected_app_code = str(fetched_app_id)
+                            else:
+                                st.warning(f"⚠️ App with ID '{app_id}' not found")
                     else:
-                        st.warning(f"⚠️ App with key '{selected_app_code}' not found")
-            except Exception as e:
-                logger.warning(f"[{current_network}] Failed to fetch app info: {str(e)}")
-                st.warning(f"⚠️ Failed to load app info: {str(e)}")
+                        st.warning(f"⚠️ Please enter a valid App ID (numeric value)")
+                except Exception as e:
+                    logger.warning(f"[{current_network}] Failed to fetch app info: {str(e)}")
+                    st.warning(f"⚠️ Failed to load app info: {str(e)}")
     else:
         # Get app code from map
         selected_app_code = app_code_map.get(selected_app_display, "")
@@ -471,9 +550,14 @@ def render_app_code_selector(current_network: str, network_manager):
             # For other networks, use original logic
             selected_app_data = None
             for app in apps:
-                # For InMobi, check appId; for others, check appCode
-                app_identifier = app.get("appId") if current_network == "inmobi" else app.get("appCode")
-                if app_identifier == selected_app_code:
+                # For InMobi and Fyber, check appId; for others, check appCode
+                if current_network == "inmobi":
+                    app_identifier = app.get("appId")
+                elif current_network == "fyber":
+                    app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                else:
+                    app_identifier = app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
                     selected_app_data = app
                     break
         
@@ -547,24 +631,34 @@ def render_app_code_selector(current_network: str, network_manager):
         elif last_app_info and last_app_info.get("appCode") == selected_app_code:
             app_info_to_use = last_app_info
         elif selected_app_code in app_info_map:
-            app_info_to_use = app_info_map[selected_app_code]
+            app_info_to_use = app_info_map[selected_app_code].copy()
             if last_app_info and last_app_info.get("appCode") == selected_app_code:
                 app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
                 # For BigOAds, also get pkgNameDisplay if available
                 if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
                     app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
-            else:
-                # For manual entry or API apps, create minimal app info
-                app_info_to_use = {
-                    "appCode": selected_app_code,
-                    "name": app_name,
-                    "platform": None,
-                    "pkgName": "",
-                    "platformStr": "unknown"
-                }
-                
-                # Try to get platform and pkgNameDisplay from apps list (for BigOAds)
-                for app in apps:
+            # For Fyber, ensure bundle/bundleId is available from app_info_map
+            if current_network == "fyber":
+                if not app_info_to_use.get("bundleId") and not app_info_to_use.get("bundle"):
+                    # Try to get from apps list
+                    for app in apps:
+                        app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                        if str(app_identifier) == str(selected_app_code):
+                            app_info_to_use["bundleId"] = app.get("bundle") or app.get("bundleId", "")
+                            app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
+                            break
+        else:
+            # For manual entry or API apps, create minimal app info
+            app_info_to_use = {
+                "appCode": selected_app_code,
+                "name": app_name,
+                "platform": None,
+                "pkgName": "",
+                "platformStr": "unknown"
+            }
+            
+            # Try to get platform and pkgNameDisplay from apps list (for BigOAds)
+            for app in apps:
                     # For IronSource, check appKey; for others, check appCode
                     app_identifier = app.get("appKey") if current_network == "ironsource" else app.get("appCode")
                     if app_identifier == selected_app_code:
@@ -595,6 +689,13 @@ def render_app_code_selector(current_network: str, network_manager):
                         if current_network == "inmobi":
                             app_info_to_use["bundleId"] = app.get("bundleId", "")
                             app_info_to_use["pkgName"] = app.get("pkgName", "")
+                            app_info_to_use["name"] = app.get("name", app_name)
+                        
+                        # For Fyber, get bundle and bundleId from API response
+                        if current_network == "fyber":
+                            app_info_to_use["bundleId"] = app.get("bundle") or app.get("bundleId", "")
+                            app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
+                            app_info_to_use["pkgName"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["name"] = app.get("name", app_name)
                         
                         break

@@ -814,6 +814,260 @@ def render_create_unit_common_ui(
     else:
         st.divider()
         
+        # For InMobi, add "Create All 3 Placements" button
+        if current_network == "inmobi":
+            # Get app info for InMobi
+            app_id = None
+            bundle_id = ""
+            pkg_name = ""
+            platform_str = "android"
+            app_name_for_slot = app_name
+            
+            if selected_app_code:
+                if app_info_to_use:
+                    app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
+                    bundle_id = app_info_to_use.get("bundleId", "")
+                    pkg_name = app_info_to_use.get("pkgName", "")
+                    platform_str = _normalize_platform_str(app_info_to_use.get("platformStr", "android"), "inmobi")
+                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                
+                if not app_id:
+                    try:
+                        app_id = int(selected_app_code)
+                    except (ValueError, TypeError):
+                        app_id = None
+                
+                if not app_id or not bundle_id:
+                    for app in apps:
+                        app_identifier = app.get("appId") or app.get("appCode")
+                        if str(app_identifier) == str(selected_app_code):
+                            if not app_id:
+                                app_id = app.get("appId") or app.get("app_id")
+                                if not app_id:
+                                    try:
+                                        app_id = int(app_identifier)
+                                    except (ValueError, TypeError):
+                                        app_id = None
+                            if not bundle_id:
+                                bundle_id = app.get("bundleId", "")
+                                pkg_name = app.get("pkgName", "")
+                                platform_from_app = app.get("platform", "")
+                                platform_str = _normalize_platform_str(platform_from_app, "inmobi")
+                                app_name_for_slot = app.get("name", app_name)
+                            break
+            
+            # Create All 3 Placements button
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_inmobi_placements"):
+                if not selected_app_code:
+                    st.toast("❌ Please select an App Code", icon="🚫")
+                elif not app_id or app_id <= 0:
+                    st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
+                else:
+                    source_pkg = bundle_id if bundle_id else pkg_name
+                    if not source_pkg:
+                        st.toast("❌ Package name or bundle ID is required", icon="🚫")
+                    else:
+                        with st.spinner("🚀 Creating all 3 placements..."):
+                            try:
+                                from utils.network_manager import get_network_manager
+                                network_manager = get_network_manager()
+                                
+                                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                create_payloads = []
+                                placement_names = []
+                                
+                                for slot_key in ["RV", "IS", "BN"]:
+                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                    slot_config = slot_configs.get(slot_key, {})
+                                    placement_name = _generate_slot_name(source_pkg, platform_str, slot_type, "inmobi", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                    placement_names.append((slot_key, placement_name))
+                                    
+                                    payload = {
+                                        "appId": int(app_id),
+                                        "placementName": placement_name,
+                                        "placementType": slot_config["placementType"],
+                                        "isAudienceBiddingEnabled": slot_config["isAudienceBiddingEnabled"],
+                                    }
+                                    
+                                    if slot_config["isAudienceBiddingEnabled"]:
+                                        payload["audienceBiddingPartner"] = slot_config["audienceBiddingPartner"]
+                                    
+                                    create_payloads.append((slot_key, slot_config, payload))
+                                
+                                # Create placements sequentially
+                                results = []
+                                for slot_key, slot_config, payload in create_payloads:
+                                    response = network_manager.create_unit(current_network, payload)
+                                    result = handle_api_response(response)
+                                    results.append((slot_key, response, result))
+                                
+                                # Process results
+                                success_count = 0
+                                failed_count = 0
+                                
+                                for slot_key, response, result in results:
+                                    if response.get("status") == 0 or response.get("code") == 0:
+                                        success_count += 1
+                                        if result:
+                                            placement_name = next((name for sk, name in placement_names if sk == slot_key), "")
+                                            unit_data = {
+                                                "slotCode": result.get("placementId", result.get("id", "N/A")),
+                                                "name": placement_name,
+                                                "appCode": str(app_id),
+                                                "slotType": slot_config["placementType"],
+                                                "adType": slot_config["placementType"],
+                                                "auctionType": "N/A"
+                                            }
+                                            SessionManager.add_created_unit(current_network, unit_data)
+                                            
+                                            cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                cached_units.append(unit_data)
+                                                SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                    else:
+                                        failed_count += 1
+                                
+                                # Display summary
+                                if success_count == 3:
+                                    st.success(f"✅ Successfully created all 3 placements!")
+                                    st.balloons()
+                                elif success_count > 0:
+                                    st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                                else:
+                                    st.error(f"❌ Failed to create placements")
+                                
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error creating placements: {str(e)}")
+                                logger.exception("Error creating InMobi placements")
+        
+        # For Fyber, add "Create All 3 Placements" button
+        if current_network == "fyber":
+            # Get app info for Fyber
+            app_id = None
+            bundle_id = ""
+            pkg_name = ""
+            platform_str = "android"
+            app_name_for_slot = app_name
+            
+            if selected_app_code:
+                if app_info_to_use:
+                    app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
+                    bundle_id = app_info_to_use.get("bundleId") or app_info_to_use.get("bundle", "")
+                    pkg_name = app_info_to_use.get("pkgName", "")
+                    platform_str = _normalize_platform_str(app_info_to_use.get("platformStr", "android"), "fyber")
+                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                
+                if not app_id:
+                    try:
+                        app_id = int(selected_app_code)
+                    except (ValueError, TypeError):
+                        import re
+                        numeric_match = re.search(r'\d+', str(selected_app_code))
+                        if numeric_match:
+                            app_id = int(numeric_match.group())
+                
+                if not app_id or not bundle_id:
+                    for app in apps:
+                        app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                        if str(app_identifier) == str(selected_app_code):
+                            if not app_id:
+                                app_id = app.get("appId") or app.get("app_id")
+                                if not app_id:
+                                    try:
+                                        app_id = int(app_identifier)
+                                    except (ValueError, TypeError):
+                                        app_id = None
+                            if not bundle_id:
+                                bundle_id = app.get("bundle") or app.get("bundleId", "")
+                                pkg_name = app.get("pkgName", "")
+                                platform_from_app = app.get("platform", "")
+                                platform_str = _normalize_platform_str(platform_from_app, "fyber")
+                                app_name_for_slot = app.get("name", app_name)
+                            break
+            
+            # Create All 3 Placements button
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_fyber_placements"):
+                if not selected_app_code:
+                    st.toast("❌ Please select an App Code", icon="🚫")
+                elif not app_id:
+                    st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
+                else:
+                    source_pkg = bundle_id if bundle_id else pkg_name
+                    if not source_pkg:
+                        st.toast("❌ Package name or bundle ID is required", icon="🚫")
+                    else:
+                        with st.spinner("🚀 Creating all 3 placements..."):
+                            try:
+                                from utils.network_manager import get_network_manager
+                                network_manager = get_network_manager()
+                                
+                                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                create_payloads = []
+                                placement_names = []
+                                
+                                for slot_key in ["RV", "IS", "BN"]:
+                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                    slot_config = slot_configs.get(slot_key, {})
+                                    placement_name = _generate_slot_name(source_pkg, platform_str, slot_type, "fyber", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                    placement_names.append((slot_key, placement_name))
+                                    
+                                    payload = {
+                                        "name": placement_name.strip(),  # Fyber uses "name" field, not "placementName"
+                                        "appId": str(app_id),  # Fyber requires appId as string
+                                        "placementType": slot_config["placementType"],
+                                        "coppa": bool(slot_config["coppa"]),
+                                    }
+                                    
+                                    create_payloads.append((slot_key, slot_config, payload))
+                                
+                                # Create placements sequentially
+                                results = []
+                                for slot_key, slot_config, payload in create_payloads:
+                                    response = network_manager.create_unit(current_network, payload)
+                                    result = handle_api_response(response)
+                                    results.append((slot_key, response, result))
+                                
+                                # Process results
+                                success_count = 0
+                                failed_count = 0
+                                
+                                for slot_key, response, result in results:
+                                    if response.get("status") == 0 or response.get("code") == 0:
+                                        success_count += 1
+                                        if result:
+                                            placement_name = next((name for sk, name in placement_names if sk == slot_key), "")
+                                            unit_data = {
+                                                "slotCode": result.get("placementId", result.get("id", "N/A")),
+                                                "name": placement_name,
+                                                "appCode": str(app_id),
+                                                "slotType": slot_config["placementType"],
+                                                "adType": slot_config["placementType"],
+                                                "auctionType": "N/A"
+                                            }
+                                            SessionManager.add_created_unit(current_network, unit_data)
+                                            
+                                            cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                cached_units.append(unit_data)
+                                                SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                    else:
+                                        failed_count += 1
+                                
+                                # Display summary
+                                if success_count == 3:
+                                    st.success(f"✅ Successfully created all 3 placements!")
+                                    st.balloons()
+                                elif success_count > 0:
+                                    st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                                else:
+                                    st.error(f"❌ Failed to create placements")
+                                
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error creating placements: {str(e)}")
+                                logger.exception("Error creating Fyber placements")
+        
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
         
@@ -1610,9 +1864,10 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                 else:
                     app_id = None
     
-    if placement_name_key not in st.session_state:
+    # Auto-generate placement name if not set or if app info is available
+    if placement_name_key not in st.session_state or (selected_app_code and app_info_to_use):
         if selected_app_code and app_info_to_use:
-            bundle_id = app_info_to_use.get("bundleId", "")
+            bundle_id = app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
             pkg_name = app_info_to_use.get("pkgName", "")
             platform_str = app_info_to_use.get("platformStr", "android")
             app_name_for_slot = app_info_to_use.get("name", app_name)
@@ -1623,6 +1878,33 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                 slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                 slot_type = slot_type_map.get(slot_key, slot_key.lower())
                 default_name = _generate_slot_name(source_pkg, platform_str, slot_type, "fyber", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                st.session_state[placement_name_key] = default_name
+        elif selected_app_code and app_id:
+            # If app_id is available but app_info_to_use is not, try to get bundleId from apps list
+            bundle_id = ""
+            pkg_name = ""
+            platform_str = "android"
+            app_name_for_slot = app_name
+            
+            for app in apps:
+                app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                if str(app_identifier) == str(selected_app_code) or str(app_identifier) == str(app_id):
+                    bundle_id = app.get("bundleId") or app.get("bundle", "")
+                    pkg_name = app.get("pkgName", "")
+                    platform_from_app = app.get("platform", "")
+                    platform_str = _normalize_platform_str(platform_from_app, "fyber")
+                    app_name_for_slot = app.get("name", app_name)
+                    break
+            
+            source_pkg = bundle_id if bundle_id else pkg_name
+            
+            if source_pkg:
+                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                default_name = _generate_slot_name(source_pkg, platform_str, slot_type, "fyber", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                st.session_state[placement_name_key] = default_name
+            else:
+                default_name = f"{slot_key.lower()}_placement"
                 st.session_state[placement_name_key] = default_name
         else:
             default_name = f"{slot_key.lower()}_placement"

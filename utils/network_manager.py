@@ -150,6 +150,8 @@ class MockNetworkManager:
     
     def __init__(self):
         self.clients = {}
+        # Initialize network API instances
+        self._ironsource_api = None
     
     def get_client(self, network: str):
         """Get API client for a network"""
@@ -288,21 +290,18 @@ class MockNetworkManager:
             return None
     
     def _get_ironsource_headers(self) -> Optional[Dict[str, str]]:
-        """Get IronSource API headers with automatic token refresh
+        """Get IronSource API headers with automatic token refresh (wrapper for compatibility)
         
         This method is called before each API request to ensure we have a valid token.
         Logic:
         1. Get bearer token (with automatic refresh if needed)
         2. Return headers with Authorization: Bearer {token}
         """
-        token = self._get_ironsource_token()
-        if not token:
-            return None
-        
-        return {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
+        # Use new IronSourceAuth
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.auth.get_headers()
     
     def _refresh_ironsource_token(self, refresh_token: str, secret_key: str) -> Optional[str]:
         """Get IronSource bearer token using refresh token and secret key
@@ -736,87 +735,12 @@ class MockNetworkManager:
             }
     
     def _create_ironsource_app(self, payload: Dict) -> Dict:
-        """Create app via IronSource API"""
-        headers = self._get_ironsource_headers()
-        if not headers:
-            return {
-                "status": 1,
-                "code": "AUTH_ERROR",
-                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
-            }
-        
-        url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
-        
-        # Log request
-        logger.info(f"[IronSource] API Request: POST {url}")
-        masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
-        logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
-        logger.info(f"[IronSource] Request Body: {json.dumps(payload, indent=2)}")
-        
-        try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
-            
-            # Log response status
-            logger.info(f"[IronSource] Response Status: {response.status_code}")
-            
-            # Check for 401 Unauthorized - token might be expired
-            if response.status_code == 401:
-                logger.warning("[IronSource] Received 401 Unauthorized. Token may be expired. Attempting to refresh...")
-                
-                # Try to refresh token
-                refresh_token = _get_env_var("IRONSOURCE_REFRESH_TOKEN")
-                secret_key = _get_env_var("IRONSOURCE_SECRET_KEY")
-                
-                if refresh_token and secret_key:
-                    new_token = self._refresh_ironsource_token(refresh_token, secret_key)
-                    if new_token:
-                        # Retry request with new token
-                        logger.info("[IronSource] Retrying request with refreshed token...")
-                        headers["Authorization"] = f"Bearer {new_token}"
-                        response = requests.post(url, json=payload, headers=headers, timeout=30)
-                        logger.info(f"[IronSource] Retry Response Status: {response.status_code}")
-                    else:
-                        logger.error("[IronSource] Token refresh failed. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY")
-                else:
-                    logger.error("[IronSource] No refresh token available. Please set IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file")
-            
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Log response
-            logger.info(f"[IronSource] Response Body: {json.dumps(result, indent=2)}")
-            # IronSource API response format may vary, normalize it
-            if "appKey" in result:
-                return {
-                    "status": 0,
-                    "code": 0,
-                    "msg": "Success",
-                    "result": {
-                        "appKey": result.get("appKey"),
-                        "appName": payload.get("appName", ""),
-                        "storeUrl": payload.get("storeUrl", "")
-                    }
-                }
-            return {
-                "status": 0,
-                "code": 0,
-                "msg": "Success",
-                "result": result
-            }
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[IronSource] API Error (Create App): {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_body = e.response.json()
-                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
-                except:
-                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
-            return {
-                "status": 1,
-                "code": "API_ERROR",
-                "msg": str(e)
-            }
+        """Create app via IronSource API (wrapper for compatibility)"""
+        # Use new IronSourceAPI
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.create_app(payload)
     
     def create_unit(self, network: str, payload: Dict, app_key: Optional[str] = None) -> Dict:
         """Create unit via network API
@@ -827,14 +751,11 @@ class MockNetworkManager:
             app_key: App key (required for IronSource)
         """
         if network == "ironsource":
-            if not app_key:
-                return {
-                    "status": 1,
-                    "code": "MISSING_APP_KEY",
-                    "msg": "App key is required for IronSource"
-                }
-            # IronSource accepts an array, so wrap the payload
-            return self._create_ironsource_placements(app_key, [payload])
+            # Use new IronSourceAPI
+            if self._ironsource_api is None:
+                from utils.network_apis.ironsource_api import IronSourceAPI
+                self._ironsource_api = IronSourceAPI()
+            return self._ironsource_api.create_unit(payload, app_key=app_key)
         elif network == "bigoads":
             return self._create_bigoads_unit(payload)
         elif network == "pangle":
@@ -866,7 +787,20 @@ class MockNetworkManager:
         return mock_response
     
     def _create_ironsource_placements(self, app_key: str, ad_units: List[Dict]) -> Dict:
-        """Create placements via IronSource API
+        """Create placements via IronSource API (wrapper for compatibility)
+        
+        Args:
+            app_key: Application key from IronSource platform
+            ad_units: List of ad unit objects to create
+        """
+        # Use new IronSourceAPI
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.create_placements(app_key, ad_units)
+    
+    def _create_ironsource_placements_old(self, app_key: str, ad_units: List[Dict]) -> Dict:
+        """Create placements via IronSource API (OLD - kept for reference)
         
         Args:
             app_key: Application key from IronSource platform
@@ -1010,7 +944,7 @@ class MockNetworkManager:
             }
     
     def _update_ironsource_ad_units(self, app_key: str, ad_units: List[Dict]) -> Dict:
-        """Update (activate) ad units via IronSource API
+        """Update (activate) ad units via IronSource API (wrapper for compatibility)
         
         API: PUT https://platform.ironsrc.com/levelPlay/adUnits/v1/{appKey}
         
@@ -1022,139 +956,31 @@ class MockNetworkManager:
                 - isPaused (optional): false to activate
                 - mediationAdUnitName (optional): new name
         """
-        headers = self._get_ironsource_headers()
-        if not headers:
-            return {
-                "status": 1,
-                "code": "AUTH_ERROR",
-                "msg": "IronSource authentication token not found. Please check IRONSOURCE_REFRESH_TOKEN and IRONSOURCE_SECRET_KEY in .env file or Streamlit secrets."
-            }
-        
-        url = f"https://platform.ironsrc.com/levelPlay/adUnits/v1/{app_key}"
-        
-        # Validate ad_units
-        if not ad_units:
-            return {
-                "status": 1,
-                "code": "INVALID_PAYLOAD",
-                "msg": "Ad units list is empty"
-            }
-        
-        # Validate each ad unit has required fields
-        for idx, ad_unit in enumerate(ad_units):
-            if not isinstance(ad_unit, dict):
-                return {
-                    "status": 1,
-                    "code": "INVALID_PAYLOAD",
-                    "msg": f"Ad unit at index {idx} must be a dictionary"
-                }
-            # Check both uppercase and lowercase versions
-            if not (ad_unit.get("mediationAdUnitId") or ad_unit.get("mediationAdunitId")):
-                return {
-                    "status": 1,
-                    "code": "INVALID_PAYLOAD",
-                    "msg": f"mediationAdUnitId is required for ad unit at index {idx}"
-                }
-        
-        # Log request
-        logger.info(f"[IronSource] API Request: PUT {url}")
-        masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
-        logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
-        logger.info(f"[IronSource] Request Body: {json.dumps(_mask_sensitive_data(ad_units), indent=2)}")
-        
-        try:
-            # API accepts an array of ad units
-            response = requests.put(url, json=ad_units, headers=headers, timeout=30)
-            
-            # Log response status
-            logger.info(f"[IronSource] Response Status: {response.status_code}")
-            
-            # Check response status before parsing
-            if response.status_code >= 400:
-                # Error response
-                try:
-                    error_body = response.json()
-                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
-                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or response.text
-                    error_code = error_body.get("code") or error_body.get("errorCode") or str(response.status_code)
-                except:
-                    error_msg = response.text or f"HTTP {response.status_code}"
-                    error_code = str(response.status_code)
-                    logger.error(f"[IronSource] Error Response (text): {error_msg}")
-                
-                return {
-                    "status": 1,
-                    "code": error_code,
-                    "msg": error_msg
-                }
-            
-            # Success response - handle empty or invalid JSON
-            response_text = response.text.strip()
-            if not response_text:
-                # Empty response
-                logger.warning(f"[IronSource] Empty response body (status {response.status_code})")
-                return {
-                    "status": 0,
-                    "code": 0,
-                    "msg": "Success (empty response)",
-                    "result": {}
-                }
-            
-            try:
-                result = response.json()
-                # Log response
-                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
-            except json.JSONDecodeError as e:
-                # Invalid JSON response
-                logger.error(f"[IronSource] JSON decode error: {str(e)}")
-                logger.error(f"[IronSource] Response text: {response_text[:500]}")
-                return {
-                    "status": 1,
-                    "code": "JSON_ERROR",
-                    "msg": f"Invalid JSON response: {str(e)}. Response: {response_text[:200]}"
-                }
-            
-            # IronSource API response format may vary, normalize it
-            return {
-                "status": 0,
-                "code": 0,
-                "msg": "Success",
-                "result": result
-            }
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[IronSource] API Error (Update Ad Units): {str(e)}")
-            error_msg = str(e)
-            error_code = "API_ERROR"
-            
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_body = e.response.json()
-                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
-                    error_msg = error_body.get("message") or error_body.get("msg") or error_body.get("error") or error_msg
-                    error_code = error_body.get("code") or error_body.get("errorCode") or error_code
-                except:
-                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
-                    if e.response.text:
-                        error_msg = e.response.text
-            
-            return {
-                "status": 1,
-                "code": error_code,
-                "msg": error_msg
-            }
-        except Exception as e:
-            # Catch any other unexpected errors
-            logger.error(f"[IronSource] Unexpected Error (Update Ad Units): {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return {
-                "status": 1,
-                "code": "UNEXPECTED_ERROR",
-                "msg": str(e)
-            }
+        # Use new IronSourceAPI
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.update_ad_units(app_key, ad_units)
     
     def _get_ironsource_instances(self, app_key: str) -> Dict:
-        """Get instances via IronSource API
+        """Get instances via IronSource API (wrapper for compatibility)
+        
+        API: GET https://platform.ironsrc.com/levelPlay/network/instances/v4/{appKey}/
+        
+        Args:
+            app_key: Application key from IronSource platform
+        
+        Returns:
+            Dict with status, code, msg, and result (list of instances)
+        """
+        # Use new IronSourceAPI
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.get_instances(app_key)
+    
+    def _get_ironsource_instances_old(self, app_key: str) -> Dict:
+        """Get instances via IronSource API (OLD - kept for reference)
         
         API: GET https://platform.ironsrc.com/levelPlay/network/instances/v4/
         
@@ -1743,12 +1569,14 @@ class MockNetworkManager:
             response.raise_for_status()
             
             # BigOAds API 응답 형식에 맞게 정규화
-            if result.get("code") == 0 or result.get("status") == 0:
+            # BigOAds 응답 구조: {"code": "100", "msg": "...", "result": {"appCode": "...", ...}, "status": 0}
+            if result.get("code") == "100" or result.get("code") == 0 or result.get("status") == 0:
+                # result.result에 실제 데이터가 있음
                 return {
                     "status": 0,
                     "code": 0,
                     "msg": result.get("msg", "Success"),
-                    "result": result.get("data", result)
+                    "result": result.get("result", result.get("data", result))
                 }
             else:
                 error_msg = result.get("msg") or result.get("message") or "Unknown error"
@@ -2935,7 +2763,7 @@ class MockNetworkManager:
             }
     
     def _get_ironsource_apps(self, app_key: Optional[str] = None) -> List[Dict]:
-        """Get IronSource applications list from API
+        """Get IronSource applications list from API (wrapper for compatibility)
         
         API: GET https://platform.ironsrc.com/partners/publisher/applications/v6
         Headers:
@@ -2949,165 +2777,11 @@ class MockNetworkManager:
         Args:
             app_key: Optional app key to filter by. If provided, only returns that app.
         """
-        try:
-            headers = self._get_ironsource_headers()
-            if not headers:
-                logger.warning("[IronSource] Cannot get apps: authentication failed")
-                return []
-            
-            url = "https://platform.ironsrc.com/partners/publisher/applications/v6"
-            
-            # Build query parameters (optional) - reference code 방식
-            params = {}
-            platform = _get_env_var("IRONSOURCE_PLATFORM")  # ios / android
-            if platform:
-                params['platform'] = platform
-            
-            app_status = _get_env_var("IRONSOURCE_APP_STATUS")  # Active / archived
-            if app_status:
-                params['appStatus'] = app_status
-            
-            # If app_key is provided, use it as filter parameter
-            if app_key:
-                params['appKey'] = app_key
-                logger.info(f"[IronSource] Filtering by appKey: {app_key}")
-            
-            logger.info(f"[IronSource] API Request: GET {url}")
-            if params:
-                logger.info(f"[IronSource] Query Parameters: {json.dumps(params, indent=2)}")
-            else:
-                logger.info("[IronSource] Query Parameters: None (전체 앱 조회)")
-            masked_headers = {k: "***MASKED***" if k.lower() == "authorization" else v for k, v in headers.items()}
-            logger.info(f"[IronSource] Request Headers: {json.dumps(masked_headers, indent=2)}")
-            
-            response = requests.get(url, headers=headers, params=params if params else None, timeout=30)
-            
-            logger.info(f"[IronSource] Response Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"[IronSource] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
-                
-                # IronSource API 응답 형식에 맞게 파싱
-                # 응답은 JSON 배열 또는 객체일 수 있음
-                # 예시 응답: [{"appKey": "22449a47d", "appName": "-", "platform": "iOS", ...}, ...]
-                apps = []
-                if isinstance(result, list):
-                    # 응답이 직접 배열인 경우
-                    apps = result
-                    logger.info(f"[IronSource] Apps count (array): {len(apps)}")
-                elif isinstance(result, dict):
-                    # 응답이 객체인 경우 applications 필드 확인
-                    if "applications" in result:
-                        apps = result["applications"]
-                    elif "data" in result:
-                        apps = result["data"]
-                    elif "result" in result:
-                        apps = result["result"]
-                    else:
-                        # 단일 앱 객체인 경우 배열로 감싸기
-                        if "appKey" in result:
-                            apps = [result]
-                    
-                    if not isinstance(apps, list):
-                        apps = []
-                    logger.info(f"[IronSource] Apps count (object): {len(apps)}")
-                else:
-                    logger.warning(f"[IronSource] Unexpected response format: {type(result)}")
-                    apps = []
-            elif response.status_code == 401:
-                logger.error("[IronSource] Authentication failed (401 Unauthorized)")
-                logger.error(f"[IronSource] Response: {response.text[:500]}")
-                logger.error("[IronSource] Bearer Token이 만료되었거나 유효하지 않습니다.")
-                return []
-            else:
-                logger.error(f"[IronSource] API request failed with status {response.status_code}")
-                logger.error(f"[IronSource] Response: {response.text[:500]}")
-                return []
-            
-            # 표준 형식으로 변환
-            formatted_apps = []
-            for app in apps:
-                # IronSource app 객체에서 appKey 추출
-                app_key = app.get("appKey") or app.get("key") or app.get("id")
-                app_name = app.get("appName") or app.get("name") or app.get("title", "Unknown")
-                
-                if app_key:
-                    # Platform 변환: API 응답은 "iOS" 또는 "Android" (대문자 시작)
-                    platform_raw = app.get("platform", "")
-                    if isinstance(platform_raw, str):
-                        platform_raw_lower = platform_raw.lower()
-                    else:
-                        platform_raw_lower = ""
-                    
-                    if platform_raw_lower == "android":
-                        platform_display = "Android"
-                        platform_str = "android"
-                        platform_num = 1
-                    elif platform_raw_lower == "ios":
-                        platform_display = "iOS"
-                        platform_str = "ios"
-                        platform_num = 2
-                    else:
-                        # 기본값은 Android
-                        platform_display = "Android"
-                        platform_str = "android"
-                        platform_num = 1
-                    
-                    # appName이 "-"인 경우 "Unknown"으로 표시
-                    if app_name == "-" or not app_name or app_name.strip() == "":
-                        app_name = "Unknown"
-                    
-                    # Store URL 추출 (여러 가능한 필드명 확인)
-                    store_url = app.get("storeUrl") or app.get("store_url") or ""
-                    
-                    # Bundle ID 추출 (IronSource API 응답에서 bundleId 필드 사용)
-                    bundle_id = app.get("bundleId") or ""
-                    
-                    # Package name은 bundleId와 동일 (IronSource의 경우)
-                    pkg_name = bundle_id
-                    
-                    formatted_apps.append({
-                        "appCode": app_key,  # IronSource는 appKey 사용
-                        "appKey": app_key,  # IronSource 전용 필드
-                        "name": app_name,
-                        "platform": platform_display,  # "Android" or "iOS"
-                        "platformNum": platform_num,  # 1 or 2
-                        "platformStr": platform_str,  # "android" or "ios"
-                        "pkgName": pkg_name,  # bundleId와 동일
-                        "bundleId": bundle_id,  # IronSource bundleId (Mediation Ad Unit Name 생성에 사용)
-                        "storeUrl": store_url  # Store URL (optional)
-                    })
-                    
-                    logger.debug(f"[IronSource] Parsed app: appKey={app_key}, name={app_name}, platform={platform_display}, storeUrl={store_url[:50] if store_url else 'N/A'}")
-            
-            # 최신순 정렬 (appKey나 id 기준으로 정렬, 또는 timestamp가 있으면 그것으로)
-            # IronSource 응답에 timestamp가 있다면 그것으로 정렬
-            if formatted_apps:
-                # timestamp나 createdAt 필드가 있으면 사용, 없으면 appKey로 정렬
-                formatted_apps.sort(
-                    key=lambda x: (
-                        x.get("timestamp", 0) if isinstance(x.get("timestamp"), (int, float)) else 0,
-                        x.get("appKey", "")
-                    ),
-                    reverse=True
-                )
-            
-            logger.info(f"[IronSource] Found {len(formatted_apps)} apps")
-            return formatted_apps
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[IronSource] API Error (Get Apps): {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_body = e.response.json()
-                    logger.error(f"[IronSource] Error Response: {json.dumps(error_body, indent=2)}")
-                except:
-                    logger.error(f"[IronSource] Error Response (text): {e.response.text}")
-            return []
-        except Exception as e:
-            logger.error(f"[IronSource] Unexpected error getting apps: {str(e)}")
-            return []
+        # Use new IronSourceAPI
+        if self._ironsource_api is None:
+            from utils.network_apis.ironsource_api import IronSourceAPI
+            self._ironsource_api = IronSourceAPI()
+        return self._ironsource_api.get_apps(app_key=app_key)
     
     def _get_bigoads_apps(self) -> List[Dict]:
         """Get apps list from BigOAds API"""
@@ -3374,22 +3048,32 @@ class MockNetworkManager:
                 if isinstance(result, list):
                     apps = result
                 elif isinstance(result, dict):
-                    apps = result.get("apps", result.get("data", result.get("list", [])))
-                    if not isinstance(apps, list):
+                    # Check if it's a single app object (has appId or id field)
+                    if "appId" in result or "id" in result:
                         # Single app object
                         apps = [result]
+                    else:
+                        # Dict with apps array
+                        apps = result.get("apps", result.get("data", result.get("list", [])))
+                        if not isinstance(apps, list):
+                            # If still not a list, treat as single app
+                            apps = [result]
                 
                 # Convert to standard format
                 formatted_apps = []
                 for app in apps:
-                    app_id_val = app.get("id") or app.get("appId")
+                    # Fyber API returns appId as string or number
+                    app_id_val = app.get("appId") or app.get("id")
+                    # Convert to string if it's a number, keep as string if already string
+                    if app_id_val is not None:
+                        app_id_val = str(app_id_val) if not isinstance(app_id_val, str) else app_id_val
                     app_name = app.get("name") or "Unknown"
                     platform = app.get("platform", "").lower()
                     bundle_id = app.get("bundle") or app.get("bundleId") or ""
                     
                     formatted_apps.append({
-                        "appCode": str(app_id_val) if app_id_val else "N/A",
-                        "appId": str(app_id_val) if app_id_val else "N/A",
+                        "appCode": app_id_val if app_id_val else "N/A",
+                        "appId": app_id_val if app_id_val else "N/A",
                         "id": app_id_val,  # Also keep original "id" field for compatibility
                         "name": app_name,
                         "platform": platform,
@@ -3683,13 +3367,18 @@ class MockNetworkManager:
         if network == "bigoads":
             return self._get_bigoads_apps()
         elif network == "ironsource":
-            return self._get_ironsource_apps(app_key=app_key)
+            # Use new IronSourceAPI
+            if self._ironsource_api is None:
+                from utils.network_apis.ironsource_api import IronSourceAPI
+                self._ironsource_api = IronSourceAPI()
+            return self._ironsource_api.get_apps(app_key=app_key)
         elif network == "mintegral":
             return self._get_mintegral_apps()
         elif network == "inmobi":
             return self._get_inmobi_apps()
         elif network == "fyber":
             # For Fyber, app_key can be publisher_id or app_id
+            # If it's a numeric value, try app_id first, then publisher_id
             publisher_id = None
             app_id = None
             if app_key:
@@ -3697,7 +3386,9 @@ class MockNetworkManager:
                     if app_key.startswith("app:"):
                         app_id = int(app_key.split(":")[1])
                     else:
-                        publisher_id = int(app_key)
+                        # Try as app_id first (more specific)
+                        numeric_value = int(app_key)
+                        app_id = numeric_value
                 except ValueError:
                     logger.warning(f"[Fyber] Invalid app_key format: {app_key}")
             return self._get_fyber_apps(publisher_id=publisher_id, app_id=app_id)

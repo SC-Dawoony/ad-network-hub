@@ -309,13 +309,18 @@ def _process_create_app_result(current_network: str, network_display: str, form_
         app_code = result_data.get("id") or str(apple_game_id) if apple_game_id else (str(google_game_id) if google_game_id else None)
     elif current_network == "fyber":
         # Fyber: result.result contains appId and platform
+        # Handle both cases: result.result.appId or direct result.appId
         fyber_result = result.get("result", {})
+        if not fyber_result or (isinstance(fyber_result, dict) and not fyber_result.get("appId") and not fyber_result.get("id")):
+            # If result.result is empty or doesn't have appId, try result directly
+            fyber_result = result
         app_id = fyber_result.get("appId") or fyber_result.get("id")
         app_code = str(app_id) if app_id else None
     else:
-        # BigOAds: result.data contains appCode, or result itself
-        data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
-        app_code = data.get("appCode") or result.get("appCode")
+        # BigOAds: result.result contains appCode (from _create_bigoads_app normalization)
+        # The normalized response has result.result containing the actual data
+        result_data = result.get("result", {})
+        app_code = result_data.get("appCode") or result.get("appCode")
     
     if not app_code:
         app_code = "N/A"
@@ -411,11 +416,15 @@ def _process_create_app_result(current_network: str, network_display: str, form_
             if google_game_id:
                 st.write(f"  - **Android (Google):** {google_game_id}")
             if not apple_game_id and not google_game_id:
-                st.write(f"  {app_code}")
+                st.write(f"  N/A")
         elif current_network == "fyber":
             # Fyber: Display App ID instead of App Code
+            # Handle both cases: result.result.appId or direct result.appId
             fyber_result = result.get("result", {})
-            fyber_app_id = fyber_result.get("appId") or app_code
+            if not fyber_result or (isinstance(fyber_result, dict) and not fyber_result.get("appId") and not fyber_result.get("id")):
+                # If result.result is empty or doesn't have appId, try result directly
+                fyber_result = result
+            fyber_app_id = fyber_result.get("appId") or fyber_result.get("id") or app_code
             st.write(f"**App ID:** {fyber_app_id}")
         else:
             st.write(f"**App Code:** {result.get('appCode', app_code)}")
