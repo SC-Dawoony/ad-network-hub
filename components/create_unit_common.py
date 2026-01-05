@@ -294,6 +294,7 @@ def render_create_unit_common_ui(
             "name": "Interstitial",
             "placementType": "Interstitial",
             "coppa": False,
+            "skipability": "NonSkippable",  # Default: NonSkippable for Interstitial
         },
         "BN": {
             "name": "Banner",
@@ -1019,6 +1020,10 @@ def render_create_unit_common_ui(
                                         "coppa": bool(slot_config["coppa"]),
                                     }
                                     
+                                    # Add skipability for Interstitial placement (default: NonSkippable)
+                                    if slot_key == "IS" and slot_config.get("skipability"):
+                                        payload["skipability"] = slot_config["skipability"]
+                                    
                                     create_payloads.append((slot_key, slot_config, payload))
                                 
                                 # Create placements sequentially
@@ -1092,10 +1097,29 @@ def render_create_unit_common_ui(
                             app_name, apps, network_manager, current_network
                         )
                     elif current_network == "fyber":
-                        _render_fyber_slot_ui(
-                            slot_key, slot_config, selected_app_code, app_info_to_use,
-                            app_name, apps, network_manager, current_network
-                        )
+                        # Check if app_info_to_use has both Android and iOS (from Create App)
+                        has_android = app_info_to_use and (app_info_to_use.get("appId") or app_info_to_use.get("app_id"))
+                        has_ios = app_info_to_use and app_info_to_use.get("appIdIOS")
+                        
+                        if has_android and has_ios:
+                            # Display Android and iOS sections separately (like AppLovin)
+                            st.markdown(f"#### Android")
+                            _render_fyber_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network, platform="android"
+                            )
+                            st.markdown("---")
+                            st.markdown(f"#### iOS")
+                            _render_fyber_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network, platform="ios"
+                            )
+                        else:
+                            # Single platform (backward compatibility)
+                            _render_fyber_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network
+                            )
                     else:
                         # BigOAds and other networks
                         _render_bigoads_slot_ui(
@@ -1828,19 +1852,33 @@ def _render_inmobi_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
 
 
 def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
-                          app_name, apps, network_manager, current_network):
-    """Render Fyber slot UI"""
-    placement_name_key = f"fyber_slot_{slot_key}_name"
+                          app_name, apps, network_manager, current_network, platform=None):
+    """Render Fyber slot UI
+    
+    Args:
+        platform: "android" or "ios" to specify which platform to render (for dual-platform display)
+    """
+    # Use platform-specific key for placement name if platform is specified
+    if platform:
+        placement_name_key = f"fyber_slot_{slot_key}_{platform}_name"
+    else:
+        placement_name_key = f"fyber_slot_{slot_key}_name"
     
     if not selected_app_code:
         manual_code = st.session_state.get("manual_app_code_input", "")
         if manual_code:
             selected_app_code = manual_code.strip()
     
+    # Get app_id based on platform
     app_id = None
     if selected_app_code:
         if app_info_to_use:
-            app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
+            if platform == "ios":
+                # For iOS, use appIdIOS if available
+                app_id = app_info_to_use.get("appIdIOS")
+            else:
+                # For Android or no platform specified, use appId
+                app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId")
         
         if not app_id:
             for app in apps:
@@ -1867,9 +1905,17 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
     # Auto-generate placement name if not set or if app info is available
     if placement_name_key not in st.session_state or (selected_app_code and app_info_to_use):
         if selected_app_code and app_info_to_use:
-            bundle_id = app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+            # Get bundle_id and platform_str based on platform
+            if platform == "ios":
+                # For iOS, try to get iOS-specific bundle
+                bundle_id = app_info_to_use.get("iosBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                platform_str = "ios"
+            else:
+                # For Android or no platform specified
+                bundle_id = app_info_to_use.get("androidBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                platform_str = "android"
+            
             pkg_name = app_info_to_use.get("pkgName", "")
-            platform_str = app_info_to_use.get("platformStr", "android")
             app_name_for_slot = app_info_to_use.get("name", app_name)
             
             source_pkg = bundle_id if bundle_id else pkg_name
@@ -1922,15 +1968,24 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
     settings_html += '<ul style="margin: 0; padding-left: 20px;">'
     settings_html += f'<li>Placement Type: {slot_config["placementType"]}</li>'
     settings_html += f'<li>COPPA: {"No" if not slot_config["coppa"] else "Yes"}</li>'
+    # Add skipability display for Interstitial
+    if slot_key == "IS" and slot_config.get("skipability"):
+        settings_html += f'<li>Skipability: {slot_config["skipability"]}</li>'
     settings_html += '</ul></div>'
     st.markdown(settings_html, unsafe_allow_html=True)
     
     if app_id:
-        st.info(f"📱 App ID: {app_id}")
+        platform_display = "iOS" if platform == "ios" else "Android" if platform else ""
+        if platform_display:
+            st.info(f"📱 {platform_display} App ID: {app_id}")
+        else:
+            st.info(f"📱 App ID: {app_id}")
     elif selected_app_code:
         st.warning(f"⚠️ App ID not found. Will use entered code: {selected_app_code}")
     
-    if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_fyber_{slot_key}"):
+    button_key = f"create_fyber_{slot_key}_{platform}" if platform else f"create_fyber_{slot_key}"
+    button_label = f"✅ Create {slot_key} Placement ({platform.upper()})" if platform else f"✅ Create {slot_key} Placement"
+    if st.button(button_label, use_container_width=True, key=button_key):
         current_app_code = selected_app_code
         if not current_app_code:
             manual_code = st.session_state.get("manual_app_code_input", "")
@@ -1966,6 +2021,10 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                     "placementType": slot_config["placementType"],
                     "coppa": bool(slot_config["coppa"]),
                 }
+                
+                # Add skipability for Interstitial placement (default: NonSkippable)
+                if slot_key == "IS" and slot_config.get("skipability"):
+                    payload["skipability"] = slot_config["skipability"]
                 
                 import json as json_module
                 logger.info(f"[Fyber] Creating placement - selected_app_code: {selected_app_code}, appId: {app_id}, payload: {json_module.dumps(payload)}")

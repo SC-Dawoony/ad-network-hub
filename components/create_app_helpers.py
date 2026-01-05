@@ -48,6 +48,34 @@ def extract_package_name_from_store_url(store_url: str) -> str:
     return store_url.split("/")[-1].split("?")[0] if "/" in store_url else store_url
 
 
+def extract_itunes_id_from_store_url(store_url: str) -> str:
+    """Extract iTunes ID from iOS Store URL
+    
+    iOS: https://apps.apple.com/us/app/mob-hunters-idle-rpg/id6444113828
+    
+    Returns: iTunes ID (e.g., "6444113828" or "id6444113828")
+    """
+    if not store_url:
+        return ""
+    
+    # For iOS: extract last part after "/"
+    if "apps.apple.com" in store_url:
+        try:
+            last_part = store_url.rstrip("/").split("/")[-1]
+            # If it starts with "id", extract the numeric part
+            if last_part.startswith("id"):
+                # Return just the numeric part (without "id" prefix)
+                numeric_part = last_part[2:]  # Remove "id" prefix
+                if numeric_part.isdigit():
+                    return numeric_part
+                # If not numeric, return as is
+                return last_part
+        except:
+            pass
+    
+    return ""
+
+
 def normalize_platform_str(platform_value: str, network: str = None) -> str:
     """Normalize platform string to "android" or "ios"
     

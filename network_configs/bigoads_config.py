@@ -12,7 +12,7 @@ class BigOAdsConfig(NetworkConfig):
     
     @property
     def display_name(self) -> str:
-        return "BigOAds"
+        return "BIGO Ads"
     
     def _get_categories(self) -> List[Tuple[str, str]]:
         """Get category options from BigOAds API
@@ -107,40 +107,70 @@ class BigOAdsConfig(NetworkConfig):
                 label="Media Type",
                 default=1  # 항상 Application (1)
             ),
-            # 3. platform*
+            # 3. Android Store URL
             Field(
-                name="platform",
-                field_type="radio",
-                required=True,
-                label="Platform",
-                options=[("Android", 1), ("iOS", 2)],
-                default=1
-            ),
-            # 4. pkgName*
-            Field(
-                name="pkgName",
-                field_type="text",
-                required=True,
-                label="Package Name",
-                placeholder="com.example.app"
-            ),
-            # 5. storeUrl (선택, * 없음) - Moved before itunesId for auto-extraction
-            Field(
-                name="storeUrl",
+                name="androidStoreUrl",
                 field_type="text",
                 required=False,
-                label="Store URL",
-                placeholder="https://apps.apple.com/.../id1234567890 or https://play.google.com/store/apps/details?id=...",
-                help_text="For iOS apps, iTunes ID will be auto-extracted from Apple App Store URL"
+                label="Android Store URL",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL for Android app (optional)"
             ),
-            # 6. itunesId* (항상 활성화, validation에서 iOS일 때만 체크)
+            # 4. Android Package Name
+            Field(
+                name="androidPkgName",
+                field_type="text",
+                required=False,
+                label="Android Package Name",
+                placeholder="com.example.app",
+                help_text="Package name for Android app (required if Android Store URL is provided)"
+            ),
+            # 5. iOS Store URL
+            Field(
+                name="iosStoreUrl",
+                field_type="text",
+                required=False,
+                label="iOS Store URL",
+                placeholder="https://apps.apple.com/.../id1234567890",
+                help_text="Apple App Store URL for iOS app. iTunes ID will be auto-extracted from URL (optional)"
+            ),
+            # 6. iOS Package Name
+            Field(
+                name="iosPkgName",
+                field_type="text",
+                required=False,
+                label="iOS Package Name (Bundle ID)",
+                placeholder="com.example.app",
+                help_text="Bundle ID for iOS app (required if iOS Store URL is provided)"
+            ),
+            # Legacy fields for backward compatibility (hidden, will be populated from platform-specific fields)
+            Field(
+                name="platform",
+                field_type="hidden",
+                required=False,
+                label="Platform (Legacy)",
+                default=1
+            ),
+            Field(
+                name="pkgName",
+                field_type="hidden",
+                required=False,
+                label="Package Name (Legacy)",
+                default=""
+            ),
+            Field(
+                name="storeUrl",
+                field_type="hidden",
+                required=False,
+                label="Store URL (Legacy)",
+                default=""
+            ),
             Field(
                 name="itunesId",
-                field_type="text",
-                required=True,
-                label="iTunes ID (iOS)",
-                placeholder="Enter iTunes ID or it will be auto-extracted from Store URL",
-                help_text="Required for iOS apps. Enter iTunes ID (e.g., 1234567890) or it will be auto-extracted from Store URL above"
+                field_type="hidden",
+                required=False,
+                label="iTunes ID (Legacy)",
+                default=""
             ),
             # 7. mediationPlatform*
             Field(
@@ -342,55 +372,31 @@ class BigOAdsConfig(NetworkConfig):
         """Validate app creation data - returns (is_valid, error_message)"""
         error_messages = []
         
-        # iOS requires iTunes ID (validation only, field is always enabled)
-        # Check platform value first to validate itunesId if iOS is selected
-        platform = data.get("platform")
-        try:
-            # Try to convert platform to int, handling various input types
-            if platform is None:
-                platform_int = None
-            elif isinstance(platform, int):
-                platform_int = platform
-            elif isinstance(platform, str):
-                platform_int = int(platform.strip())
-            else:
-                platform_int = int(platform)
-        except (ValueError, TypeError):
-            platform_int = None
+        # Check that at least one platform (Android or iOS) is provided
+        android_store_url = data.get("androidStoreUrl", "").strip()
+        ios_store_url = data.get("iosStoreUrl", "").strip()
         
-        # Check if platform is iOS (2) - validate itunesId first
-        if platform_int == 2:  # iOS
-            itunes_id = data.get("itunesId")
-            
-            # Check if itunesId is missing, empty, or "0"
-            # Handle various empty cases: None, empty string, whitespace-only, "0"
-            itunes_id_str = str(itunes_id).strip() if itunes_id is not None else ""
-            is_empty = (itunes_id is None or 
-                       itunes_id == "" or 
-                       itunes_id_str == "" or 
-                       itunes_id_str == "0")
-            
-            if is_empty:
-                error_messages.append("iTunes ID is required for iOS apps")
-            else:
-                # Validate that itunesId contains only digits (must be numeric)
-                if not itunes_id_str.isdigit():
-                    error_messages.append("iTunes ID must be a valid integer (numbers only, no letters or special characters)")
-                else:
-                    # Additional check: try to convert to int
-                    try:
-                        int(itunes_id_str)
-                    except (ValueError, TypeError):
-                        error_messages.append("iTunes ID must be a valid integer")
+        if not android_store_url and not ios_store_url:
+            error_messages.append("At least one Store URL (Android or iOS) must be provided")
         
-        # Check required fields (after itunesId validation for iOS)
-        # Note: 'name' and 'pkgName' are validated separately in common validations
-        required_fields = ["platform", "mediaType", "category", "mediationPlatform", "coppaOption", "screenDirection"]
+        # Validate Android fields if Android Store URL is provided
+        if android_store_url:
+            android_pkg_name = data.get("androidPkgName", "").strip()
+            if not android_pkg_name:
+                error_messages.append("Android Package Name is required when Android Store URL is provided")
+        
+        # Validate iOS fields if iOS Store URL is provided
+        if ios_store_url:
+            ios_pkg_name = data.get("iosPkgName", "").strip()
+            if not ios_pkg_name:
+                error_messages.append("iOS Package Name (Bundle ID) is required when iOS Store URL is provided")
+        
+        # Check required fields (common to both platforms)
+        required_fields = ["mediaType", "category", "mediationPlatform", "coppaOption", "screenDirection"]
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == "":
                 # Map field names to user-friendly labels
                 field_labels = {
-                    "platform": "Platform",
                     "mediaType": "Media Type",
                     "category": "Category",
                     "mediationPlatform": "Mediation Platform",
@@ -400,20 +406,18 @@ class BigOAdsConfig(NetworkConfig):
                 field_label = field_labels.get(field, field)
                 error_messages.append(f"{field_label} is required")
         
-        # Return first error message if any, otherwise return success
-        if error_messages:
-            return False, error_messages[0]  # Return first error for backward compatibility
-        return True, ""
-        
         # Mediation platform must be selected
         if not data.get("mediationPlatform") or len(data["mediationPlatform"]) == 0:
-            return False, "At least one mediation platform must be selected"
+            error_messages.append("At least one mediation platform must be selected")
         
         # Validate mediationPlatformName if 99 (others) is selected
         if 99 in data.get("mediationPlatform", []):
             if not data.get("mediationPlatformName") or data.get("mediationPlatformName") == "":
-                return False, "Mediation Platform Name is required when 'Others' (99) is selected"
+                error_messages.append("Mediation Platform Name is required when 'Others' (99) is selected")
         
+        # Return first error message if any, otherwise return success
+        if error_messages:
+            return False, error_messages[0]  # Return first error for backward compatibility
         return True, ""
     
     def validate_unit_data(self, data: Dict) -> Tuple[bool, str]:
@@ -455,8 +459,12 @@ class BigOAdsConfig(NetworkConfig):
         
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
+    def build_app_payload(self, form_data: Dict, platform: Optional[str] = None) -> Dict:
         """Build API payload for app creation
+        
+        Args:
+            form_data: Form data from UI
+            platform: "Android" or "iOS" (optional, for dual-platform creation)
         
         Based on API documentation example:
         {
@@ -470,26 +478,50 @@ class BigOAdsConfig(NetworkConfig):
         
         Note: mediationPlatform and mediaType are optional based on API example
         """
+        from components.create_app_helpers import extract_itunes_id_from_store_url
+        
         # Category is already in API code format (e.g., "GAME_CASUAL")
         category_code = form_data.get("category")
+        
+        # Determine platform and package name based on platform parameter or form_data
+        if platform == "Android":
+            platform_int = 1
+            pkg_name = form_data.get("androidPkgName", "").strip()
+            store_url = form_data.get("androidStoreUrl", "").strip()
+        elif platform == "iOS":
+            platform_int = 2
+            pkg_name = form_data.get("iosPkgName", "").strip()
+            store_url = form_data.get("iosStoreUrl", "").strip()
+            # Extract iTunes ID from iOS Store URL
+            itunes_id = extract_itunes_id_from_store_url(store_url)
+        else:
+            # Legacy: use form_data directly (backward compatibility)
+            platform_int = int(form_data.get("platform", 1))
+            pkg_name = form_data.get("pkgName", "").strip()
+            store_url = form_data.get("storeUrl", "").strip()
+            if platform_int == 2:
+                itunes_id = form_data.get("itunesId", "").strip()
+                if not itunes_id and store_url:
+                    itunes_id = extract_itunes_id_from_store_url(store_url)
+            else:
+                itunes_id = None
         
         # Build base payload (required fields only based on API example)
         payload = {
             "name": form_data.get("name"),
-            "pkgName": form_data.get("pkgName"),
-            "platform": int(form_data.get("platform")),
+            "pkgName": pkg_name,
+            "platform": platform_int,
             "category": category_code,  # API expects string code like "GAME_PUZZLE"
             "coppaOption": int(form_data.get("coppaOption")),
             "screenDirection": int(form_data.get("screenDirection")),
         }
         
         # Optional fields
-        if form_data.get("storeUrl"):
-            payload["storeUrl"] = form_data.get("storeUrl")
+        if store_url:
+            payload["storeUrl"] = store_url
         
-        if form_data.get("platform") == 2 and form_data.get("itunesId"):
+        if platform_int == 2 and itunes_id:
             # API requires int, so convert from string if needed
-            itunes_id = form_data.get("itunesId")
             try:
                 payload["itunesId"] = int(itunes_id) if isinstance(itunes_id, str) else itunes_id
             except (ValueError, TypeError):

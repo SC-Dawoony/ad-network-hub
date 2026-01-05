@@ -91,7 +91,7 @@ class FyberConfig(NetworkConfig):
             ("Card", "Card"),
         ]
         
-        # Valid categories for iOS (from user specification)
+        # Valid categories for iOS (from API error message)
         ios_categories = [
             ("Books", "Books"),
             ("Business", "Business"),
@@ -135,6 +135,7 @@ class FyberConfig(NetworkConfig):
             ("Utilities", "Utilities"),
             ("Weather", "Weather"),
             ("Games", "Games"),
+            ("Shopping", "Shopping"),
         ]
         
         if platform.lower() == "android":
@@ -145,7 +146,7 @@ class FyberConfig(NetworkConfig):
     def get_app_creation_fields(self) -> List[Field]:
         """Get fields for app creation
         
-        Order: name, bundle, platform, category1, coppa, rewardedAdUrl (optional), category2 (optional)
+        Now supports simultaneous Android and iOS app creation (like IronSource/InMobi/BigOAds)
         """
         return [
             Field(
@@ -156,31 +157,82 @@ class FyberConfig(NetworkConfig):
                 placeholder="Enter app name",
                 help_text="The name of the app"
             ),
+            # Android fields
+            Field(
+                name="androidStoreUrl",
+                field_type="text",
+                required=False,
+                label="Android Store URL",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL for Android app (optional)"
+            ),
+            Field(
+                name="androidBundle",
+                field_type="text",
+                required=False,
+                label="Android Bundle ID",
+                placeholder="com.example.app",
+                help_text="Android package name (required if Android Store URL is provided)"
+            ),
+            # iOS fields
+            Field(
+                name="iosStoreUrl",
+                field_type="text",
+                required=False,
+                label="iOS Store URL",
+                placeholder="https://apps.apple.com/.../id1234567890",
+                help_text="Apple App Store URL for iOS app (optional)"
+            ),
+            Field(
+                name="iosBundle",
+                field_type="text",
+                required=False,
+                label="iOS Bundle/Store ID",
+                placeholder="com.example.app (recommended)",
+                help_text="iOS Bundle ID (recommended) or iTunes Store ID (required if iOS Store URL is provided)"
+            ),
+            # Legacy fields for backward compatibility (hidden, will be populated from platform-specific fields)
             Field(
                 name="bundle",
-                field_type="text",
-                required=True,
-                label="Bundle/Store ID*",
-                placeholder="com.example.app (Android) or id1234567890 (iOS)",
-                help_text="App's Android bundle or iOS Store ID"
+                field_type="hidden",
+                required=False,
+                label="Bundle (Legacy)",
+                default=""
             ),
             Field(
                 name="platform",
-                field_type="radio",
-                required=True,
-                label="Platform*",
-                options=[("Android", "android"), ("iOS", "ios")],
-                default="android",
-                help_text="App's platform"
+                field_type="hidden",
+                required=False,
+                label="Platform (Legacy)",
+                default="android"
             ),
+            # Android Category
+            Field(
+                name="androidCategory1",
+                field_type="dropdown",
+                required=False,
+                label="Category 1 (Android)*",
+                options=self._get_categories("android"),
+                default="Games - Casual",
+                help_text="App's first store category for Android (required if Android Store URL is provided)"
+            ),
+            # iOS Category
+            Field(
+                name="iosCategory1",
+                field_type="dropdown",
+                required=False,
+                label="Category 1 (iOS)*",
+                options=self._get_categories("ios"),
+                default="Games",
+                help_text="App's first store category for iOS (required if iOS Store URL is provided)"
+            ),
+            # Legacy field for backward compatibility
             Field(
                 name="category1",
-                field_type="dropdown",
-                required=True,
-                label="Category 1*",
-                options=self._get_categories("android"),  # Will be updated dynamically based on platform selection
-                default="Games - Casual",
-                help_text="App's first store category (platform-specific, updates based on platform selection)"
+                field_type="hidden",
+                required=False,
+                label="Category 1 (Legacy)",
+                default="Games - Casual"
             ),
             Field(
                 name="coppa",
@@ -191,13 +243,13 @@ class FyberConfig(NetworkConfig):
                 default="false",
                 help_text="Is the app directed to children under 13 years of age?"
             ),
+            # Rewarded Ad URL is optional, so hide it from UI
             Field(
                 name="rewardedAdUrl",
-                field_type="text",
+                field_type="hidden",
                 required=False,
                 label="Rewarded Ad URL",
-                placeholder="https://example.com/callbacks.aspx?user_id={{USER_ID}}&reward_amount={{AMOUNT}}&signature={{SIG}}",
-                help_text="URL to be used for server side call back on app's rewarded placements"
+                default=""
             ),
             # category2 is optional and hidden from UI
         ]
@@ -263,29 +315,48 @@ class FyberConfig(NetworkConfig):
     
     def validate_app_data(self, data: Dict) -> Tuple[bool, str]:
         """Validate app creation data"""
+        error_messages = []
+        
         # Required fields
         if not data.get("name"):
-            return False, "App Name is required"
+            error_messages.append("App Name is required")
         
-        if not data.get("bundle"):
-            return False, "Bundle/Store ID is required"
+        # Check that at least one platform (Android or iOS) is provided
+        android_store_url = data.get("androidStoreUrl", "").strip()
+        ios_store_url = data.get("iosStoreUrl", "").strip()
         
-        if not data.get("platform"):
-            return False, "Platform is required"
+        if not android_store_url and not ios_store_url:
+            error_messages.append("At least one Store URL (Android or iOS) must be provided")
         
-        valid_platforms = ["android", "ios"]
-        if data.get("platform") not in valid_platforms:
-            return False, f"Platform must be one of: {', '.join(valid_platforms)}"
+        # Validate Android fields if Android Store URL is provided
+        if android_store_url:
+            android_bundle = data.get("androidBundle", "").strip()
+            if not android_bundle:
+                error_messages.append("Android Bundle ID is required when Android Store URL is provided")
+            android_category1 = data.get("androidCategory1", "").strip()
+            if not android_category1:
+                error_messages.append("Category 1 (Android) is required when Android Store URL is provided")
         
-        if not data.get("category1"):
-            return False, "Category 1 is required"
+        # Validate iOS fields if iOS Store URL is provided
+        if ios_store_url:
+            ios_bundle = data.get("iosBundle", "").strip()
+            if not ios_bundle:
+                error_messages.append("iOS Bundle/Store ID is required when iOS Store URL is provided")
+            ios_category1 = data.get("iosCategory1", "").strip()
+            if not ios_category1:
+                error_messages.append("Category 1 (iOS) is required when iOS Store URL is provided")
         
+        # COPPA is required
         if "coppa" not in data:
-            return False, "COPPA is required"
+            error_messages.append("COPPA is required")
+        else:
+            valid_coppa = ["true", "false"]
+            if data.get("coppa") not in valid_coppa:
+                error_messages.append(f"COPPA must be one of: {', '.join(valid_coppa)}")
         
-        valid_coppa = ["true", "false"]
-        if data.get("coppa") not in valid_coppa:
-            return False, f"COPPA must be one of: {', '.join(valid_coppa)}"
+        # Return first error message if any, otherwise return success
+        if error_messages:
+            return False, error_messages[0]
         
         return True, ""
     
@@ -321,14 +392,61 @@ class FyberConfig(NetworkConfig):
         
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
-        """Build API payload for app creation"""
+    def build_app_payload(self, form_data: Dict, platform: Optional[str] = None) -> Dict:
+        """Build API payload for app creation
+        
+        Args:
+            form_data: Form data from UI
+            platform: "Android" or "iOS" (optional, for dual-platform creation)
+        """
+        # Determine platform and bundle based on platform parameter or form_data
+        if platform == "Android":
+            platform_str = "android"
+            bundle = form_data.get("androidBundle", "").strip()
+            category1 = form_data.get("androidCategory1", "").strip()
+        elif platform == "iOS":
+            platform_str = "ios"
+            bundle = form_data.get("iosBundle", "").strip()
+            category1 = form_data.get("iosCategory1", "").strip()
+        else:
+            # Legacy: use form_data directly (backward compatibility)
+            platform_str = form_data.get("platform", "android")
+            bundle = form_data.get("bundle", "").strip()
+            category1 = form_data.get("category1", "").strip()
+            if not bundle:
+                # Try to get from platform-specific fields
+                if platform_str == "android":
+                    bundle = form_data.get("androidBundle", "").strip()
+                    if not category1:
+                        category1 = form_data.get("androidCategory1", "").strip()
+                elif platform_str == "ios":
+                    bundle = form_data.get("iosBundle", "").strip()
+                    if not category1:
+                        category1 = form_data.get("iosCategory1", "").strip()
+        
+        # Get COPPA value, ensure it defaults to "false" if not provided or invalid
+        coppa_value = form_data.get("coppa")
+        # Explicitly check: if coppa is None, empty, or not a valid value, default to "false"
+        # Also handle boolean values (True/False) and convert to string
+        if coppa_value is None or coppa_value == "":
+            coppa_value = "false"
+        elif isinstance(coppa_value, bool):
+            coppa_value = "true" if coppa_value else "false"
+        elif str(coppa_value).lower() not in ["true", "false"]:
+            coppa_value = "false"
+        else:
+            # Ensure it's lowercase string
+            coppa_value = str(coppa_value).lower()
+        
+        # Convert coppa string to boolean for API (Fyber API expects boolean)
+        coppa_bool = coppa_value == "true"
+        
         payload = {
             "name": form_data.get("name", "").strip(),
-            "bundle": form_data.get("bundle", "").strip(),
-            "platform": form_data.get("platform", "android"),
-            "category1": form_data.get("category1", "").strip(),
-            "coppa": form_data.get("coppa", "false"),
+            "bundle": bundle,
+            "platform": platform_str,
+            "category1": category1,
+            "coppa": coppa_bool,  # Convert to boolean (defaults to false)
         }
         
         # Optional fields

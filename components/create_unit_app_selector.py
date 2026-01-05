@@ -21,10 +21,10 @@ def render_app_code_selector(current_network: str, network_manager):
     # Load apps from cache (from Create App POST responses)
     cached_apps = SessionManager.get_cached_apps(current_network)
     
-    # For IronSource, use Create App response as default (no auto API call)
-    # For other networks (BigOAds, Mintegral, InMobi), fetch from API automatically
+    # For IronSource and BigOAds, use Create App response as default (no auto API call)
+    # For other networks (Mintegral, InMobi), fetch from API automatically
     api_apps = []
-    if current_network in ["bigoads", "mintegral", "inmobi"]:
+    if current_network in ["mintegral", "inmobi"]:
         try:
             with st.spinner("Loading apps from API..."):
                 api_apps = network_manager.get_apps(current_network)
@@ -36,10 +36,10 @@ def render_app_code_selector(current_network: str, network_manager):
             logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
-    # For IronSource, add manual "조회" button to fetch apps from API
-    if current_network == "ironsource":
+    # For IronSource and BigOAds, add manual "조회" button to fetch apps from API
+    if current_network in ["ironsource", "bigoads"]:
         # Check if user wants to fetch apps from API
-        fetch_apps_key = "ironsource_fetch_apps_from_api"
+        fetch_apps_key = f"{current_network}_fetch_apps_from_api"
         if fetch_apps_key not in st.session_state:
             st.session_state[fetch_apps_key] = False
         
@@ -47,7 +47,7 @@ def render_app_code_selector(current_network: str, network_manager):
         with col1:
             st.info("💡 **Tip:** Create App에서 생성한 앱이 기본값으로 표시됩니다. API에서 최근 앱을 조회하려면 버튼을 클릭하세요.")
         with col2:
-            if st.button("🔍 최근 생성한 App 조회", use_container_width=True, key="ironsource_fetch_apps_btn"):
+            if st.button("🔍 최근 생성한 App 조회", use_container_width=True, key=f"{current_network}_fetch_apps_btn"):
                 st.session_state[fetch_apps_key] = True
         
         # Fetch apps from API if button was clicked
@@ -66,18 +66,25 @@ def render_app_code_selector(current_network: str, network_manager):
                 st.session_state[fetch_apps_key] = False
     
     # Merge cached apps with API apps
-    # For IronSource, prioritize cached apps (from Create App response)
-    if current_network == "ironsource":
+    # For IronSource and BigOAds, prioritize cached apps (from Create App response)
+    if current_network in ["ironsource", "bigoads"]:
         # Use cached apps first (from Create App response)
         apps = cached_apps.copy() if cached_apps else []
         # Add API apps that are not in cache
         if api_apps:
-            cached_app_keys = {app.get("appKey") or app.get("appCode") for app in apps if app.get("appKey") or app.get("appCode")}
-            for api_app in api_apps:
-                api_key = api_app.get("appKey") or api_app.get("appCode")
-                if api_key and api_key not in cached_app_keys:
-                    apps.append(api_app)
-    elif current_network in ["bigoads", "mintegral", "inmobi"] and api_apps:
+            if current_network == "ironsource":
+                cached_app_keys = {app.get("appKey") or app.get("appCode") for app in apps if app.get("appKey") or app.get("appCode")}
+                for api_app in api_apps:
+                    api_key = api_app.get("appKey") or api_app.get("appCode")
+                    if api_key and api_key not in cached_app_keys:
+                        apps.append(api_app)
+            elif current_network == "bigoads":
+                cached_app_codes = {app.get("appCode") for app in apps if app.get("appCode")}
+                for api_app in api_apps:
+                    api_code = api_app.get("appCode")
+                    if api_code and api_code not in cached_app_codes:
+                        apps.append(api_app)
+    elif current_network in ["mintegral", "inmobi"] and api_apps:
         # For other networks, prioritize API apps (they are more recent)
         apps = api_apps.copy()
         # For BigOAds, check appCode

@@ -4,14 +4,21 @@ import re
 
 
 def validate_package_name(package_name: str) -> Tuple[bool, str]:
-    """Validate Android package name format"""
+    """Validate package name format (Android/iOS)
+    
+    Supports both lowercase and mixed case package names:
+    - com.example.app (lowercase)
+    - com.TornadoBear.DinoKing (mixed case)
+    """
     if not package_name:
         return False, "Package name is required"
     
-    # Basic package name validation (com.example.app)
-    pattern = r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'
+    # Package name validation - allows uppercase letters
+    # Format: com.example.app or com.TornadoBear.DinoKing
+    # Each segment must start with a letter (a-z, A-Z) and can contain letters, numbers, and underscores
+    pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$'
     if not re.match(pattern, package_name):
-        return False, "Invalid package name format (e.g., com.example.app)"
+        return False, "Invalid package name format (e.g., com.example.app or com.TornadoBear.DinoKing)"
     
     return True, ""
 

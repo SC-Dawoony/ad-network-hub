@@ -104,7 +104,11 @@ class DynamicFormRenderer:
         elif field.field_type == "radio":
             options = [opt[0] for opt in field.options] if field.options else []
             # Use current form_data value if exists, otherwise use default
-            current_value = form_data.get(field.name, field.default)
+            # For Fyber COPPA, ensure default is always applied if not explicitly set
+            current_value = form_data.get(field.name)
+            if current_value is None:
+                current_value = field.default
+            
             selected_index = 0
             if current_value is not None:
                 # Find index of current value
@@ -228,28 +232,80 @@ class DynamicFormRenderer:
         
         form_data = existing_data.copy()
         
-        # Render fields in order, handling conditional fields at their correct position
-        for field in fields:
-            # Handle hidden fields (e.g., mediaType)
-            if field.field_type == "hidden":
-                form_data[field.name] = field.default
-                continue
+        # Special handling for Fyber: Render androidCategory1 and iosCategory1 side by side
+        if (form_type == "app" and 
+            hasattr(config, 'network_name') and config.network_name == "fyber"):
+            # Find androidCategory1 and iosCategory1 fields
+            android_category_field = None
+            ios_category_field = None
+            other_fields = []
             
-            # Handle conditional fields
-            if isinstance(field, ConditionalField):
-                if field.should_show(form_data):
-                    # Render conditional field at its correct position in the form
+            for field in fields:
+                if field.name == "androidCategory1":
+                    android_category_field = field
+                elif field.name == "iosCategory1":
+                    ios_category_field = field
+                else:
+                    other_fields.append(field)
+            
+            # Render other fields first
+            for field in other_fields:
+                # Handle hidden fields (e.g., mediaType)
+                if field.field_type == "hidden":
+                    form_data[field.name] = field.default
+                    continue
+                
+                # Handle conditional fields
+                if isinstance(field, ConditionalField):
+                    if field.should_show(form_data):
+                        # Render conditional field at its correct position in the form
+                        rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
+                        if rendered_value is not None:
+                            form_data[field.name] = rendered_value
+                    else:
+                        # Clear conditional field if condition is not met
+                        form_data.pop(field.name, None)
+                else:
+                    # Render regular field
                     rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
                     if rendered_value is not None:
                         form_data[field.name] = rendered_value
+            
+            # Render androidCategory1 and iosCategory1 side by side
+            if android_category_field and ios_category_field:
+                col1, col2 = st.columns(2)
+                with col1:
+                    rendered_value = DynamicFormRenderer.render_field(android_category_field, form_data, form_type, config=config)
+                    if rendered_value is not None:
+                        form_data[android_category_field.name] = rendered_value
+                with col2:
+                    rendered_value = DynamicFormRenderer.render_field(ios_category_field, form_data, form_type, config=config)
+                    if rendered_value is not None:
+                        form_data[ios_category_field.name] = rendered_value
+        else:
+            # Original logic for other networks
+            # Render fields in order, handling conditional fields at their correct position
+            for field in fields:
+                # Handle hidden fields (e.g., mediaType)
+                if field.field_type == "hidden":
+                    form_data[field.name] = field.default
+                    continue
+                
+                # Handle conditional fields
+                if isinstance(field, ConditionalField):
+                    if field.should_show(form_data):
+                        # Render conditional field at its correct position in the form
+                        rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
+                        if rendered_value is not None:
+                            form_data[field.name] = rendered_value
+                    else:
+                        # Clear conditional field if condition is not met
+                        form_data.pop(field.name, None)
                 else:
-                    # Clear conditional field if condition is not met
-                    form_data.pop(field.name, None)
-            else:
-                # Render regular field
-                rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
-                if rendered_value is not None:
-                    form_data[field.name] = rendered_value
+                    # Render regular field
+                    rendered_value = DynamicFormRenderer.render_field(field, form_data, form_type, config=config)
+                    if rendered_value is not None:
+                        form_data[field.name] = rendered_value
                 
                 # Special handling for BigOAds: Auto-extract iTunes ID from Store URL
                 # Note: storeUrl is rendered after itunesId, so we update form_data
