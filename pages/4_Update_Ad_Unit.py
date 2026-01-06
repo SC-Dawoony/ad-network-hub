@@ -395,6 +395,12 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     app_key = app_ids.get("app_key") or app_ids.get("app_code")
                                     app_id = app_ids.get("app_id")
                                     
+                                    # For BigOAds, ensure app_key is set (fallback to app_id if app_code is missing)
+                                    if actual_network == "bigoads" and not app_key:
+                                        app_key = app_id  # Fallback to appId if appCode is not available
+                                        if app_key:
+                                            logger.warning(f"[BigOAds] app_code not found, using appId as fallback: {app_key}")
+                                    
                                     # Debug logging for Fyber
                                     if actual_network == "fyber":
                                         logger.info(f"[Fyber] Matched app: {matched_app.get('name', 'N/A')}")
@@ -578,7 +584,20 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = ""  # Empty for Fyber
                                     elif actual_network == "bigoads":
-                                        ad_network_app_id = str(app_key) if app_key else ""  # appCode for BigOAds
+                                        # For BigOAds, use appCode (app_key) for ad_network_app_id
+                                        # Fallback to appId if appCode is not available
+                                        if app_key:
+                                            ad_network_app_id = str(app_key)
+                                        elif app_id:
+                                            ad_network_app_id = str(app_id)
+                                            logger.warning(f"[BigOAds] Using appId as fallback for ad_network_app_id: {ad_network_app_id}")
+                                        else:
+                                            # Last resort: try to get from matched_app directly
+                                            ad_network_app_id = str(matched_app.get("appCode") or matched_app.get("appId") or "")
+                                            if ad_network_app_id:
+                                                logger.warning(f"[BigOAds] Using direct matched_app value for ad_network_app_id: {ad_network_app_id}")
+                                            else:
+                                                logger.error(f"[BigOAds] Could not extract ad_network_app_id. matched_app keys: {list(matched_app.keys())}")
                                         ad_network_app_key = ""  # Empty for BigOAds
                                         
                                         # Debug logging for BigOAds ad_network_app_id
@@ -588,6 +607,8 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             st.write(f"⚠️ [BigOAds Debug] app_id value: {app_id}")
                                             st.write(f"⚠️ [BigOAds Debug] app_ids dict: {app_ids}")
                                             st.write(f"⚠️ [BigOAds Debug] matched_app appCode: {matched_app.get('appCode') if matched_app else 'N/A'}")
+                                            st.write(f"⚠️ [BigOAds Debug] matched_app appId: {matched_app.get('appId') if matched_app else 'N/A'}")
+                                            st.write(f"⚠️ [BigOAds Debug] matched_app keys: {list(matched_app.keys()) if matched_app else []}")
                                         else:
                                             st.write(f"✅ [BigOAds Debug] ad_network_app_id set to: {ad_network_app_id}")
                                     elif actual_network == "vungle":
