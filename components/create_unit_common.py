@@ -1510,7 +1510,20 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
     """Render Mintegral slot UI"""
     placement_name_key = f"mintegral_slot_{slot_key}_name"
     
-    if selected_app_code:
+    # Track last selected app code to detect changes
+    last_app_code_key = f"mintegral_last_app_code_{slot_key}"
+    last_app_code = st.session_state.get(last_app_code_key, "")
+    
+    # Auto-generate placement name if not set or if app selection changed
+    app_selection_changed = selected_app_code and selected_app_code != last_app_code
+    should_regenerate = (
+        placement_name_key not in st.session_state or 
+        app_selection_changed
+    )
+    
+    if selected_app_code and should_regenerate:
+        logger.info(f"[Mintegral] Regenerating placement name. selected_app_code: {selected_app_code} (type: {type(selected_app_code).__name__}), last_app_code: {last_app_code}, app_selection_changed: {app_selection_changed}")
+        logger.info(f"[Mintegral] apps list length: {len(apps)}, app_info_to_use: {app_info_to_use is not None}")
         pkg_name = ""
         platform_str = "android"
         app_name_for_slot = app_name
@@ -1519,19 +1532,28 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
             pkg_name = app_info_to_use.get("pkgName", "")
             platform_str = app_info_to_use.get("platformStr", "android")
             app_name_for_slot = app_info_to_use.get("name", app_name)
+            logger.info(f"[Mintegral] From app_info_to_use: name={app_name_for_slot}, pkg={pkg_name}, platform={platform_str}")
         
-        if not pkg_name or not platform_str or platform_str == "unknown":
-            for app in apps:
-                app_identifier = app.get("appCode")
-                if app_identifier == selected_app_code:
-                    if not pkg_name:
-                        pkg_name = app.get("pkgName", "")
-                    if not platform_str or platform_str == "unknown":
-                        platform_from_app = app.get("platform", "")
-                        platform_str = _normalize_platform_str(platform_from_app, "mintegral")
-                    if not app_name_for_slot or app_name_for_slot == app_name:
-                        app_name_for_slot = app.get("name", app_name)
-                    break
+        # Always try to get from apps list first (more reliable)
+        found_in_apps = False
+        for app in apps:
+            app_identifier = app.get("appCode")
+            # Try both string and int comparison
+            if str(app_identifier) == str(selected_app_code) or app_identifier == selected_app_code:
+                found_in_apps = True
+                # Always update from apps list when app selection changes
+                if app_selection_changed or not pkg_name:
+                    pkg_name = app.get("pkgName", "")
+                if app_selection_changed or not platform_str or platform_str == "unknown":
+                    platform_from_app = app.get("platform", "")
+                    platform_str = _normalize_platform_str(platform_from_app, "mintegral")
+                if app_selection_changed or not app_name_for_slot or app_name_for_slot == app_name:
+                    app_name_for_slot = app.get("name", app_name)
+                logger.info(f"[Mintegral] Found app in apps list: name={app_name_for_slot}, pkg={pkg_name}, platform={platform_str}, appCode={app_identifier}")
+                break
+        
+        if not found_in_apps:
+            logger.warning(f"[Mintegral] App {selected_app_code} not found in apps list. Available appCodes: {[app.get('appCode') for app in apps[:5]]}")
         
         platform_str = _normalize_platform_str(platform_str, "mintegral")
         
@@ -1539,26 +1561,69 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
         # try to find Android version of the same app by matching app_name
         if platform_str == "ios" and pkg_name and pkg_name.startswith("id") and pkg_name[2:].isdigit():
             logger.info(f"[Mintegral] iOS app with iTunes ID: {pkg_name}, searching for Android version with app_name: {app_name_for_slot}")
-            # Search for Android app with same app_name
+            logger.info(f"[Mintegral] Searching in {len(apps)} apps for Android version")
+            # Search for Android app with same app_name in apps list first
+            android_found = False
             for app in apps:
                 app_platform = app.get("platform", "")
                 app_platform_normalized = _normalize_platform_str(app_platform, "mintegral")
                 app_name_from_list = app.get("name", "")
                 
+                logger.debug(f"[Mintegral] Checking app: name={app_name_from_list}, platform={app_platform} (normalized: {app_platform_normalized})")
+                
                 if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
                     android_pkg_name = app.get("pkgName", "")
                     if android_pkg_name and not android_pkg_name.startswith("id"):
-                        logger.info(f"[Mintegral] Found Android app with same name, using package: {android_pkg_name}")
+                        logger.info(f"[Mintegral] Found Android app with same name in apps list, using package: {android_pkg_name}")
                         pkg_name = android_pkg_name
+                        android_found = True
                         break
+            
+            # If not found in apps list, try fetching all apps from API
+            if not android_found:
+                logger.info(f"[Mintegral] Android app not found in apps list ({len(apps)} apps), fetching all apps from API")
+                try:
+                    all_apps = network_manager.get_apps(current_network)
+                    if all_apps:
+                        logger.info(f"[Mintegral] Fetched {len(all_apps)} apps from API, searching for Android version")
+                        for app in all_apps:
+                            app_platform = app.get("platform", "")
+                            app_platform_normalized = _normalize_platform_str(app_platform, "mintegral")
+                            app_name_from_list = app.get("name", "")
+                            
+                            if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                                android_pkg_name = app.get("pkgName", "")
+                                if android_pkg_name and not android_pkg_name.startswith("id"):
+                                    logger.info(f"[Mintegral] Found Android app with same name in full apps list, using package: {android_pkg_name}")
+                                    pkg_name = android_pkg_name
+                                    android_found = True
+                                    break
+                except Exception as e:
+                    logger.warning(f"[Mintegral] Failed to fetch all apps from API: {str(e)}")
+            
+            if not android_found:
+                logger.warning(f"[Mintegral] Could not find Android app with name '{app_name_for_slot}' in apps list. Available apps: {[(app.get('name'), app.get('platform')) for app in apps]}")
         
         # Generate placement name if we have a valid package name (not iTunes ID)
+        logger.info(f"[Mintegral] Before generating: pkg_name={pkg_name}, platform_str={platform_str}, app_name_for_slot={app_name_for_slot}")
         if pkg_name and not (pkg_name.startswith("id") and pkg_name[2:].isdigit()):
             default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "mintegral", network_manager=network_manager, app_name=app_name_for_slot)
-            st.session_state[placement_name_key] = default_name
-        elif placement_name_key not in st.session_state:
+            logger.info(f"[Mintegral] Generated placement name: {default_name} for app: {app_name_for_slot}, pkg: {pkg_name}")
+            if default_name:
+                st.session_state[placement_name_key] = default_name
+            else:
+                # generate_slot_name returned empty, use fallback
+                logger.warning(f"[Mintegral] generate_slot_name returned empty, using fallback")
+                default_name = f"{slot_key.lower()}_placement"
+                st.session_state[placement_name_key] = default_name
+        else:
+            # No valid package name found, use fallback
+            logger.warning(f"[Mintegral] No valid package name found (pkg_name: {pkg_name}), using fallback")
             default_name = f"{slot_key.lower()}_placement"
             st.session_state[placement_name_key] = default_name
+        
+        # Update last app code
+        st.session_state[last_app_code_key] = selected_app_code
     elif placement_name_key not in st.session_state:
         default_name = f"{slot_key.lower()}_placement"
         st.session_state[placement_name_key] = default_name

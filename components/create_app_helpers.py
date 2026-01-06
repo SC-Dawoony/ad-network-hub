@@ -224,7 +224,9 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
     source_pkg_name = pkg_name if pkg_name else (bundle_id if bundle_id else "")
     final_pkg_name = source_pkg_name
     
-    if network_manager and (pkg_name or bundle_id):
+    # For Mintegral, skip BigOAds lookup (pkg_name should already be resolved from apps list)
+    # Mintegral should use its own app list for package name resolution
+    if network.lower() != "mintegral" and network_manager and (pkg_name or bundle_id):
         bigoads_pkg = get_bigoads_pkg_name_display(pkg_name, bundle_id, network_manager, app_name, platform_str)
         if bigoads_pkg:
             final_pkg_name = bigoads_pkg
