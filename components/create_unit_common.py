@@ -1535,7 +1535,25 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
         
         platform_str = _normalize_platform_str(platform_str, "mintegral")
         
-        if pkg_name:
+        # For iOS apps, if pkg_name is iTunes ID (starts with "id" followed by numbers),
+        # try to find Android version of the same app by matching app_name
+        if platform_str == "ios" and pkg_name and pkg_name.startswith("id") and pkg_name[2:].isdigit():
+            logger.info(f"[Mintegral] iOS app with iTunes ID: {pkg_name}, searching for Android version with app_name: {app_name_for_slot}")
+            # Search for Android app with same app_name
+            for app in apps:
+                app_platform = app.get("platform", "")
+                app_platform_normalized = _normalize_platform_str(app_platform, "mintegral")
+                app_name_from_list = app.get("name", "")
+                
+                if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                    android_pkg_name = app.get("pkgName", "")
+                    if android_pkg_name and not android_pkg_name.startswith("id"):
+                        logger.info(f"[Mintegral] Found Android app with same name, using package: {android_pkg_name}")
+                        pkg_name = android_pkg_name
+                        break
+        
+        # Generate placement name if we have a valid package name (not iTunes ID)
+        if pkg_name and not (pkg_name.startswith("id") and pkg_name[2:].isdigit()):
             default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "mintegral", network_manager=network_manager, app_name=app_name_for_slot)
             st.session_state[placement_name_key] = default_name
         elif placement_name_key not in st.session_state:
