@@ -226,85 +226,155 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                 result.extend(group_list_sorted)
             filtered_units_sorted = result
             
-            # Create table with checkbox
-            table_data = []
-            for unit in filtered_units_sorted:
-                table_data.append({
-                    "선택": False,
-                    "id": unit.get("id", ""),
-                    "name": unit.get("name", ""),
-                    "platform": unit.get("platform", ""),
-                    "ad_format": unit.get("ad_format", ""),
-                    "package_name": unit.get("package_name", "")
-                })
+            # 선택 상태를 저장할 session state 초기화
+            if "ad_unit_selections" not in st.session_state:
+                st.session_state.ad_unit_selections = {}
             
-            if table_data:
-                df = pd.DataFrame(table_data)
+            # 자동 선택: 필터된 모든 unit을 기본적으로 선택 (처음 로드되거나 필터가 변경될 때)
+            if filtered_units_sorted:
+                # 필터된 unit들의 ID 목록
+                filtered_unit_ids = {unit.get("id", "") for unit in filtered_units_sorted}
                 
-                # Initialize select all state
-                if "select_all_ad_units_flag" not in st.session_state:
-                    st.session_state.select_all_ad_units_flag = None
+                # 필터된 unit 중 선택되지 않은 것이 있으면 자동으로 선택
+                for unit in filtered_units_sorted:
+                    unit_id = unit.get("id", "")
+                    if unit_id not in st.session_state.ad_unit_selections:
+                        # 새로 필터된 unit은 자동으로 선택
+                        st.session_state.ad_unit_selections[unit_id] = True
+                    # 이미 선택 상태가 있으면 그대로 유지
+                # Add custom CSS for better table styling with reduced spacing
+                st.markdown("""
+                <style>
+                .ad-unit-table {
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin: 10px 0;
+                }
+                .ad-unit-table-header {
+                    background-color: #f0f2f6;
+                    padding: 8px 8px;
+                    font-weight: 600;
+                    border-bottom: 2px solid #e0e0e0;
+                    text-align: left;
+                    margin: 0;
+                }
+                .ad-unit-table-row {
+                    border-bottom: 1px solid #e0e0e0;
+                    padding: 4px 8px;
+                    margin: 0;
+                }
+                .ad-unit-table-row:hover {
+                    background-color: #f8f9fa;
+                }
+                .ad-unit-table-cell {
+                    padding: 4px 8px;
+                    vertical-align: middle;
+                    margin: 0;
+                    line-height: 1.4;
+                }
+                /* Reduce Streamlit column spacing */
+                div[data-testid="column"] {
+                    padding: 0 4px;
+                }
+                /* Reduce checkbox container height */
+                div[data-testid="column"] > div {
+                    padding: 2px 0;
+                }
+                </style>
+                """, unsafe_allow_html=True)
                 
-                # Select all / Deselect all buttons
-                col_select, col_deselect = st.columns(2)
-                with col_select:
-                    if st.button("✅ 전체 선택", use_container_width=True, key="select_all_ad_units"):
-                        st.session_state.select_all_ad_units_flag = True
-                        st.rerun()
-                with col_deselect:
-                    if st.button("❌ 전체 해제", use_container_width=True, key="deselect_all_ad_units"):
-                        st.session_state.select_all_ad_units_flag = False
-                        st.rerun()
+                # Create table with individual checkboxes (more reliable than data_editor)
+                # Header with better styling
+                header_cols = st.columns([0.4, 1.5, 1.5, 0.8, 0.9, 2.2])
+                with header_cols[0]:
+                    st.markdown('<div class="ad-unit-table-header">선택</div>', unsafe_allow_html=True)
+                with header_cols[1]:
+                    st.markdown('<div class="ad-unit-table-header">ID</div>', unsafe_allow_html=True)
+                with header_cols[2]:
+                    st.markdown('<div class="ad-unit-table-header">Name</div>', unsafe_allow_html=True)
+                with header_cols[3]:
+                    st.markdown('<div class="ad-unit-table-header">Platform</div>', unsafe_allow_html=True)
+                with header_cols[4]:
+                    st.markdown('<div class="ad-unit-table-header">Format</div>', unsafe_allow_html=True)
+                with header_cols[5]:
+                    st.markdown('<div class="ad-unit-table-header">Package Name</div>', unsafe_allow_html=True)
                 
-                # Apply select all/deselect all
-                if st.session_state.select_all_ad_units_flag is not None:
-                    df["선택"] = st.session_state.select_all_ad_units_flag
-                    st.session_state.select_all_ad_units_flag = None
+                # Display each row with checkbox
+                selected_unit_ids = []
+                for idx, unit in enumerate(filtered_units_sorted):
+                    unit_id = unit.get("id", "")
+                    unit_name = unit.get("name", "")
+                    platform = unit.get("platform", "")
+                    ad_format = unit.get("ad_format", "")
+                    package_name = unit.get("package_name", "")
+                    
+                    # Get current selection state from session_state (always use latest value)
+                    is_selected = st.session_state.ad_unit_selections.get(unit_id, False)
+                    
+                    # Create row with columns - better proportions
+                    row_cols = st.columns([0.4, 1.5, 1.5, 0.8, 0.9, 2.2])
+                    
+                    # Alternate row background for better readability
+                    row_style = "background-color: #fafafa;" if idx % 2 == 0 else "background-color: #ffffff;"
+                    
+                    with row_cols[0]:
+                        # Checkbox with unique key - centered
+                        checkbox_key = f"ad_unit_checkbox_{unit_id}"
+                        # Always read latest value from session_state to reflect button clicks
+                        current_value = st.session_state.ad_unit_selections.get(unit_id, False)
+                        new_selection = st.checkbox("", value=current_value, key=checkbox_key, label_visibility="collapsed")
+                        
+                        # Always update session state to keep it in sync
+                        # This ensures button clicks are reflected in checkboxes
+                        st.session_state.ad_unit_selections[unit_id] = new_selection
+                    
+                    with row_cols[1]:
+                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><code style="font-size: 0.85em;">{unit_id}</code></div>', unsafe_allow_html=True)
+                    with row_cols[2]:
+                        display_name = unit_name[:30] + "..." if len(unit_name) > 30 else unit_name
+                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}">{display_name}</div>', unsafe_allow_html=True)
+                    with row_cols[3]:
+                        # Android, iOS 아이콘 사용
+                        if platform.lower() == "android":
+                            platform_icon = "🤖"  # Android robot icon
+                        elif platform.lower() == "ios":
+                            platform_icon = "🍎"  # Apple icon
+                        else:
+                            platform_icon = "📱"  # Default mobile icon
+                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}">{platform_icon} {platform}</div>', unsafe_allow_html=True)
+                    with row_cols[4]:
+                        format_color = {
+                            "REWARD": "#4CAF50",
+                            "INTER": "#2196F3",
+                            "BANNER": "#FF9800"
+                        }.get(ad_format, "#757575")
+                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><span style="color: {format_color}; font-weight: 500;">{ad_format}</span></div>', unsafe_allow_html=True)
+                    with row_cols[5]:
+                        display_pkg = package_name[:35] + "..." if len(package_name) > 35 else package_name
+                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><code style="font-size: 0.85em; color: #666;">{display_pkg}</code></div>', unsafe_allow_html=True)
+                    
+                    # Track selected units
+                    if st.session_state.ad_unit_selections.get(unit_id, False):
+                        selected_unit_ids.append(unit_id)
                 
-                # Restore selected Ad Unit IDs if they exist (after network removal)
-                # This must happen BEFORE data_editor to ensure the selection is restored
-                if "selected_ad_unit_ids" in st.session_state and st.session_state.selected_ad_unit_ids:
-                    # Only restore if we have saved IDs and they match current dataframe
-                    saved_ids = set(st.session_state.selected_ad_unit_ids)
-                    current_ids = set(df["id"].tolist())
-                    if saved_ids.issubset(current_ids):
-                        df.loc[df["id"].isin(st.session_state.selected_ad_unit_ids), "선택"] = True
+                # Get selected rows for compatibility (convert to dict format)
+                selected_rows_dict = []
+                for unit in filtered_units_sorted:
+                    unit_id = unit.get("id", "")
+                    if unit_id in selected_unit_ids:
+                        selected_rows_dict.append({
+                            "id": unit_id,
+                            "name": unit.get("name", ""),
+                            "platform": unit.get("platform", ""),
+                            "ad_format": unit.get("ad_format", ""),
+                            "package_name": unit.get("package_name", "")
+                        })
                 
-                # Display with checkbox
-                # Use a dynamic key that changes when networks are removed to force refresh
-                editor_key = f"ad_units_selection_table_{len(st.session_state.get('selected_ad_networks', []))}"
-                edited_df = st.data_editor(
-                    df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "선택": st.column_config.CheckboxColumn("선택", default=False),
-                        "id": st.column_config.TextColumn("id"),
-                        "name": st.column_config.TextColumn("name"),
-                        "platform": st.column_config.TextColumn("platform"),
-                        "ad_format": st.column_config.TextColumn("ad_format"),
-                        "package_name": st.column_config.TextColumn("package_name")
-                    },
-                    disabled=["id", "name", "platform", "ad_format", "package_name"],
-                    key=editor_key
-                )
+                # selected_ad_unit_ids는 하위 호환성을 위해 유지
+                st.session_state.selected_ad_unit_ids = selected_unit_ids
                 
-                # Get selected rows and save IDs
-                selected_rows = edited_df[edited_df["선택"] == True]
-                # Always save current selection (will be used if rerun happens)
-                if len(selected_rows) > 0:
-                    st.session_state.selected_ad_unit_ids = selected_rows["id"].tolist()
-                else:
-                    # Only clear if user explicitly deselected everything (not after network removal)
-                    if "network_removed" not in st.session_state:
-                        st.session_state.selected_ad_unit_ids = []
-                
-                # Clear network_removed flag after processing
-                if "network_removed" in st.session_state:
-                    del st.session_state.network_removed
-                
-                if len(selected_rows) > 0:
-                    st.markdown(f"**선택된 Ad Units: {len(selected_rows)}개**")
+                if len(selected_rows_dict) > 0:
+                    st.markdown(f"**선택된 Ad Units: {len(selected_rows_dict)}개**")
                     
                     # Initialize selected networks in session state (default: all networks)
                     if "selected_ad_networks" not in st.session_state:
@@ -328,22 +398,19 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     with col_btn:
                                         remove_key = f"remove_network_{network}"
                                         if st.button("🗑️", key=remove_key, help=f"{network} 제거", use_container_width=True):
-                                            # Mark that network removal is happening (to preserve selection)
-                                            st.session_state.network_removed = True
-                                            # Remove network directly
                                             if network in st.session_state.selected_ad_networks:
                                                 st.session_state.selected_ad_networks.remove(network)
                                             st.rerun()
                     
                     # Add button
                     if st.session_state.selected_ad_networks:
-                        if st.button(f"➕ 선택한 {len(selected_rows)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
+                        if st.button(f"➕ 선택한 {len(selected_rows_dict)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
                             # Show prominent loading message
                             loading_placeholder = st.empty()
-                            total_tasks = len(selected_rows) * len(st.session_state.selected_ad_networks)
+                            total_tasks = len(selected_rows_dict) * len(st.session_state.selected_ad_networks)
                             
                             with loading_placeholder.container():
-                                st.info(f"⏳ **네트워크에서 데이터를 조회하는 중입니다...**\n\n📊 {len(selected_rows)}개 Ad Units × {len(st.session_state.selected_ad_networks)}개 네트워크 = 총 {total_tasks}개 작업")
+                                st.info(f"⏳ **네트워크에서 데이터를 조회하는 중입니다...**\n\n📊 {len(selected_rows_dict)}개 Ad Units × {len(st.session_state.selected_ad_networks)}개 네트워크 = 총 {total_tasks}개 작업")
                                 progress_bar = st.progress(0)
                                 status_text = st.empty()
                             
@@ -770,7 +837,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 
                                 # Prepare tasks for parallel processing
                                 tasks = []
-                                for _, row in selected_rows.iterrows():
+                                for row in selected_rows_dict:
                                     applovin_unit = {
                                         "id": row["id"],
                                         "name": row["name"],
