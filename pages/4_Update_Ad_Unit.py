@@ -413,8 +413,12 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     if "selected_ad_networks" not in st.session_state:
                         st.session_state.selected_ad_networks = AD_NETWORKS.copy()
                     
-                    # Show selected networks with remove buttons (compact format)
-                    if st.session_state.selected_ad_networks:
+                    # Track if processing is in progress to prevent UI layout issues
+                    processing_key = "_ad_units_processing"
+                    is_processing = st.session_state.get(processing_key, False)
+                    
+                    # Show selected networks with remove buttons (compact format) - only when not processing
+                    if st.session_state.selected_ad_networks and not is_processing:
                         st.markdown("**선택된 네트워크:**")
                         sorted_networks = sorted(st.session_state.selected_ad_networks.copy())  # Use copy to avoid modification during iteration
                         
@@ -435,17 +439,22 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                                 st.session_state.selected_ad_networks.remove(network)
                                             st.rerun()
                     
-                    # Add button
-                    if st.session_state.selected_ad_networks:
+                    # Add button - only show when not processing
+                    if st.session_state.selected_ad_networks and not is_processing:
                         if st.button(f"➕ 선택한 {len(selected_rows_dict)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
-                            # Show prominent loading message
-                            loading_placeholder = st.empty()
+                            # Mark as processing to prevent UI layout issues
+                            st.session_state[processing_key] = True
+                            
+                            # Show prominent loading message (use direct rendering instead of container to avoid layout issues)
                             total_tasks = len(selected_rows_dict) * len(st.session_state.selected_ad_networks)
                             
-                            with loading_placeholder.container():
-                                st.info(f"⏳ **네트워크에서 데이터를 조회하는 중입니다...**\n\n📊 {len(selected_rows_dict)}개 Ad Units × {len(st.session_state.selected_ad_networks)}개 네트워크 = 총 {total_tasks}개 작업")
-                                progress_bar = st.progress(0)
-                                status_text = st.empty()
+                            # Use a divider to separate sections and prevent layout shift
+                            st.divider()
+                            
+                            # Use a more stable approach: render directly without container
+                            st.info(f"⏳ **네트워크에서 데이터를 조회하는 중입니다...**\n\n📊 {len(selected_rows_dict)}개 Ad Units × {len(st.session_state.selected_ad_networks)}개 네트워크 = 총 {total_tasks}개 작업")
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
                             
                             # Map AppLovin networks to actual network identifiers
                             network_mapping = {}
@@ -941,13 +950,14 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 
                                 if new_rows:
                                     new_df = pd.DataFrame(new_rows)
+                                    # If data was already prepared, we need to sort again after adding new data
+                                    # Reset the prepared flag so data will be sorted and reordered
+                                    if st.session_state.get("_applovin_data_prepared", False):
+                                        st.session_state["_applovin_data_prepared"] = False
                                     st.session_state.applovin_data = pd.concat([st.session_state.applovin_data, new_df], ignore_index=True)
                                     
                                     progress_bar.progress(100)
                                     status_text.text("✅ 완료!")
-                                    
-                                    # Clear loading placeholder
-                                    loading_placeholder.empty()
                                     
                                     # Show results summary
                                     success_count = len(fetch_results["success"])
@@ -966,19 +976,24 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             if not_found_count > 10:
                                                 st.write(f"... 외 {not_found_count - 10}개")
                                     
-                                    # Clear selections
+                                    # Clear processing flag and selections
+                                    st.session_state[processing_key] = False
                                     st.session_state.selected_ad_networks = []
                                     st.rerun()
                                 else:
                                     progress_bar.progress(100)
-                                    loading_placeholder.empty()
+                                    status_text.text("⚠️ 완료 (데이터 없음)")
                                     st.warning("⚠️ 선택한 항목과 일치하는 platform/ad_format 조합이 없습니다.")
+                                    # Clear processing flag
+                                    st.session_state[processing_key] = False
                             except Exception as e:
                                 progress_bar.progress(100)
-                                loading_placeholder.empty()
+                                status_text.text("❌ 오류 발생")
                                 st.error(f"❌ 오류 발생: {str(e)}")
                                 import traceback
                                 st.exception(e)
+                                # Clear processing flag
+                                st.session_state[processing_key] = False
         else:
             st.info("검색 조건에 맞는 Ad Unit이 없습니다.")
 
@@ -1004,6 +1019,8 @@ if "applovin_data" not in st.session_state:
         "segment_id": pd.Series(dtype="string"),
         "disabled": pd.Series(dtype="string")
     })
+    # Mark that sorting is needed when data is first initialized
+    st.session_state["_applovin_data_sort_needed"] = True
 
 st.divider()
 
@@ -1022,37 +1039,66 @@ column_order = [
     "segment_name", "segment_id", "disabled"
 ]
 
-# Reorder columns if they exist
-if len(st.session_state.applovin_data) > 0 or any(col in st.session_state.applovin_data.columns for col in column_order):
-    existing_cols = [col for col in column_order if col in st.session_state.applovin_data.columns]
-    missing_cols = [col for col in st.session_state.applovin_data.columns if col not in column_order]
-    st.session_state.applovin_data = st.session_state.applovin_data[existing_cols + missing_cols]
-
-# Sort data by ad_network, platform, ad_format
+# Prepare data for editor - do all transformations BEFORE data_editor
+# Sort and reorder columns ONLY when data is first added (not on every rerun)
+# This prevents focus loss during editing
 if len(st.session_state.applovin_data) > 0:
-    if "ad_network" in st.session_state.applovin_data.columns:
-        # Define sort order for ad_format
-        ad_format_order = {"REWARD": 0, "INTER": 1, "BANNER": 2}
-        platform_order = {"android": 0, "ios": 1}
+    # Track if data has been prepared (sorted and reordered) for the first time
+    data_prepared_key = "_applovin_data_prepared"
+    
+    # Only sort and reorder on first time (when data is first added)
+    if not st.session_state.get(data_prepared_key, False):
+        # Reorder columns if needed
+        col_order_key = "_applovin_data_column_order"
+        current_cols = list(st.session_state.applovin_data.columns)
+        existing_cols = [col for col in column_order if col in st.session_state.applovin_data.columns]
+        missing_cols = [col for col in st.session_state.applovin_data.columns if col not in column_order]
+        expected_cols = existing_cols + missing_cols
         
-        # Create temporary columns for sorting
-        st.session_state.applovin_data["_sort_ad_format"] = st.session_state.applovin_data["ad_format"].map(ad_format_order).fillna(99)
-        st.session_state.applovin_data["_sort_platform"] = st.session_state.applovin_data["platform"].map(platform_order).fillna(99)
+        if current_cols != expected_cols:
+            st.session_state.applovin_data = st.session_state.applovin_data[expected_cols]
+            st.session_state[col_order_key] = expected_cols
+        else:
+            st.session_state[col_order_key] = current_cols
         
-        # Sort
-        st.session_state.applovin_data = st.session_state.applovin_data.sort_values(
-            by=["ad_network", "_sort_platform", "_sort_ad_format"],
-            ascending=[True, True, True]
-        ).reset_index(drop=True)
+        # Sort data by ad_network, platform, ad_format (only once, when first added)
+        if "ad_network" in st.session_state.applovin_data.columns:
+            # Define sort order for ad_format
+            ad_format_order = {"REWARD": 0, "INTER": 1, "BANNER": 2}
+            platform_order = {"android": 0, "ios": 1}
+            
+            # Create temporary columns for sorting
+            temp_df = st.session_state.applovin_data.copy()
+            temp_df["_sort_ad_format"] = temp_df["ad_format"].map(ad_format_order).fillna(99)
+            temp_df["_sort_platform"] = temp_df["platform"].map(platform_order).fillna(99)
+            
+            # Sort
+            temp_df = temp_df.sort_values(
+                by=["ad_network", "_sort_platform", "_sort_ad_format"],
+                ascending=[True, True, True]
+            ).reset_index(drop=True)
+            
+            # Remove temporary columns
+            temp_df = temp_df.drop(columns=["_sort_ad_format", "_sort_platform"], errors="ignore")
+            
+            # Update session state
+            st.session_state.applovin_data = temp_df
+            # Update column order cache
+            if col_order_key in st.session_state:
+                st.session_state[col_order_key] = list(temp_df.columns)
         
-        # Remove temporary columns
-        st.session_state.applovin_data = st.session_state.applovin_data.drop(columns=["_sort_ad_format", "_sort_platform"], errors="ignore")
+        # Mark as prepared (sorted and reordered) - never sort again
+        st.session_state[data_prepared_key] = True
 
-# Data editor
+# Data editor with fixed key to prevent focus loss
+# Note: st.data_editor automatically triggers reruns on edit
+# We minimize DataFrame changes to reduce focus loss
+data_editor_key = "applovin_data_editor"
 edited_df = st.data_editor(
     st.session_state.applovin_data,
     num_rows="dynamic",
     use_container_width=True,
+    key=data_editor_key,
     column_config={
         "id": st.column_config.TextColumn(
             "id",
@@ -1132,8 +1178,9 @@ edited_df = st.data_editor(
     hide_index=True
 )
 
-# Update session state
-st.session_state.applovin_data = edited_df
+# DO NOT update session_state here to prevent focus loss
+# We will update session_state only when "Update All Ad Units" button is clicked
+# This prevents reruns during editing and maintains focus
 
 st.divider()
 
@@ -1142,6 +1189,9 @@ if len(edited_df) > 0:
     st.divider()
     
     if st.button("🚀 Update All Ad Units", type="primary", use_container_width=True):
+        # Save edited data to session_state before validation and API call
+        st.session_state.applovin_data = edited_df.copy()
+        
         # Validate data
         errors = []
         
