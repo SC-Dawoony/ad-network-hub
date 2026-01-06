@@ -242,7 +242,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                         # 새로 필터된 unit은 자동으로 선택
                         st.session_state.ad_unit_selections[unit_id] = True
                     # 이미 선택 상태가 있으면 그대로 유지
-                # Add custom CSS for better table styling with reduced spacing
+                # Add custom CSS for better table styling with reduced spacing and dark mode support
                 st.markdown("""
                 <style>
                 .ad-unit-table {
@@ -250,27 +250,57 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     width: 100%;
                     margin: 10px 0;
                 }
+                /* Header - dark background with white text (both modes) */
                 .ad-unit-table-header {
-                    background-color: #f0f2f6;
+                    background-color: #2e2e2e !important;
                     padding: 8px 8px;
                     font-weight: 600;
-                    border-bottom: 2px solid #e0e0e0;
+                    border-bottom: 2px solid #4a4a4a !important;
                     text-align: left;
                     margin: 0;
+                    color: #ffffff !important;
                 }
-                .ad-unit-table-row {
-                    border-bottom: 1px solid #e0e0e0;
-                    padding: 4px 8px;
-                    margin: 0;
-                }
-                .ad-unit-table-row:hover {
-                    background-color: #f8f9fa;
-                }
+                /* Cell - always white text for visibility */
                 .ad-unit-table-cell {
                     padding: 4px 8px;
                     vertical-align: middle;
                     margin: 0;
                     line-height: 1.4;
+                    color: #ffffff !important;
+                }
+                .ad-unit-code {
+                    font-size: 0.85em;
+                    color: #ffffff !important;
+                    background-color: transparent;
+                }
+                /* Light mode: override to dark text */
+                [data-theme="light"] .ad-unit-table-cell {
+                    color: #1f1f1f !important;
+                }
+                [data-theme="light"] .ad-unit-code {
+                    color: #1f1f1f !important;
+                }
+                /* Dark mode: ensure white text with all possible selectors */
+                [data-theme="dark"] .ad-unit-table-cell,
+                .stApp [data-theme="dark"] .ad-unit-table-cell,
+                section[data-testid="stAppViewContainer"] [data-theme="dark"] .ad-unit-table-cell,
+                div[data-testid="stAppViewContainer"] [data-theme="dark"] .ad-unit-table-cell,
+                html[data-theme="dark"] .ad-unit-table-cell,
+                body[data-theme="dark"] .ad-unit-table-cell {
+                    color: #ffffff !important;
+                }
+                [data-theme="dark"] .ad-unit-code,
+                .stApp [data-theme="dark"] .ad-unit-code,
+                section[data-testid="stAppViewContainer"] [data-theme="dark"] .ad-unit-code,
+                div[data-testid="stAppViewContainer"] [data-theme="dark"] .ad-unit-code,
+                html[data-theme="dark"] .ad-unit-code,
+                body[data-theme="dark"] .ad-unit-code {
+                    color: #ffffff !important;
+                    background-color: transparent !important;
+                }
+                /* Format column keeps its color (inline style will override) */
+                .ad-unit-table-cell .format-text {
+                    /* Format color is set inline, so it will override */
                 }
                 /* Reduce Streamlit column spacing */
                 div[data-testid="column"] {
@@ -314,8 +344,10 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                     # Create row with columns - better proportions
                     row_cols = st.columns([0.4, 1.5, 1.5, 0.8, 0.9, 2.2])
                     
-                    # Alternate row background for better readability
-                    row_style = "background-color: #fafafa;" if idx % 2 == 0 else "background-color: #ffffff;"
+                    # Alternate row background for better readability (with dark mode support)
+                    # Use CSS variables or minimal styling that works in both modes
+                    # In dark mode, Streamlit handles background, so we use minimal styling
+                    row_style = ""
                     
                     with row_cols[0]:
                         # Checkbox with unique key - centered
@@ -329,10 +361,10 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                         st.session_state.ad_unit_selections[unit_id] = new_selection
                     
                     with row_cols[1]:
-                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><code style="font-size: 0.85em;">{unit_id}</code></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="ad-unit-table-cell" style="color: #ffffff !important;"><code class="ad-unit-code" style="color: #ffffff !important;">{unit_id}</code></div>', unsafe_allow_html=True)
                     with row_cols[2]:
-                        display_name = unit_name[:30] + "..." if len(unit_name) > 30 else unit_name
-                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}">{display_name}</div>', unsafe_allow_html=True)
+                        display_name = unit_name[:30] + "..." if len(unit_name) > 30 else unit_name if unit_name else ""
+                        st.markdown(f'<div class="ad-unit-table-cell" style="color: #ffffff !important;">{display_name}</div>', unsafe_allow_html=True)
                     with row_cols[3]:
                         # Android, iOS 아이콘 사용
                         if platform.lower() == "android":
@@ -341,17 +373,18 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                             platform_icon = "🍎"  # Apple icon
                         else:
                             platform_icon = "📱"  # Default mobile icon
-                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}">{platform_icon} {platform}</div>', unsafe_allow_html=True)
+                        platform_text = f"{platform_icon} {platform}" if platform else ""
+                        st.markdown(f'<div class="ad-unit-table-cell" style="color: #ffffff !important;">{platform_text}</div>', unsafe_allow_html=True)
                     with row_cols[4]:
                         format_color = {
                             "REWARD": "#4CAF50",
                             "INTER": "#2196F3",
                             "BANNER": "#FF9800"
                         }.get(ad_format, "#757575")
-                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><span style="color: {format_color}; font-weight: 500;">{ad_format}</span></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="ad-unit-table-cell"><span style="color: {format_color}; font-weight: 500;">{ad_format}</span></div>', unsafe_allow_html=True)
                     with row_cols[5]:
-                        display_pkg = package_name[:35] + "..." if len(package_name) > 35 else package_name
-                        st.markdown(f'<div class="ad-unit-table-cell" style="{row_style}"><code style="font-size: 0.85em; color: #666;">{display_pkg}</code></div>', unsafe_allow_html=True)
+                        display_pkg = package_name[:35] + "..." if len(package_name) > 35 else package_name if package_name else ""
+                        st.markdown(f'<div class="ad-unit-table-cell" style="color: #ffffff !important;"><code class="ad-unit-code" style="color: #ffffff !important;">{display_pkg}</code></div>', unsafe_allow_html=True)
                     
                     # Track selected units
                     if st.session_state.ad_unit_selections.get(unit_id, False):
