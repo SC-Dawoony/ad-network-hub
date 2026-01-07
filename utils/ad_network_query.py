@@ -153,20 +153,37 @@ def find_app_by_package_name(network: str, package_name: str, platform: Optional
         # For Fyber, check bundle field
         if network == "fyber":
             package_name_lower = package_name.lower().strip()
+            # For Fyber Android, remove trailing "2" if present (e.g., "com.example.app2" -> "com.example.app")
+            package_name_normalized = package_name_lower
+            if platform and platform.lower() == "android" and package_name_normalized.endswith("2"):
+                package_name_normalized = package_name_normalized[:-1]  # Remove trailing "2"
+                logger.info(f"[Fyber] Normalized package_name from '{package_name_lower}' to '{package_name_normalized}' (removed trailing '2')")
+            
             for app in apps:
                 # Fyber uses "bundle" field for package name
                 app_bundle = app.get("bundle") or app.get("bundleId") or app.get("packageName", "")
                 
-                if app_bundle and package_name_lower == app_bundle.lower():
-                    # Check platform if provided
-                    if platform:
+                if app_bundle:
+                    app_bundle_lower = app_bundle.lower()
+                    # Try exact match first
+                    if package_name_lower == app_bundle_lower:
+                        # Check platform if provided
+                        if platform:
+                            app_platform = app.get("platform", "")
+                            platform_normalized = _normalize_platform_for_matching(app_platform, network)
+                            if platform_normalized != platform.lower():
+                                continue
+                        
+                        logger.info(f"[Fyber] Found app by bundle (exact match): {app_bundle}, platform: {app.get('platform')}")
+                        return app
+                    
+                    # For Android, try normalized match (without trailing "2")
+                    if platform and platform.lower() == "android" and package_name_normalized == app_bundle_lower:
                         app_platform = app.get("platform", "")
                         platform_normalized = _normalize_platform_for_matching(app_platform, network)
-                        if platform_normalized != platform.lower():
-                            continue
-                    
-                    logger.info(f"[Fyber] Found app by bundle: {app_bundle}, platform: {app.get('platform')}")
-                    return app
+                        if platform_normalized == platform.lower():
+                            logger.info(f"[Fyber] Found app by bundle (normalized match, removed '2'): {app_bundle}, platform: {app.get('platform')}")
+                            return app
             
             logger.warning(f"[Fyber] App with package name '{package_name}' not found in bundle field")
             return None
