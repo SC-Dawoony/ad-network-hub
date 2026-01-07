@@ -1231,30 +1231,60 @@ if len(edited_df) > 0:
     
     if st.button("🚀 Update All Ad Units", type="primary", use_container_width=True):
         # Save edited data to session_state before validation and API call
-        st.session_state.applovin_data = edited_df.copy()
+        df_to_process = edited_df.copy()
+        
+        # Auto-fill ad_network_app_id for rows with same ad_network, package_name, platform
+        if "ad_network" in df_to_process.columns and "package_name" in df_to_process.columns and "platform" in df_to_process.columns and "ad_network_app_id" in df_to_process.columns:
+            # Group by ad_network, package_name, platform
+            grouped = df_to_process.groupby(["ad_network", "package_name", "platform"])
+            
+            filled_count = 0
+            for (ad_network, package_name, platform), group in grouped:
+                # Find rows with non-empty ad_network_app_id in this group
+                non_empty_rows = group[group["ad_network_app_id"].notna() & (group["ad_network_app_id"] != "")]
+                
+                if len(non_empty_rows) > 0:
+                    # Get the first non-empty ad_network_app_id value
+                    app_id_value = non_empty_rows.iloc[0]["ad_network_app_id"]
+                    
+                    # Find rows with empty ad_network_app_id in this group
+                    empty_rows_mask = group["ad_network_app_id"].isna() | (group["ad_network_app_id"] == "")
+                    empty_indices = group[empty_rows_mask].index
+                    
+                    if len(empty_indices) > 0:
+                        # Fill empty rows with the found app_id
+                        df_to_process.loc[empty_indices, "ad_network_app_id"] = app_id_value
+                        filled_count += len(empty_indices)
+                        logger.info(f"[Auto-fill] Filled {len(empty_indices)} rows with ad_network_app_id='{app_id_value}' for ad_network={ad_network}, package_name={package_name}, platform={platform}")
+            
+            if filled_count > 0:
+                st.info(f"ℹ️ {filled_count}개의 행에 ad_network_app_id가 자동으로 채워졌습니다.")
+        
+        # Save to session_state after auto-fill
+        st.session_state.applovin_data = df_to_process
         
         # Validate data
         errors = []
         
         # Check required columns
         required_columns = ["id", "platform", "ad_format", "ad_network", "ad_unit_id", "cpm"]
-        missing_columns = [col for col in required_columns if col not in edited_df.columns]
+        missing_columns = [col for col in required_columns if col not in df_to_process.columns]
         if missing_columns:
             errors.append(f"필수 컬럼이 없습니다: {', '.join(missing_columns)}")
         
         # Check required fields
-        if "id" in edited_df.columns:
-            empty_ids = edited_df[edited_df["id"].isna() | (edited_df["id"] == "")]
+        if "id" in df_to_process.columns:
+            empty_ids = df_to_process[df_to_process["id"].isna() | (df_to_process["id"] == "")]
             if len(empty_ids) > 0:
                 errors.append(f"{len(empty_ids)}개의 행에 Ad Unit ID가 없습니다.")
         
-        if "ad_network" in edited_df.columns:
-            empty_networks = edited_df[edited_df["ad_network"].isna() | (edited_df["ad_network"] == "")]
+        if "ad_network" in df_to_process.columns:
+            empty_networks = df_to_process[df_to_process["ad_network"].isna() | (df_to_process["ad_network"] == "")]
             if len(empty_networks) > 0:
                 errors.append(f"{len(empty_networks)}개의 행에 Ad Network가 없습니다.")
         
-        if "ad_unit_id" in edited_df.columns:
-            empty_unit_ids = edited_df[edited_df["ad_unit_id"].isna() | (edited_df["ad_unit_id"] == "")]
+        if "ad_unit_id" in df_to_process.columns:
+            empty_unit_ids = df_to_process[df_to_process["ad_unit_id"].isna() | (df_to_process["ad_unit_id"] == "")]
             if len(empty_unit_ids) > 0:
                 errors.append(f"{len(empty_unit_ids)}개의 행에 Ad Network Ad Unit ID가 없습니다.")
         
@@ -1267,7 +1297,7 @@ if len(edited_df) > 0:
             with st.spinner("데이터 변환 중..."):
                 try:
                     # Fill default values before conversion
-                    df_filled = edited_df.copy()
+                    df_filled = df_to_process.copy()
                     
                     # Fill NaN values with defaults
                     if "cpm" in df_filled.columns:
