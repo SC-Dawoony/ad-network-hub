@@ -18,7 +18,8 @@ from utils.ad_network_query import (
     match_applovin_unit_to_network,
     get_network_units,
     find_matching_unit,
-    extract_app_identifiers
+    extract_app_identifiers,
+    get_mintegral_units_by_placement
 )
 
 logger = logging.getLogger(__name__)
@@ -619,8 +620,27 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         elif actual_network == "inmobi":
                                             unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""
                                         elif actual_network == "mintegral":
-                                            # Mintegral uses placement_id
-                                            unit_id = matched_unit.get("placement_id") or matched_unit.get("id") or ""
+                                            # Mintegral: placement_id로 unit 목록 조회 후 실제 unit_id 가져오기
+                                            placement_id = matched_unit.get("placement_id") or matched_unit.get("id")
+                                            unit_id = ""
+                                            
+                                            if placement_id:
+                                                try:
+                                                    # placement_id로 unit 목록 조회
+                                                    units_by_placement = get_mintegral_units_by_placement(placement_id)
+                                                    if units_by_placement and len(units_by_placement) > 0:
+                                                        # 첫 번째 unit의 unit_id 사용 (일반적으로 하나의 placement에는 하나의 unit)
+                                                        unit_id = str(units_by_placement[0].get("unit_id") or units_by_placement[0].get("id") or "")
+                                                        logger.info(f"[Mintegral] Found unit_id {unit_id} for placement_id {placement_id}")
+                                                    else:
+                                                        logger.warning(f"[Mintegral] No units found for placement_id {placement_id}")
+                                                except Exception as e:
+                                                    logger.error(f"[Mintegral] Error getting units by placement_id {placement_id}: {str(e)}")
+                                            
+                                            # Fallback: placement_id를 그대로 사용 (이전 동작 유지)
+                                            if not unit_id:
+                                                unit_id = str(placement_id) if placement_id else ""
+                                                logger.warning(f"[Mintegral] Using placement_id as fallback for unit_id: {unit_id}")
                                         elif actual_network == "fyber":
                                             # Fyber uses placementId or id
                                             unit_id = matched_unit.get("placementId") or matched_unit.get("id") or ""

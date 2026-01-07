@@ -1195,6 +1195,106 @@ def get_mintegral_units(app_id: str) -> List[Dict]:
         return []
 
 
+def get_mintegral_units_by_placement(placement_id: int) -> List[Dict]:
+    """Get Mintegral ad units by placement_id
+    
+    API: GET https://dev.mintegral.com/v2/unit/open_api_list?placement_id={placement_id}
+    
+    Args:
+        placement_id: Mintegral placement ID
+    
+    Returns:
+        List of ad unit dicts with unit_id, unit_name, etc.
+    """
+    try:
+        # Mintegral API 인증: skey, time, sign
+        skey = _get_env_var("MINTEGRAL_SKEY")
+        secret = _get_env_var("MINTEGRAL_SECRET")
+        
+        if not skey or not secret:
+            logger.error("[Mintegral] Cannot get units by placement: MINTEGRAL_SKEY and MINTEGRAL_SECRET must be set")
+            return []
+        
+        import time
+        import hashlib
+        
+        # Generate timestamp and signature
+        current_time = int(time.time())
+        time_str = str(current_time)
+        
+        # Generate signature: md5(SECRETmd5(time))
+        time_md5 = hashlib.md5(time_str.encode('utf-8')).hexdigest()
+        sign_string = secret + time_md5
+        signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest()
+        
+        url = "https://dev.mintegral.com/v2/unit/open_api_list"
+        
+        # Query parameters
+        params = {
+            "placement_id": int(placement_id) if isinstance(placement_id, (int, str)) and str(placement_id).isdigit() else placement_id,
+            "skey": skey,
+            "time": time_str,
+            "sign": signature,
+            "page": 1,
+            "per_page": 100,
+        }
+        
+        logger.info(f"[Mintegral] API Request: GET {url} (placement_id={placement_id})")
+        masked_params = {k: '***MASKED***' if k in ['skey', 'sign'] else v for k, v in params.items()}
+        logger.info(f"[Mintegral] Request Params: {json.dumps(masked_params, indent=2)}")
+        
+        import requests
+        response = requests.get(url, params=params, timeout=30)
+        
+        logger.info(f"[Mintegral] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Handle empty response
+            response_text = response.text.strip()
+            if not response_text:
+                logger.warning(f"[Mintegral] Empty response body (status {response.status_code})")
+                return []
+            
+            try:
+                result = response.json()
+                logger.info(f"[Mintegral] Response Body: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"[Mintegral] JSON decode error: {str(e)}")
+                logger.error(f"[Mintegral] Response text: {response_text[:500]}")
+                return []
+            
+            # Mintegral API 응답 형식에 맞게 파싱
+            # Response format: {"code": 200, "data": {"lists": [...], "total": ...}}
+            units = []
+            if isinstance(result, dict):
+                if result.get("code") == 200 or result.get("code") == 0:
+                    data = result.get("data", {})
+                    if isinstance(data, dict):
+                        units = data.get("lists", data.get("units", []))
+                    elif isinstance(data, list):
+                        units = data
+                else:
+                    error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                    logger.error(f"[Mintegral] API returned code={result.get('code')}: {error_msg}")
+            elif isinstance(result, list):
+                units = result
+            
+            logger.info(f"[Mintegral] Units count for placement_id {placement_id}: {len(units)}")
+            return units
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[Mintegral] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[Mintegral] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[Mintegral] API Error (Get Units by Placement): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_fyber_units(app_id: str) -> List[Dict]:
     """Get Fyber ad units (placements) for an app
     
