@@ -219,7 +219,7 @@ def render_create_unit_common_ui(
             "name": "Banner",
             "adType": 2,
             "auctionType": 3,
-            "autoRefresh": 2,
+            "bannerAutoRefresh": 2,
             "bannerSizeMode": 2,
             "bannerSizeW": 250,
             "bannerSizeH": 320,
@@ -2298,7 +2298,8 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
     settings_html += f'<li>Auction Type: {AUCTION_TYPE_MAP[slot_config["auctionType"]]}</li>'
     
     if slot_key == "BN":
-        settings_html += f'<li>Auto Refresh: {AUTO_REFRESH_MAP[slot_config["autoRefresh"]]}</li>'
+        banner_auto_refresh = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
+        settings_html += f'<li>Auto Refresh: {AUTO_REFRESH_MAP.get(banner_auto_refresh, "No")}</li>'
         banner_size_w = slot_config.get('bannerSizeW', 250)
         banner_size_h = slot_config.get('bannerSizeH', 320)
         settings_html += f'<li>Banner Size: {banner_size_w}x{banner_size_h}</li>'
@@ -2334,6 +2335,7 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
                 key=f"{slot_key}_autoRefresh"
             )
             slot_config['autoRefresh'] = AUTO_REFRESH_REVERSE[new_auto_refresh]
+            slot_config['bannerAutoRefresh'] = slot_config['autoRefresh']  # Also set bannerAutoRefresh for API
             
             # Banner size is now fixed: 250x320 (bannerSizeMode=2, bannerSizeW=250, bannerSizeH=320)
             # Display current banner size
@@ -2387,7 +2389,7 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
         logger.info(f"[BigOAds] Final payload: {payload}")
         
         if slot_key == "BN":
-            payload["autoRefresh"] = slot_config['autoRefresh']
+            payload["bannerAutoRefresh"] = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
             payload["bannerSizeMode"] = slot_config.get('bannerSizeMode', 2)
             payload["bannerSizeW"] = slot_config.get('bannerSizeW', 250)
             payload["bannerSizeH"] = slot_config.get('bannerSizeH', 320)

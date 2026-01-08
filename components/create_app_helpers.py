@@ -340,13 +340,13 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
             "musicSwitch": 1
         })
     elif slot_type == "bn":
-        # Banner: adType = 2, auctionType = 3, autoRefresh = 2
-        # Note: autoRefresh = 2 means "No", so refreshSec is not required
+        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2
+        # Note: bannerAutoRefresh = 2 means "No", so refreshSec is not required
         # Banner size: bannerSizeMode = 2, bannerSizeW = 250, bannerSizeH = 320
         payload.update({
             "adType": 2,
             "auctionType": 3,
-            "autoRefresh": 2,  # 2 = No (refreshSec not required)
+            "bannerAutoRefresh": 2,  # 2 = No (refreshSec not required)
             "bannerSizeMode": 2,
             "bannerSizeW": 250,
             "bannerSizeH": 320
