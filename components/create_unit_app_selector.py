@@ -229,6 +229,9 @@ def render_app_code_selector(current_network: str, network_manager):
                     "storeUrl": store_url,
                     "platformDisplay": platform
                 }
+                # For BigOAds, add pkgNameDisplay
+                if current_network == "bigoads":
+                    app_info_map[app_code]["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
     
     # Always add "Manual Entry" option (even if apps exist)
     manual_entry_option = "✏️ Enter manually"
@@ -640,6 +643,16 @@ def render_app_code_selector(current_network: str, network_manager):
                 # For BigOAds, also get pkgNameDisplay if available
                 if current_network == "bigoads" and "pkgNameDisplay" in last_app_info:
                     app_info_to_use["pkgNameDisplay"] = last_app_info.get("pkgNameDisplay", "")
+            else:
+                # For BigOAds, ensure pkgNameDisplay is set from apps list if not in app_info_map
+                if current_network == "bigoads" and not app_info_to_use.get("pkgNameDisplay"):
+                    for app in apps:
+                        if app.get("appCode") == selected_app_code:
+                            if "pkgNameDisplay" in app:
+                                app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
+                            if not app_info_to_use.get("pkgName") and app.get("pkgName"):
+                                app_info_to_use["pkgName"] = app.get("pkgName", "")
+                            break
             # For Fyber, ensure bundle/bundleId is available from app_info_map
             if current_network == "fyber":
                 if not app_info_to_use.get("bundleId") and not app_info_to_use.get("bundle"):
@@ -679,9 +692,13 @@ def render_app_code_selector(current_network: str, network_manager):
                             app_info_to_use["platformStr"] = app.get("platformStr", "android")
                             app_info_to_use["platform"] = app.get("platformNum", 1)
                         
-                        # For BigOAds, get pkgNameDisplay from API response
-                        if current_network == "bigoads" and "pkgNameDisplay" in app:
-                            app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
+                        # For BigOAds, get pkgNameDisplay and pkgName from API response
+                        if current_network == "bigoads":
+                            if "pkgNameDisplay" in app:
+                                app_info_to_use["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
+                            if "pkgName" in app and not app_info_to_use.get("pkgName"):
+                                app_info_to_use["pkgName"] = app.get("pkgName", "")
+                            app_info_to_use["name"] = app.get("name", app_name)
                         
                         # For Mintegral, get pkgName and app_id from API response
                         if current_network == "mintegral":
