@@ -753,70 +753,69 @@ def render_create_unit_common_ui(
                                     except Exception as e:
                                         st.error(f"❌ Error creating iOS {ad_unit['slot_key']} ad unit: {str(e)}")
                                         logger.exception(f"Error creating IronSource iOS {ad_unit['slot_key']} ad unit")
-                    
-                    st.divider()
-                    # Use unique key with app_code to avoid duplicate key errors
-                    button_key_ios = f"create_ios_ad_units_{selected_app_code}_{app_name}"
-                    if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_ios):
-                        with st.spinner("🚀 Creating iOS ad units..."):
-                            try:
-                                create_payloads = []
-                                for ad_unit in ios_ad_units:
-                                    payload = {
-                                        "mediationAdUnitName": ad_unit['slot_name'],
-                                        "adFormat": ad_unit['ad_format']
+                
+                # Use unique key with app_code to avoid duplicate key errors
+                button_key_ios = f"create_ios_ad_units_{selected_app_code}_{app_name}"
+                if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_ios):
+                    with st.spinner("🚀 Creating iOS ad units..."):
+                        try:
+                            create_payloads = []
+                            for ad_unit in ios_ad_units:
+                                payload = {
+                                    "mediationAdUnitName": ad_unit['slot_name'],
+                                    "adFormat": ad_unit['ad_format']
+                                }
+                                # Add reward object for rewarded ad format (required by API)
+                                if ad_unit['ad_format'] == "rewarded":
+                                    payload["reward"] = {
+                                        "rewardItemName": "Reward",
+                                        "rewardAmount": 1
                                     }
-                                    # Add reward object for rewarded ad format (required by API)
-                                    if ad_unit['ad_format'] == "rewarded":
-                                        payload["reward"] = {
-                                            "rewardItemName": "Reward",
-                                            "rewardAmount": 1
-                                        }
-                                    create_payloads.append(payload)
-                                
-                                create_response = network_manager._create_ironsource_placements(ios_app_key, create_payloads)
-                                result = handle_api_response(create_response)
-                                
-                                # Check if response indicates success (status 0 or code 0, even with empty result)
-                                if create_response.get("status") == 0 or create_response.get("code") == 0:
-                                    # After creating, automatically activate them
-                                    with st.spinner("✅ Activating created ad units..."):
-                                        from utils.ad_network_query import get_ironsource_units
-                                        existing_units = get_ironsource_units(ios_app_key)
+                                create_payloads.append(payload)
+                            
+                            create_response = network_manager._create_ironsource_placements(ios_app_key, create_payloads)
+                            result = handle_api_response(create_response)
+                            
+                            # Check if response indicates success (status 0 or code 0, even with empty result)
+                            if create_response.get("status") == 0 or create_response.get("code") == 0:
+                                # After creating, automatically activate them
+                                with st.spinner("✅ Activating created ad units..."):
+                                    from utils.ad_network_query import get_ironsource_units
+                                    existing_units = get_ironsource_units(ios_app_key)
+                                    
+                                    if existing_units:
+                                        activate_payloads = []
+                                        for unit in existing_units:
+                                            # GET API returns mediationAdUnitId (uppercase U)
+                                            mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
+                                            if mediation_adunit_id:
+                                                # Check if this unit matches one we just created
+                                                unit_name = unit.get("mediationAdUnitName", "")
+                                                if any(unit_name == ad_unit['slot_name'] for ad_unit in ios_ad_units):
+                                                    activate_payloads.append({
+                                                        "mediationAdUnitId": mediation_adunit_id,  # uppercase U
+                                                        "isPaused": False
+                                                    })
                                         
-                                        if existing_units:
-                                            activate_payloads = []
-                                            for unit in existing_units:
-                                                # GET API returns mediationAdUnitId (uppercase U)
-                                                mediation_adunit_id = unit.get("mediationAdUnitId") or unit.get("mediationAdunitId") or unit.get("id")
-                                                if mediation_adunit_id:
-                                                    # Check if this unit matches one we just created
-                                                    unit_name = unit.get("mediationAdUnitName", "")
-                                                    if any(unit_name == ad_unit['slot_name'] for ad_unit in ios_ad_units):
-                                                        activate_payloads.append({
-                                                            "mediationAdUnitId": mediation_adunit_id,  # uppercase U
-                                                            "isPaused": False
-                                                        })
-                                            
-                                            if activate_payloads:
-                                                activate_response = network_manager._update_ironsource_ad_units(ios_app_key, activate_payloads)
-                                                if activate_response.get("status") == 0:
-                                                    st.success(f"✅ Successfully created and activated {len(create_payloads)} iOS ad units!")
-                                                else:
-                                                    st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
-                                                    st.warning("⚠️ Created but activation failed. Please activate manually.")
+                                        if activate_payloads:
+                                            activate_response = network_manager._update_ironsource_ad_units(ios_app_key, activate_payloads)
+                                            if activate_response.get("status") == 0:
+                                                st.success(f"✅ Successfully created and activated {len(create_payloads)} iOS ad units!")
                                             else:
                                                 st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
+                                                st.warning("⚠️ Created but activation failed. Please activate manually.")
                                         else:
                                             st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
-                                    
-                                    st.balloons()
-                                else:
-                                    # Error already displayed by handle_api_response
-                                    pass
-                            except Exception as e:
-                                st.error(f"❌ Error creating iOS ad units: {str(e)}")
-                                logger.exception("Error creating IronSource iOS ad units")
+                                    else:
+                                        st.success(f"✅ Successfully created {len(create_payloads)} iOS ad units!")
+                                
+                                st.balloons()
+                            else:
+                                # Error already displayed by handle_api_response
+                                pass
+                        except Exception as e:
+                            st.error(f"❌ Error creating iOS ad units: {str(e)}")
+                            logger.exception("Error creating IronSource iOS ad units")
     else:
         st.divider()
         
@@ -866,86 +865,94 @@ def render_create_unit_common_ui(
             if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_inmobi_placements"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
-                elif not app_id or app_id <= 0:
-                    st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
                 else:
-                    source_pkg = bundle_id if bundle_id else pkg_name
-                    if not source_pkg:
-                        st.toast("❌ Package name or bundle ID is required", icon="🚫")
-                    else:
-                        with st.spinner("🚀 Creating all 3 placements..."):
-                            try:
-                                from utils.network_manager import get_network_manager
-                                network_manager = get_network_manager()
-                                
-                                slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                                create_payloads = []
-                                placement_names = []
-                                
-                                for slot_key in ["RV", "IS", "BN"]:
-                                    slot_type = slot_type_map.get(slot_key, slot_key.lower())
-                                    slot_config = slot_configs.get(slot_key, {})
-                                    placement_name = _generate_slot_name(source_pkg, platform_str, slot_type, "inmobi", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
-                                    placement_names.append((slot_key, placement_name))
-                                    
-                                    payload = {
-                                        "appId": int(app_id),
-                                        "placementName": placement_name,
-                                        "placementType": slot_config["placementType"],
-                                        "isAudienceBiddingEnabled": slot_config["isAudienceBiddingEnabled"],
-                                    }
-                                    
-                                    if slot_config["isAudienceBiddingEnabled"]:
-                                        payload["audienceBiddingPartner"] = slot_config["audienceBiddingPartner"]
-                                    
-                                    create_payloads.append((slot_key, slot_config, payload))
-                                
-                                # Create placements sequentially
-                                results = []
-                                for slot_key, slot_config, payload in create_payloads:
-                                    response = network_manager.create_unit(current_network, payload)
-                                    result = handle_api_response(response)
-                                    results.append((slot_key, response, result))
-                                
-                                # Process results
-                                success_count = 0
-                                failed_count = 0
-                                
-                                for slot_key, response, result in results:
-                                    if response.get("status") == 0 or response.get("code") == 0:
-                                        success_count += 1
-                                        if result:
-                                            placement_name = next((name for sk, name in placement_names if sk == slot_key), "")
-                                            unit_data = {
-                                                "slotCode": result.get("placementId", result.get("id", "N/A")),
-                                                "name": placement_name,
-                                                "appCode": str(app_id),
-                                                "slotType": slot_config["placementType"],
-                                                "adType": slot_config["placementType"],
-                                                "auctionType": "N/A"
-                                            }
-                                            SessionManager.add_created_unit(current_network, unit_data)
+                    # Ensure app_id is a valid integer
+                    try:
+                        app_id_int = int(app_id) if app_id else None
+                        if not app_id_int or app_id_int <= 0:
+                            st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
+                        else:
+                            app_id = app_id_int  # Use the integer version
+                            source_pkg = bundle_id if bundle_id else pkg_name
+                            if not source_pkg:
+                                st.toast("❌ Package name or bundle ID is required", icon="🚫")
+                            else:
+                                with st.spinner("🚀 Creating all 3 placements..."):
+                                    try:
+                                        from utils.network_manager import get_network_manager
+                                        network_manager = get_network_manager()
+                                        
+                                        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                        create_payloads = []
+                                        placement_names = []
+                                        
+                                        for slot_key in ["RV", "IS", "BN"]:
+                                            slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                            slot_config = slot_configs.get(slot_key, {})
+                                            placement_name = _generate_slot_name(source_pkg, platform_str, slot_type, "inmobi", bundle_id=bundle_id, network_manager=network_manager, app_name=app_name_for_slot)
+                                            placement_names.append((slot_key, placement_name))
                                             
-                                            cached_units = SessionManager.get_cached_units(current_network, str(app_id))
-                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
-                                                cached_units.append(unit_data)
-                                                SessionManager.cache_units(current_network, str(app_id), cached_units)
-                                    else:
-                                        failed_count += 1
-                                
-                                # Display summary
-                                if success_count == 3:
-                                    st.success(f"✅ Successfully created all 3 placements!")
-                                    st.balloons()
-                                elif success_count > 0:
-                                    st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
-                                else:
-                                    st.error(f"❌ Failed to create placements")
-                                
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error creating placements: {str(e)}")
-                                logger.exception("Error creating InMobi placements")
+                                            payload = {
+                                                "appId": int(app_id),
+                                                "placementName": placement_name,
+                                                "placementType": slot_config["placementType"],
+                                                "isAudienceBiddingEnabled": slot_config["isAudienceBiddingEnabled"],
+                                            }
+                                            
+                                            if slot_config["isAudienceBiddingEnabled"]:
+                                                payload["audienceBiddingPartner"] = slot_config["audienceBiddingPartner"]
+                                            
+                                            create_payloads.append((slot_key, slot_config, payload))
+                                        
+                                        # Create placements sequentially
+                                        results = []
+                                        for slot_key, slot_config, payload in create_payloads:
+                                            response = network_manager.create_unit(current_network, payload)
+                                            result = handle_api_response(response)
+                                            results.append((slot_key, response, result))
+                                        
+                                        # Process results
+                                        success_count = 0
+                                        failed_count = 0
+                                        
+                                        for slot_key, response, result in results:
+                                            if response.get("status") == 0 or response.get("code") == 0:
+                                                success_count += 1
+                                                if result:
+                                                    placement_name = next((name for sk, name in placement_names if sk == slot_key), "")
+                                                    unit_data = {
+                                                        "slotCode": result.get("placementId", result.get("id", "N/A")),
+                                                        "name": placement_name,
+                                                        "appCode": str(app_id),
+                                                        "slotType": slot_config["placementType"],
+                                                        "adType": slot_config["placementType"],
+                                                        "auctionType": "N/A"
+                                                    }
+                                                    SessionManager.add_created_unit(current_network, unit_data)
+                                                    
+                                                    cached_units = SessionManager.get_cached_units(current_network, str(app_id))
+                                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                        cached_units.append(unit_data)
+                                                        SessionManager.cache_units(current_network, str(app_id), cached_units)
+                                            else:
+                                                failed_count += 1
+                                        
+                                        # Display summary
+                                        if success_count == 3:
+                                            st.success(f"✅ Successfully created all 3 placements!")
+                                            st.balloons()
+                                        elif success_count > 0:
+                                            st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                                        else:
+                                            st.error(f"❌ Failed to create placements")
+                                        
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error creating placements: {str(e)}")
+                                        logger.exception("Error creating InMobi placements")
+                    except (ValueError, TypeError) as e:
+                        st.toast(f"❌ Invalid App ID: {app_id}", icon="🚫")
+                        logger.exception(f"Invalid App ID for InMobi: {app_id}")
         
         # For Fyber, add "Create All 3 Placements" button
         if current_network == "fyber":
