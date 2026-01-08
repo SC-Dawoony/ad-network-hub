@@ -2298,6 +2298,7 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
     settings_html += f'<li>Auction Type: {AUCTION_TYPE_MAP[slot_config["auctionType"]]}</li>'
     
     if slot_key == "BN":
+        # Get bannerAutoRefresh, fallback to autoRefresh for backward compatibility
         banner_auto_refresh = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
         settings_html += f'<li>Auto Refresh: {AUTO_REFRESH_MAP.get(banner_auto_refresh, "No")}</li>'
         banner_size_w = slot_config.get('bannerSizeW', 250)
@@ -2327,15 +2328,18 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
         slot_config['auctionType'] = AUCTION_TYPE_REVERSE[new_auction_type]
         
         if slot_key == "BN":
-            auto_refresh_display = AUTO_REFRESH_MAP[slot_config['autoRefresh']]
+            # Get bannerAutoRefresh, fallback to autoRefresh for backward compatibility
+            current_auto_refresh = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
+            auto_refresh_display = AUTO_REFRESH_MAP.get(current_auto_refresh, "No")
             new_auto_refresh = st.selectbox(
                 "Auto Refresh",
                 options=list(AUTO_REFRESH_MAP.values()),
-                index=list(AUTO_REFRESH_MAP.values()).index(auto_refresh_display),
+                index=list(AUTO_REFRESH_MAP.values()).index(auto_refresh_display) if auto_refresh_display in AUTO_REFRESH_MAP.values() else 0,
                 key=f"{slot_key}_autoRefresh"
             )
-            slot_config['autoRefresh'] = AUTO_REFRESH_REVERSE[new_auto_refresh]
-            slot_config['bannerAutoRefresh'] = slot_config['autoRefresh']  # Also set bannerAutoRefresh for API
+            auto_refresh_value = AUTO_REFRESH_REVERSE[new_auto_refresh]
+            slot_config['autoRefresh'] = auto_refresh_value  # Keep for backward compatibility
+            slot_config['bannerAutoRefresh'] = auto_refresh_value  # Set bannerAutoRefresh for API
             
             # Banner size is now fixed: 250x320 (bannerSizeMode=2, bannerSizeW=250, bannerSizeH=320)
             # Display current banner size
