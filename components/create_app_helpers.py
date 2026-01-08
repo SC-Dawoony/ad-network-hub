@@ -340,29 +340,35 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
             "musicSwitch": 1
         })
     elif slot_type == "bn":
-        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2
+        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2, bannerSize = 2
         # Note: bannerAutoRefresh = 2 means "No", so refreshSec is not required
-        # Banner size: bannerSizeMode = 2, bannerSizeW = 250, bannerSizeH = 320
         payload.update({
             "adType": 2,
             "auctionType": 3,
             "bannerAutoRefresh": 2,  # 2 = No (refreshSec not required)
-            "bannerSizeMode": 2,
-            "bannerSizeW": 250,
-            "bannerSizeH": 320
+            "bannerSize": 2  # Always set to 2
         })
+    
+    # For BN slot, add bannerSize field (API requirement) - always set to 2
+    if slot_type == "bn":
+        payload["bannerSize"] = 2
     
     # Log final payload before API call
     logger.info(f"[BigOAds] create_default_slot final payload: {payload}")
     
     # Display payload in UI
-    import json
+    st.markdown(f"#### 📤 {slot_type.upper()} Request Payload")
     st.json(payload)
     
     # Make API call
     with st.spinner(f"Creating {slot_type.upper()} slot..."):
         try:
             response = network_manager.create_unit(network, payload)
+            
+            # Display full response
+            st.markdown(f"#### 📥 {slot_type.upper()} Response")
+            st.json(response)
+            
             result = handle_api_response(response)
             
             if result:
@@ -373,7 +379,11 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
                     "slotType": slot_type
                 })
                 st.success(f"✅ {slot_type.upper()} slot created successfully!")
+            else:
+                st.error(f"❌ Failed to create {slot_type.upper()} slot. Check response above.")
         except Exception as e:
             st.error(f"❌ Error creating {slot_type.upper()} slot: {str(e)}")
             SessionManager.log_error(network, str(e))
+            import traceback
+            st.code(traceback.format_exc())
 

@@ -2391,9 +2391,6 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
         
         if slot_key == "BN":
             payload["bannerAutoRefresh"] = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
-            payload["bannerSizeMode"] = slot_config.get('bannerSizeMode', 2)
-            payload["bannerSizeW"] = slot_config.get('bannerSizeW', 250)
-            payload["bannerSizeH"] = slot_config.get('bannerSizeH', 320)
             # API requires bannerSize field - always set to 2
             payload["bannerSize"] = 2
         else:
