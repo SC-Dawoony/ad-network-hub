@@ -2318,6 +2318,14 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
             slot_config['musicSwitch'] = MUSIC_SWITCH_REVERSE[new_music]
     
     if st.button(f"✅ Create {slot_key} Slot", use_container_width=True, key=f"create_{slot_key}"):
+        # Log selected_app_code for debugging
+        logger.info(f"[BigOAds] Creating {slot_key} slot with appCode: {selected_app_code}")
+        logger.info(f"[BigOAds] selected_app_code type: {type(selected_app_code)}, value: {selected_app_code}")
+        
+        if not selected_app_code:
+            st.error("❌ App Code is required. Please select an app or enter manually.")
+            return
+        
         payload = {
             "appCode": selected_app_code,
             "name": slot_name,

@@ -2880,8 +2880,13 @@ class MockNetworkManager:
                     platform_value = app.get("platform")
                     platform_str = "Android" if platform_value == 1 else ("iOS" if platform_value == 2 else "N/A")
                     
+                    # BigOAds API response may have appId instead of appCode
+                    app_code = app.get("appCode") or app.get("appId") or "N/A"
+                    app_id = app.get("appId") or app.get("appCode")
+                    
                     apps.append({
-                        "appCode": app.get("appCode", "N/A"),
+                        "appCode": app_code,
+                        "appId": app_id,  # Store appId separately for reference
                         "name": app.get("name", "Unknown"),
                         "platform": platform_str,
                         "platformNum": platform_value,  # Keep original numeric value (1 or 2) for matching

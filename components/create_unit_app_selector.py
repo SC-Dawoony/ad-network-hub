@@ -209,11 +209,19 @@ def render_app_code_selector(current_network: str, network_manager):
         # For other networks, use original logic
         if apps:
             for app in apps:
-                # For InMobi, use appId or appCode; for others, use appCode
+                # For InMobi, use appId or appCode; for BigOAds, use appCode or appId; for others, use appCode
                 if current_network == "inmobi":
                     app_code = app.get("appId") or app.get("appCode", "N/A")
+                elif current_network == "bigoads":
+                    # BigOAds API response may have appId instead of appCode
+                    app_code = app.get("appCode") or app.get("appId") or "N/A"
                 else:
                     app_code = app.get("appCode", "N/A")
+                
+                # Skip apps with invalid appCode (empty, None, or "N/A")
+                if not app_code or app_code == "N/A" or (isinstance(app_code, str) and not app_code.strip()):
+                    logger.warning(f"[{current_network}] Skipping app with invalid appCode: {app_code}")
+                    continue
                 
                 app_name = app.get("name", "Unknown")
                 platform = app.get("platform", "")
@@ -505,6 +513,11 @@ def render_app_code_selector(current_network: str, network_manager):
             else:
                 # If no parenthesis, use the whole string as appCode
                 selected_app_code = selected_app_display.strip()
+        
+        # Validate selected_app_code - skip if it's "N/A", empty, or None
+        if selected_app_code and (selected_app_code == "N/A" or not selected_app_code.strip()):
+            logger.warning(f"[{current_network}] Invalid selected_app_code: '{selected_app_code}', resetting to empty")
+            selected_app_code = ""
         
         # Extract app name from display text
         # For IronSource grouped apps, the format is "App Name (Android + iOS)"
