@@ -124,14 +124,24 @@ def render_create_unit_common_ui(
             # st.session_state[batch_results_key] = None
         
         if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
-            with st.spinner("Creating all 3 slots..."):
-                results = []
-                for slot_type in ["rv", "is", "bn"]:
-                    try:
-                        _create_default_slot(current_network, app_info_to_use, slot_type, network_manager, config)
-                        results.append({"type": slot_type.upper(), "status": "success"})
-                    except Exception as e:
-                        results.append({"type": slot_type.upper(), "status": "error", "error": str(e)})
+            # Validate app_info_to_use before creating slots
+            if not app_info_to_use:
+                st.error("❌ App information is required. Please select an app first.")
+                logger.error("[BigOAds] app_info_to_use is None or empty")
+            elif not app_info_to_use.get("appCode") and not app_info_to_use.get("appId"):
+                st.error("❌ App Code is required. Please select an app first.")
+                logger.error(f"[BigOAds] app_info_to_use missing appCode: {app_info_to_use}")
+            else:
+                with st.spinner("Creating all 3 slots..."):
+                    results = []
+                    for slot_type in ["rv", "is", "bn"]:
+                        try:
+                            _create_default_slot(current_network, app_info_to_use, slot_type, network_manager, config)
+                            results.append({"type": slot_type.upper(), "status": "success"})
+                        except Exception as e:
+                            error_msg = str(e)
+                            logger.error(f"[BigOAds] Error creating {slot_type.upper()} slot: {error_msg}")
+                            results.append({"type": slot_type.upper(), "status": "error", "error": error_msg})
                 
                 # Store results in session state to persist across reruns
                 st.session_state[batch_results_key] = results
@@ -210,7 +220,9 @@ def render_create_unit_common_ui(
             "adType": 2,
             "auctionType": 3,
             "autoRefresh": 2,
-            "bannerSize": 2,
+            "bannerSizeMode": 2,
+            "bannerSizeW": 250,
+            "bannerSizeH": 320,
         }
     }
     
@@ -2287,7 +2299,9 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
     
     if slot_key == "BN":
         settings_html += f'<li>Auto Refresh: {AUTO_REFRESH_MAP[slot_config["autoRefresh"]]}</li>'
-        settings_html += f'<li>Banner Size: {BANNER_SIZE_MAP[slot_config["bannerSize"]]}</li>'
+        banner_size_w = slot_config.get('bannerSizeW', 250)
+        banner_size_h = slot_config.get('bannerSizeH', 320)
+        settings_html += f'<li>Banner Size: {banner_size_w}x{banner_size_h}</li>'
     else:
         settings_html += f'<li>Music: {MUSIC_SWITCH_MAP[slot_config["musicSwitch"]]}</li>'
     
@@ -2321,14 +2335,15 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
             )
             slot_config['autoRefresh'] = AUTO_REFRESH_REVERSE[new_auto_refresh]
             
-            banner_size_display = BANNER_SIZE_MAP[slot_config['bannerSize']]
-            new_banner_size = st.selectbox(
-                "Banner Size",
-                options=list(BANNER_SIZE_MAP.values()),
-                index=list(BANNER_SIZE_MAP.values()).index(banner_size_display),
-                key=f"{slot_key}_bannerSize"
-            )
-            slot_config['bannerSize'] = BANNER_SIZE_REVERSE[new_banner_size]
+            # Banner size is now fixed: 250x320 (bannerSizeMode=2, bannerSizeW=250, bannerSizeH=320)
+            # Display current banner size
+            banner_size_w = slot_config.get('bannerSizeW', 250)
+            banner_size_h = slot_config.get('bannerSizeH', 320)
+            st.info(f"Banner Size: {banner_size_w}x{banner_size_h} (Fixed)")
+            # Keep values in slot_config
+            slot_config['bannerSizeMode'] = slot_config.get('bannerSizeMode', 2)
+            slot_config['bannerSizeW'] = banner_size_w
+            slot_config['bannerSizeH'] = banner_size_h
         else:
             music_display = MUSIC_SWITCH_MAP[slot_config['musicSwitch']]
             new_music = st.selectbox(
@@ -2373,7 +2388,9 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
         
         if slot_key == "BN":
             payload["autoRefresh"] = slot_config['autoRefresh']
-            payload["bannerSize"] = slot_config['bannerSize']
+            payload["bannerSizeMode"] = slot_config.get('bannerSizeMode', 2)
+            payload["bannerSizeW"] = slot_config.get('bannerSizeW', 250)
+            payload["bannerSizeH"] = slot_config.get('bannerSizeH', 320)
         else:
             payload["musicSwitch"] = slot_config['musicSwitch']
         

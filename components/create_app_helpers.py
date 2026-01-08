@@ -285,24 +285,44 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
 def create_default_slot(network: str, app_info: dict, slot_type: str, network_manager, config):
     """Create a default slot with predefined settings"""
     import streamlit as st
+    import logging
     from utils.network_manager import handle_api_response
     from utils.session_manager import SessionManager
     
-    app_code = app_info.get("appCode")
+    logger = logging.getLogger(__name__)
+    
+    # Validate app_info
+    if not app_info:
+        raise ValueError("app_info is required")
+    
+    app_code = app_info.get("appCode") or app_info.get("appId")
+    if not app_code or (isinstance(app_code, str) and not app_code.strip()):
+        raise ValueError(f"appCode is required but got: {app_code}")
+    
     platform_str = app_info.get("platformStr", "android")
     
     # Get package name (prefer BigOAds pkgNameDisplay via unified function)
-    pkg_name = app_info.get("pkgName", "")
+    pkg_name = app_info.get("pkgNameDisplay") or app_info.get("pkgName", "")
     bundle_id = app_info.get("bundleId", "")
     app_name = app_info.get("name", "")
     
     # Generate slot name using unified function (will automatically use BigOAds pkgNameDisplay if available)
     slot_name = generate_slot_name(pkg_name, platform_str, slot_type, network, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name)
     
+    # Validate slot_name
+    if not slot_name or (isinstance(slot_name, str) and not slot_name.strip()):
+        raise ValueError(f"slot_name is required but got: {slot_name}")
+    
+    # Ensure appCode and name are strings
+    app_code_str = str(app_code).strip()
+    slot_name_str = str(slot_name).strip()
+    
+    logger.info(f"[BigOAds] create_default_slot: appCode={app_code_str}, slot_name={slot_name_str}, slot_type={slot_type}")
+    
     # Build payload based on slot type
     payload = {
-        "appCode": app_code,
-        "name": slot_name,
+        "appCode": app_code_str,
+        "name": slot_name_str,
     }
     
     if slot_type == "rv":
@@ -320,13 +340,24 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
             "musicSwitch": 1
         })
     elif slot_type == "bn":
-        # Banner: adType = 2, auctionType = 3, autoRefresh = 2, bannerSize = 2
+        # Banner: adType = 2, auctionType = 3, autoRefresh = 2
+        # Note: autoRefresh = 2 means "No", so refreshSec is not required
+        # Banner size: bannerSizeMode = 2, bannerSizeW = 250, bannerSizeH = 320
         payload.update({
             "adType": 2,
             "auctionType": 3,
-            "autoRefresh": 2,
-            "bannerSize": 2  # Numeric value (1 or 2) for API
+            "autoRefresh": 2,  # 2 = No (refreshSec not required)
+            "bannerSizeMode": 2,
+            "bannerSizeW": 250,
+            "bannerSizeH": 320
         })
+    
+    # Log final payload before API call
+    logger.info(f"[BigOAds] create_default_slot final payload: {payload}")
+    
+    # Display payload in UI
+    import json
+    st.json(payload)
     
     # Make API call
     with st.spinner(f"Creating {slot_type.upper()} slot..."):
