@@ -558,7 +558,9 @@ def render_create_unit_common_ui(
                                         st.error(f"❌ Error creating Android {ad_unit['slot_key']} ad unit: {str(e)}")
                                         logger.exception(f"Error creating IronSource Android {ad_unit['slot_key']} ad unit")
                 
-                if st.button("✨ Create All 3 Ad Units (Android: RV, IS, BN)", use_container_width=True, type="primary", key="create_android_ad_units"):
+                # Use unique key with app_code to avoid duplicate key errors
+                button_key_android = f"create_android_ad_units_{selected_app_code}_{app_name}"
+                if st.button("✨ Create All 3 Ad Units (Android: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_android):
                     with st.spinner("🚀 Creating Android ad units..."):
                         try:
                             create_payloads = []
@@ -753,7 +755,9 @@ def render_create_unit_common_ui(
                                         logger.exception(f"Error creating IronSource iOS {ad_unit['slot_key']} ad unit")
                     
                     st.divider()
-                    if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key="create_ios_ad_units"):
+                    # Use unique key with app_code to avoid duplicate key errors
+                    button_key_ios = f"create_ios_ad_units_{selected_app_code}_{app_name}"
+                    if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_ios):
                         with st.spinner("🚀 Creating iOS ad units..."):
                             try:
                                 create_payloads = []

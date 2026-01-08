@@ -307,6 +307,7 @@ def _process_create_app_result(current_network: str, network_display: str, form_
     # result is already the normalized response from network_manager
     app_code = None
     app_id = None
+    unity_game_ids = None  # Initialize for Unity
     
     if current_network == "ironsource":
         # IronSource: result contains appKey directly
@@ -337,11 +338,35 @@ def _process_create_app_result(current_network: str, network_display: str, form_
         # Unity: result.result.stores.apple.gameId and result.result.stores.google.gameId
         # Store both gameIds separately for display
         result_data = result.get("result", {})
+        if not result_data:
+            result_data = result  # Fallback if result structure is different
+        
         stores = result_data.get("stores", {})
-        apple_game_id = stores.get("apple", {}).get("gameId")
-        google_game_id = stores.get("google", {}).get("gameId")
-        # For app_code, use project id (result.result.id) or first available gameId
-        app_code = result_data.get("id") or str(apple_game_id) if apple_game_id else (str(google_game_id) if google_game_id else None)
+        apple_store = stores.get("apple", {}) if isinstance(stores.get("apple"), dict) else {}
+        google_store = stores.get("google", {}) if isinstance(stores.get("google"), dict) else {}
+        
+        apple_game_id = apple_store.get("gameId")
+        google_game_id = google_store.get("gameId")
+        
+        # For app_code, use first available gameId (prefer Apple, then Google)
+        # This is what Unity uses as the app identifier
+        if apple_game_id:
+            app_code = str(apple_game_id)
+        elif google_game_id:
+            app_code = str(google_game_id)
+        else:
+            # Fallback to project id if gameIds are not available
+            project_id = result_data.get("id")
+            app_code = str(project_id) if project_id else None
+        
+        # Store gameIds separately for Unity (don't use app_id variable to avoid conflicts)
+        unity_game_ids = {
+            "apple_gameId": apple_game_id,
+            "google_gameId": google_game_id,
+            "project_id": result_data.get("id")
+        }
+        # For Unity, app_id should remain None (not used for Unity)
+        app_id = None
     elif current_network == "fyber":
         # Fyber: result.result contains appId and platform
         # Handle both cases: result.result.appId or direct result.appId
@@ -400,11 +425,17 @@ def _process_create_app_result(current_network: str, network_display: str, form_
         pkg_name = form_data.get("pkgName", "")
     
     # Save to session with full info for slot creation
+    # For Unity, unity_game_ids is already set above in the Unity branch
+    # For other networks, set to None
+    if current_network != "unity":
+        unity_game_ids = None
+    
     app_data = {
-        "appCode": app_code,  # For IronSource, this is actually appKey
+        "appCode": app_code,  # For IronSource, this is actually appKey. For Unity, this is gameId.
         "appKey": app_code if current_network == "ironsource" else None,  # Store appKey separately for IronSource
         "siteId": app_code if current_network == "pangle" else None,  # Store siteId separately for Pangle
         "app_id": app_id if current_network in ["mintegral", "inmobi"] else (int(app_code) if app_code and app_code != "N/A" and str(app_code).isdigit() else None),  # Store app_id separately for Mintegral and InMobi
+        "gameId": unity_game_ids if current_network == "unity" else None,  # Store gameIds separately for Unity
         "name": app_name,
         "pkgName": pkg_name,
         "platform": platform,
@@ -437,21 +468,31 @@ def _process_create_app_result(current_network: str, network_display: str, form_
         # For Unity, display Project ID first, then gameId for each platform separately
         if current_network == "unity":
             result_data = result.get("result", {})
+            if not result_data:
+                result_data = result  # Fallback if result structure is different
+            
             project_id = result_data.get("id")
             stores = result_data.get("stores", {})
-            apple_game_id = stores.get("apple", {}).get("gameId")
-            google_game_id = stores.get("google", {}).get("gameId")
+            apple_store = stores.get("apple", {}) if isinstance(stores.get("apple"), dict) else {}
+            google_store = stores.get("google", {}) if isinstance(stores.get("google"), dict) else {}
+            
+            apple_game_id = apple_store.get("gameId")
+            google_game_id = google_store.get("gameId")
             
             if project_id:
                 st.write(f"**Project ID:** {project_id}")
             
-            st.write("**App Code:**")
+            st.write("**App Code (Game ID):**")
             if apple_game_id:
                 st.write(f"  - **iOS (Apple):** {apple_game_id}")
             if google_game_id:
                 st.write(f"  - **Android (Google):** {google_game_id}")
             if not apple_game_id and not google_game_id:
-                st.write(f"  N/A")
+                st.write("  - N/A")
+            
+            # Display the primary app_code used
+            if app_code and app_code != "N/A":
+                st.write(f"**Primary App Code:** {app_code}")
         elif current_network == "fyber":
             # Fyber: Display App ID instead of App Code
             # Handle both cases: result.result.appId or direct result.appId
