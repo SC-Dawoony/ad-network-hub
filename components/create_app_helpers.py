@@ -340,18 +340,15 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
             "musicSwitch": 1
         })
     elif slot_type == "bn":
-        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2, bannerSize = 2
+        # Banner: adType = 2, auctionType = 3, bannerAutoRefresh = 2, bannerSize = [2]
         # Note: bannerAutoRefresh = 2 means "No", so refreshSec is not required
+        # bannerSize is int[] array: 1 = 300x250, 2 = 320x50
         payload.update({
             "adType": 2,
             "auctionType": 3,
             "bannerAutoRefresh": 2,  # 2 = No (refreshSec not required)
-            "bannerSize": 2  # Always set to 2
+            "bannerSize": [2]  # Array format: [2] for 320x50
         })
-    
-    # For BN slot, add bannerSize field (API requirement) - always set to 2
-    if slot_type == "bn":
-        payload["bannerSize"] = 2
     
     # Log final payload before API call
     logger.info(f"[BigOAds] create_default_slot final payload: {payload}")
