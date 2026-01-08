@@ -2389,22 +2389,31 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
             "auctionType": slot_config['auctionType'],
         }
         
-        # Log final payload
-        logger.info(f"[BigOAds] Final payload: {payload}")
-        
         if slot_key == "BN":
             payload["bannerAutoRefresh"] = slot_config.get('bannerAutoRefresh', slot_config.get('autoRefresh', 2))
             payload["bannerSizeMode"] = slot_config.get('bannerSizeMode', 2)
             payload["bannerSizeW"] = slot_config.get('bannerSizeW', 250)
             payload["bannerSizeH"] = slot_config.get('bannerSizeH', 320)
+            # API requires bannerSize field - always set to 2
+            payload["bannerSize"] = 2
         else:
             payload["musicSwitch"] = slot_config['musicSwitch']
+        
+        # Log and display final payload
+        logger.info(f"[BigOAds] Final payload: {payload}")
+        st.markdown("#### 📤 Request Payload")
+        st.json(payload)
         
         with st.spinner(f"Creating {slot_key} slot..."):
             try:
                 from utils.network_manager import get_network_manager
                 network_manager = get_network_manager()
                 response = network_manager.create_unit(current_network, payload)
+                
+                # Display full response
+                st.markdown("#### 📥 Response")
+                st.json(response)
+                
                 result = handle_api_response(response)
             
                 if result:
@@ -2424,8 +2433,12 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
                         SessionManager.cache_units(current_network, selected_app_code, cached_units)
                     
                     st.success(f"✅ {slot_key} slot created successfully!")
-                    st.rerun()
+                    # Don't rerun - keep the response visible
+                else:
+                    st.error(f"❌ Failed to create {slot_key} slot. Check response above.")
             except Exception as e:
                 st.error(f"❌ Error creating {slot_key} slot: {str(e)}")
                 SessionManager.log_error(current_network, str(e))
+                import traceback
+                st.code(traceback.format_exc())
 
