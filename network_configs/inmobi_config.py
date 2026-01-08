@@ -79,7 +79,7 @@ class InMobiConfig(NetworkConfig):
                 required=True,
                 label="Child Directed*",
                 options=self._get_child_directed_options(),
-                default=1,
+                default=2,
                 help_text="Specify the audience type of the app"
             ),
             Field(
@@ -287,9 +287,26 @@ class InMobiConfig(NetworkConfig):
         if not store_url:
             raise ValueError(f"Store URL is required for {platform or 'the selected platform'}")
         
+        # Get childDirected value and ensure it's an integer
+        child_directed_value = form_data.get("childDirected", 1)
+        # Handle case where value might be a string representation
+        if isinstance(child_directed_value, str):
+            try:
+                child_directed_value = int(child_directed_value)
+            except (ValueError, TypeError):
+                child_directed_value = 1
+        else:
+            child_directed_value = int(child_directed_value) if child_directed_value is not None else 1
+        
+        # Log the childDirected value for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[InMobi] childDirected value: {child_directed_value} (type: {type(child_directed_value)})")
+        logger.info(f"[InMobi] childDirected from form_data: {form_data.get('childDirected')} (type: {type(form_data.get('childDirected'))})")
+        
         payload = {
             "storeUrl": store_url,
-            "childDirected": int(form_data.get("childDirected", 1)),
+            "childDirected": child_directed_value,
             "locationAccess": bool(form_data.get("locationAccess", True)),
         }
         

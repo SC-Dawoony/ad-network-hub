@@ -40,8 +40,12 @@ def render_app_code_selector(current_network: str, network_manager):
     if current_network in ["ironsource", "bigoads"]:
         # Check if user wants to fetch apps from API
         fetch_apps_key = f"{current_network}_fetch_apps_from_api"
+        api_apps_key = f"{current_network}_api_apps"
+        
         if fetch_apps_key not in st.session_state:
             st.session_state[fetch_apps_key] = False
+        if api_apps_key not in st.session_state:
+            st.session_state[api_apps_key] = []
         
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -54,16 +58,22 @@ def render_app_code_selector(current_network: str, network_manager):
         if st.session_state[fetch_apps_key]:
             try:
                 with st.spinner("Loading apps from API..."):
-                    api_apps = network_manager.get_apps(current_network)
-                    if api_apps:
-                        st.success(f"✅ Loaded {len(api_apps)} apps from API")
-                        # Reset the flag after fetching
-                        st.session_state[fetch_apps_key] = False
+                    fetched_apps = network_manager.get_apps(current_network)
+                    if fetched_apps:
+                        st.session_state[api_apps_key] = fetched_apps
+                        st.success(f"✅ Loaded {len(fetched_apps)} apps from API")
+                    else:
+                        st.session_state[api_apps_key] = []
+                    # Reset the flag after fetching
+                    st.session_state[fetch_apps_key] = False
             except Exception as e:
                 logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
                 st.error(f"❌ Failed to load apps: {str(e)}")
-                api_apps = []
+                st.session_state[api_apps_key] = []
                 st.session_state[fetch_apps_key] = False
+        
+        # Use stored API apps
+        api_apps = st.session_state[api_apps_key]
     
     # Merge cached apps with API apps
     # For IronSource and BigOAds, prioritize cached apps (from Create App response)
