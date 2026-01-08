@@ -105,6 +105,24 @@ def render_create_unit_common_ui(
     
     # Create All 3 Slots button at the top (for BigOAds)
     if current_network == "bigoads":
+        # Check if there are results from previous batch creation
+        batch_results_key = f"{current_network}_batch_create_results"
+        if batch_results_key in st.session_state and st.session_state[batch_results_key]:
+            results = st.session_state[batch_results_key]
+            st.success("🎉 Finished creating slots!")
+            st.balloons()
+            
+            # Display created slots
+            st.subheader("📋 Created Slots")
+            for result in results:
+                if result["status"] == "success":
+                    st.success(f"✅ {result['type']} slot created successfully")
+                else:
+                    st.error(f"❌ {result['type']} slot failed: {result.get('error', 'Unknown error')}")
+            
+            # Clear results after displaying (optional - remove if you want to keep them)
+            # st.session_state[batch_results_key] = None
+        
         if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
             with st.spinner("Creating all 3 slots..."):
                 results = []
@@ -115,7 +133,10 @@ def render_create_unit_common_ui(
                     except Exception as e:
                         results.append({"type": slot_type.upper(), "status": "error", "error": str(e)})
                 
-                # Show results
+                # Store results in session state to persist across reruns
+                st.session_state[batch_results_key] = results
+                
+                # Show results immediately
                 st.success("🎉 Finished creating slots!")
                 st.balloons()
                 
@@ -127,7 +148,8 @@ def render_create_unit_common_ui(
                     else:
                         st.error(f"❌ {result['type']} slot failed: {result.get('error', 'Unknown error')}")
                 
-                st.rerun()
+                # Don't rerun - keep the results visible
+                # st.rerun()
     
     st.divider()
     
@@ -2318,20 +2340,36 @@ def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_t
             slot_config['musicSwitch'] = MUSIC_SWITCH_REVERSE[new_music]
     
     if st.button(f"✅ Create {slot_key} Slot", use_container_width=True, key=f"create_{slot_key}"):
-        # Log selected_app_code for debugging
-        logger.info(f"[BigOAds] Creating {slot_key} slot with appCode: {selected_app_code}")
+        # Log selected_app_code and slot_name for debugging
+        logger.info(f"[BigOAds] Creating {slot_key} slot with appCode: {selected_app_code}, name: {slot_name}")
         logger.info(f"[BigOAds] selected_app_code type: {type(selected_app_code)}, value: {selected_app_code}")
+        logger.info(f"[BigOAds] slot_name type: {type(slot_name)}, value: {slot_name}")
         
-        if not selected_app_code:
+        # Validate appCode
+        if not selected_app_code or (isinstance(selected_app_code, str) and not selected_app_code.strip()):
             st.error("❌ App Code is required. Please select an app or enter manually.")
+            logger.error(f"[BigOAds] Invalid appCode: '{selected_app_code}'")
             return
         
+        # Validate slot name
+        if not slot_name or (isinstance(slot_name, str) and not slot_name.strip()):
+            st.error("❌ Slot Name is required. Please enter a slot name.")
+            logger.error(f"[BigOAds] Invalid slot_name: '{slot_name}'")
+            return
+        
+        # Ensure appCode and name are strings (not None)
+        app_code_str = str(selected_app_code).strip()
+        slot_name_str = str(slot_name).strip()
+        
         payload = {
-            "appCode": selected_app_code,
-            "name": slot_name,
+            "appCode": app_code_str,
+            "name": slot_name_str,
             "adType": slot_config['adType'],
             "auctionType": slot_config['auctionType'],
         }
+        
+        # Log final payload
+        logger.info(f"[BigOAds] Final payload: {payload}")
         
         if slot_key == "BN":
             payload["autoRefresh"] = slot_config['autoRefresh']
