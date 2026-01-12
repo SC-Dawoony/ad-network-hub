@@ -183,7 +183,7 @@ def _render_inmobi_fields(config, key_prefix: str = "one_click") -> Dict:
     selected_child_directed = st.selectbox(
         "Child Directed*",
         options=child_directed_labels,
-        index=1,  # Default: "Directed towards children (requires parental consent)" = 2
+        index=0,  # Default: "Not directed towards children" = 2 (첫 번째 옵션)
         key=f"{key_prefix}_child_directed"
     )
     for label, value in child_directed_options:

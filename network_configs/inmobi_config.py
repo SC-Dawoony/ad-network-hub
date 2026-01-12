@@ -17,8 +17,8 @@ class InMobiConfig(NetworkConfig):
     def _get_child_directed_options(self) -> List[Tuple[str, int]]:
         """Get child directed options"""
         return [
-            ("Not directed towards children", 1),
-            ("Directed towards children (requires parental consent)", 2),
+            ("Not directed towards children", 2),  # 값 1 → 2로 변경
+            ("Directed towards children (requires parental consent)", 1),  # 값 2 → 1로 변경
             ("Partially directed towards children and adults", 3),
         ]
     
