@@ -28,6 +28,12 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
+# AdMob OAuth
+admob_token.json
+client_secrets.json
+client_secret.json
+client_secret*.json
+
 # Logs
 *.log
 

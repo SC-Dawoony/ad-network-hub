@@ -152,6 +152,7 @@ class MockNetworkManager:
         self.clients = {}
         # Initialize network API instances
         self._ironsource_api = None
+        self._admob_api = None
     
     def get_client(self, network: str):
         """Get API client for a network"""
@@ -173,6 +174,8 @@ class MockNetworkManager:
             return self._create_fyber_app(payload)
         elif network == "unity":
             return self._create_unity_project(payload)
+        elif network == "admob":
+            return self._create_admob_app(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create App (Mock)")
@@ -768,6 +771,12 @@ class MockNetworkManager:
             return self._create_fyber_unit(payload)
         elif network == "applovin":
             return self._create_applovin_unit(payload)
+        elif network == "admob":
+            # Use new AdMobAPI
+            if self._admob_api is None:
+                from utils.network_apis.admob_api import AdMobAPI
+                self._admob_api = AdMobAPI()
+            return self._admob_api.create_unit(payload, app_key=app_key)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create Unit (Mock)")
@@ -1888,6 +1897,14 @@ class MockNetworkManager:
                 "code": "API_ERROR",
                 "msg": str(e)
             }
+    
+    def _create_admob_app(self, payload: Dict) -> Dict:
+        """Create app via AdMob API (wrapper for compatibility)"""
+        # Use new AdMobAPI
+        if self._admob_api is None:
+            from utils.network_apis.admob_api import AdMobAPI
+            self._admob_api = AdMobAPI()
+        return self._admob_api.create_app(payload)
     
     def _create_unity_project(self, payload: Dict) -> Dict:
         """Create Unity project via Unity API
@@ -3428,6 +3445,12 @@ class MockNetworkManager:
                 except ValueError:
                     logger.warning(f"[Fyber] Invalid app_key format: {app_key}")
             return self._get_fyber_apps(publisher_id=publisher_id, app_id=app_id)
+        elif network == "admob":
+            # Use new AdMobAPI
+            if self._admob_api is None:
+                from utils.network_apis.admob_api import AdMobAPI
+                self._admob_api = AdMobAPI()
+            return self._admob_api.get_apps(app_key=app_key)
         elif network == "vungle":
             # For Vungle, placements contain both app and unit info
             # Extract unique apps from placements
@@ -3465,7 +3488,14 @@ class MockNetworkManager:
     
     def get_units(self, network: str, app_code: str) -> List[Dict]:
         """Get units list for an app"""
-        # Mock implementation
+        if network == "admob":
+            # Use new AdMobAPI
+            if self._admob_api is None:
+                from utils.network_apis.admob_api import AdMobAPI
+                self._admob_api = AdMobAPI()
+            return self._admob_api.get_ad_units(app_code=app_code)
+        
+        # Mock implementation for other networks
         return [
             {
                 "slotCode": "12345-678",
@@ -3480,6 +3510,17 @@ class MockNetworkManager:
                 "auctionType": "Client Bidding"
             }
         ]
+    
+    def get_admob_google_bidding_ad_units(self) -> List[Dict]:
+        """Get Google Bidding ad units from AdMob
+        
+        Returns:
+            List of Google Bidding ad unit dicts
+        """
+        if self._admob_api is None:
+            from utils.network_apis.admob_api import AdMobAPI
+            self._admob_api = AdMobAPI()
+        return self._admob_api.get_google_bidding_ad_units()
 
 
 # Global instance

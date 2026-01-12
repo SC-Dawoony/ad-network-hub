@@ -338,6 +338,22 @@ def render_create_unit_common_ui(
         }
     }
     
+    # Default slot configurations for AdMob
+    slot_configs_admob = {
+        "RV": {
+            "name": "Rewarded",
+            "format": "REWARDED",
+        },
+        "IS": {
+            "name": "Interstitial",
+            "format": "INTERSTITIAL",
+        },
+        "BN": {
+            "name": "Banner",
+            "format": "BANNER",
+        }
+    }
+    
     # Select configs based on network
     if current_network == "ironsource":
         slot_configs = slot_configs_ironsource
@@ -349,6 +365,8 @@ def render_create_unit_common_ui(
         slot_configs = slot_configs_inmobi
     elif current_network == "fyber":
         slot_configs = slot_configs_fyber
+    elif current_network == "admob":
+        slot_configs = slot_configs_admob
     else:
         slot_configs = slot_configs_bigoads
     
@@ -988,6 +1006,136 @@ def render_create_unit_common_ui(
                         st.toast(f"❌ Invalid App ID: {app_id}", icon="🚫")
                         logger.exception(f"Invalid App ID for InMobi: {app_id}")
         
+        # For AdMob, add "Create All 3 Ad Units" button
+        if current_network == "admob":
+            # Get app info for AdMob
+            app_id = None
+            app_store_id = None
+            pkg_name = ""
+            platform_str = "android"
+            app_name_for_slot = app_name
+            
+            if selected_app_code:
+                if app_info_to_use:
+                    app_id = app_info_to_use.get("appId") or app_info_to_use.get("appIdAndroid") or app_info_to_use.get("appIdIOS")
+                    app_store_id = app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+                    pkg_name = app_info_to_use.get("pkgName") or app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+                    platform_str = app_info_to_use.get("platformStr", "android")
+                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                    
+                    if platform_str == "both":
+                        platform_str = "android"
+                        if not pkg_name:
+                            pkg_name = app_info_to_use.get("androidAppStoreId")
+                
+                if not app_id and not app_store_id:
+                    for app in apps:
+                        app_identifier = app.get("appId") or app.get("appCode")
+                        if str(app_identifier) == str(selected_app_code):
+                            app_id = app.get("appId")
+                            app_store_id = app.get("appStoreId")
+                            pkg_name = app.get("appStoreId") or app.get("pkgName", "")
+                            platform_str_val = app.get("platform", "")
+                            platform_str = "android" if platform_str_val == "ANDROID" else ("ios" if platform_str_val == "IOS" else "android")
+                            app_name_for_slot = app.get("name", app_name)
+                            break
+            
+            # Create All 3 Ad Units button
+            if st.button("✨ Create All 3 Ad Units (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_admob_ad_units"):
+                if not selected_app_code:
+                    st.toast("❌ Please select an App Code", icon="🚫")
+                elif not app_id and not app_store_id:
+                    st.toast("❌ App ID or App Store ID is required. Please select an App Code.", icon="🚫")
+                elif not pkg_name:
+                    st.toast("❌ Package name or App Store ID is required", icon="🚫")
+                else:
+                    with st.spinner("🚀 Creating all 3 ad units..."):
+                        try:
+                            from utils.network_manager import get_network_manager
+                            network_manager = get_network_manager()
+                            
+                            slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                            format_map = {
+                                "RV": "REWARDED",
+                                "IS": "INTERSTITIAL",
+                                "BN": "BANNER"
+                            }
+                            create_payloads = []
+                            display_names = []
+                            
+                            for slot_key in ["RV", "IS", "BN"]:
+                                slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                ad_format = format_map.get(slot_key, "REWARDED")
+                                display_name = _generate_slot_name(pkg_name, platform_str, slot_type, "admob", bundle_id=None, network_manager=network_manager, app_name=app_name_for_slot)
+                                
+                                if not display_name:
+                                    # Fallback: use slot_type (rv, is, bn) instead of ad_format.lower()
+                                    display_name = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+                                
+                                display_names.append((slot_key, display_name))
+                                
+                                payload = {
+                                    "displayName": display_name,
+                                    "format": ad_format
+                                }
+                                
+                                if app_id:
+                                    payload["appId"] = app_id
+                                elif app_store_id:
+                                    payload["appStoreId"] = app_store_id
+                                
+                                create_payloads.append((slot_key, payload))
+                            
+                            # Create ad units sequentially
+                            results = []
+                            for slot_key, payload in create_payloads:
+                                response = network_manager.create_unit(current_network, payload)
+                                result = handle_api_response(response)
+                                results.append((slot_key, response, result))
+                            
+                            # Process results
+                            success_count = 0
+                            failed_count = 0
+                            
+                            for slot_key, response, result in results:
+                                if response.get("status") == 0 or response.get("code") == 0:
+                                    success_count += 1
+                                    if result:
+                                        display_name = next((name for sk, name in display_names if sk == slot_key), "")
+                                        result_data = result.get("result", {})
+                                        if isinstance(result_data, dict):
+                                            unit_id = result_data.get("name") or result_data.get("adUnitId") or result_data.get("id")
+                                            unit_data = {
+                                                "slotCode": unit_id or "N/A",
+                                                "name": display_name,
+                                                "appCode": app_id or app_store_id or selected_app_code,
+                                                "slotType": format_map.get(slot_key, ""),
+                                                "adType": format_map.get(slot_key, ""),
+                                                "auctionType": "N/A"
+                                            }
+                                            SessionManager.add_created_unit(current_network, unit_data)
+                                            
+                                            cached_units = SessionManager.get_cached_units(current_network, str(app_id or app_store_id or selected_app_code))
+                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                cached_units.append(unit_data)
+                                                SessionManager.cache_units(current_network, str(app_id or app_store_id or selected_app_code), cached_units)
+                                else:
+                                    failed_count += 1
+                            
+                            # Display summary
+                            if success_count == 3:
+                                st.success(f"✅ Successfully created all 3 ad units!")
+                                st.balloons()
+                            elif success_count > 0:
+                                st.warning(f"⚠️ Created {success_count} ad units, {failed_count} failed")
+                            else:
+                                st.error(f"❌ Failed to create ad units")
+                            
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error creating ad units: {str(e)}")
+                            logger.exception("Error creating AdMob ad units")
+        
         # For Fyber, add "Create All 3 Placements" button
         if current_network == "fyber":
             # Get app info for Fyber
@@ -1166,6 +1314,11 @@ def render_create_unit_common_ui(
                                 slot_key, slot_config, selected_app_code, app_info_to_use,
                                 app_name, apps, network_manager, current_network
                             )
+                    elif current_network == "admob":
+                        _render_admob_slot_ui(
+                            slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network
+                        )
                     else:
                         # BigOAds and other networks
                         _render_bigoads_slot_ui(
@@ -2238,6 +2391,153 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                     except Exception as e:
                         st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
                         SessionManager.log_error(current_network, str(e))
+
+
+def _render_admob_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
+                          app_name, apps, network_manager, current_network):
+    """Render AdMob Google Bidding Ad Unit creation UI (similar to InMobi)
+    
+    Args:
+        slot_key: Slot key (RV, IS, BN)
+        slot_config: Slot configuration
+        selected_app_code: Selected app code
+        app_info_to_use: App info dict
+        app_name: App name
+        apps: List of apps
+        network_manager: Network manager instance
+        current_network: Current network identifier
+    """
+    display_name_key = f"admob_slot_{slot_key}_name"
+    
+    # Map slot_key to format
+    format_map = {
+        "RV": "REWARDED",
+        "IS": "INTERSTITIAL",
+        "BN": "BANNER"
+    }
+    ad_format = format_map.get(slot_key, "REWARDED")
+    
+    # Get app info
+    app_id = None
+    app_store_id = None
+    pkg_name = ""
+    platform_str = "android"
+    app_name_for_slot = app_name
+    
+    if selected_app_code:
+        if app_info_to_use:
+            app_id = app_info_to_use.get("appId") or app_info_to_use.get("appIdAndroid") or app_info_to_use.get("appIdIOS")
+            app_store_id = app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+            pkg_name = app_info_to_use.get("pkgName") or app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+            platform_str = app_info_to_use.get("platformStr", "android")
+            app_name_for_slot = app_info_to_use.get("name", app_name)
+            
+            if platform_str == "both":
+                platform_str = "android"
+                if not pkg_name:
+                    pkg_name = app_info_to_use.get("androidAppStoreId")
+        
+        if not app_id and not app_store_id:
+            for app in apps:
+                app_identifier = app.get("appId") or app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
+                    app_id = app.get("appId")
+                    app_store_id = app.get("appStoreId")
+                    pkg_name = app.get("appStoreId") or app.get("pkgName", "")
+                    platform_str_val = app.get("platform", "")
+                    platform_str = "android" if platform_str_val == "ANDROID" else ("ios" if platform_str_val == "IOS" else "android")
+                    app_name_for_slot = app.get("name", app_name)
+                    break
+    
+    # Auto-generate display name if not set or if app info is available
+    if display_name_key not in st.session_state or (selected_app_code and app_info_to_use):
+        if selected_app_code and pkg_name:
+            slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+            slot_type = slot_type_map.get(slot_key, slot_key.lower())
+            default_name = _generate_slot_name(pkg_name, platform_str, slot_type, "admob", bundle_id=None, network_manager=network_manager, app_name=app_name_for_slot)
+            if default_name:
+                st.session_state[display_name_key] = default_name
+            else:
+                # Fallback: use slot_type (rv, is, bn) instead of ad_format.lower()
+                st.session_state[display_name_key] = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+        elif display_name_key not in st.session_state:
+            # Fallback: use slot_type (rv, is, bn)
+            slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+            slot_type = slot_type_map.get(slot_key, slot_key.lower())
+            default_name = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+            st.session_state[display_name_key] = default_name
+    
+    display_name = st.text_input(
+        "Display Name*",
+        value=st.session_state.get(display_name_key, ""),
+        key=display_name_key,
+        help=f"Name for {slot_config.get('name', slot_key)} ad unit"
+    )
+    
+    st.markdown("**Current Settings:**")
+    settings_html = '<div style="min-height: 80px; margin-bottom: 10px;">'
+    settings_html += '<ul style="margin: 0; padding-left: 20px;">'
+    settings_html += f'<li>Format: {ad_format}</li>'
+    settings_html += '</ul></div>'
+    st.markdown(settings_html, unsafe_allow_html=True)
+    
+    # App ID / App Store ID display
+    if app_id:
+        st.info(f"📱 App ID: {app_id}")
+    elif app_store_id:
+        st.info(f"📱 App Store ID: {app_store_id}")
+    elif selected_app_code:
+        st.warning(f"⚠️ App ID/App Store ID not found. Will use entered code: {selected_app_code}")
+    
+    if st.button(f"✅ Create {slot_key} Ad Unit", use_container_width=True, key=f"create_admob_{slot_key}"):
+        if not selected_app_code:
+            st.toast("❌ Please select an App Code", icon="🚫")
+        elif not display_name:
+            st.toast("❌ Display Name is required", icon="🚫")
+        elif not app_id and not app_store_id:
+            st.toast("❌ App ID or App Store ID is required. Please select an App Code.", icon="🚫")
+        else:
+            payload = {
+                "displayName": display_name.strip(),
+                "format": ad_format
+            }
+            
+            if app_id:
+                payload["appId"] = app_id
+            elif app_store_id:
+                payload["appStoreId"] = app_store_id
+            
+            with st.spinner(f"Creating {slot_key} ad unit..."):
+                try:
+                    from utils.network_manager import get_network_manager
+                    network_manager = get_network_manager()
+                    response = network_manager.create_unit(current_network, payload)
+                    result = handle_api_response(response)
+                    
+                    if result:
+                        result_data = result.get("result", {})
+                        if isinstance(result_data, dict):
+                            unit_id = result_data.get("name") or result_data.get("adUnitId") or result_data.get("id")
+                            unit_data = {
+                                "slotCode": unit_id or "N/A",
+                                "name": display_name,
+                                "appCode": app_id or app_store_id or selected_app_code,
+                                "slotType": ad_format,
+                                "adType": ad_format,
+                                "auctionType": "N/A"
+                            }
+                            SessionManager.add_created_unit(current_network, unit_data)
+                            
+                            cached_units = SessionManager.get_cached_units(current_network, str(app_id or app_store_id or selected_app_code))
+                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                cached_units.append(unit_data)
+                                SessionManager.cache_units(current_network, str(app_id or app_store_id or selected_app_code), cached_units)
+                        
+                        st.success(f"✅ {slot_key} ad unit created successfully!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error creating {slot_key} ad unit: {str(e)}")
+                    SessionManager.log_error(current_network, str(e))
 
 
 def _render_bigoads_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
