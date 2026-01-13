@@ -31,9 +31,11 @@ Thumbs.db
 
 # AdMob OAuth
 admob_token.json
+admob_token.json.backup.*
 client_secrets.json
 client_secret.json
 client_secret*.json
+regenerate_admob_token.py
 
 # Logs
 *.log
@@ -44,6 +46,8 @@ APPLOVIN_AD_UNIT_DESIGN.md
 SUPABASE_AD_NETWORK_DATA_DESIGN.md
 GOOGLE_OAUTH_LOGIN_PLAN.md
 ADMOB_TOKEN_REGENERATION_GUIDE.md
+ADMOB_OAUTH_AUTO_LOGIN_DESIGN.md
+ADMOB_TOKEN_AUTO_REFRESH_GUIDE.md
 STREAMLIT_CLOUD_SECRETS_GUIDE.md
 
 # Scripts

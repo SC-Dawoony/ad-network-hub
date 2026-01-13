@@ -33,12 +33,87 @@ class AdMobAPI(BaseNetworkAPI):
         """Get OAuth credentials
         
         우선순위:
-        1. session_state에 저장된 토큰 (웹 환경)
-        2. 파일에 저장된 토큰 (로컬 환경)
-        3. 새로 OAuth 인증 (첫 실행 또는 토큰 만료)
+        1. Streamlit secrets (웹 환경 우선)
+        2. session_state에 저장된 토큰 (웹 환경)
+        3. 파일에 저장된 토큰 (로컬 환경)
+        4. 새로 OAuth 인증 (첫 실행 또는 토큰 만료)
         """
-        # 1. session_state에서 토큰 확인 (웹 환경)
         session_key = "admob_credentials"
+        creds = None
+        
+        # 1. Streamlit secrets에서 토큰 먼저 확인 (웹 환경 우선)
+        if hasattr(st, 'secrets'):
+            try:
+                # 여러 방법으로 Streamlit secrets 접근 시도
+                token_json_str = None
+                if hasattr(st.secrets, 'get'):
+                    token_json_str = st.secrets.get('ADMOB_TOKEN_JSON')
+                elif hasattr(st.secrets, 'ADMOB_TOKEN_JSON'):
+                    token_json_str = getattr(st.secrets, 'ADMOB_TOKEN_JSON', None)
+                elif 'ADMOB_TOKEN_JSON' in st.secrets:
+                    token_json_str = st.secrets['ADMOB_TOKEN_JSON']
+                
+                if token_json_str:
+                    logger.info("[AdMob] Found ADMOB_TOKEN_JSON in Streamlit secrets")
+                    if isinstance(token_json_str, str):
+                        try:
+                            token_data = json.loads(token_json_str)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"[AdMob] Failed to parse ADMOB_TOKEN_JSON as JSON: {e}")
+                            logger.error(f"[AdMob] Token JSON string (first 100 chars): {token_json_str[:100]}")
+                            token_data = None
+                    else:
+                        token_data = token_json_str
+                    
+                    if token_data:
+                        try:
+                            creds = Credentials.from_authorized_user_info(token_data, ADMOB_SCOPES)
+                            logger.info("[AdMob] Created credentials from Streamlit secrets")
+                            
+                            # 토큰이 만료되었으면 refresh
+                            if creds.expired and creds.refresh_token:
+                                try:
+                                    logger.info("[AdMob] Refreshing expired token from Streamlit secrets...")
+                                    creds.refresh(Request())
+                                    logger.info("[AdMob] Token refreshed successfully")
+                                    
+                                    # 갱신된 토큰을 session_state에 저장
+                                    if hasattr(st, 'session_state'):
+                                        st.session_state[session_key] = json.loads(creds.to_json())
+                                except Exception as e:
+                                    error_str = str(e)
+                                    logger.error(f"[AdMob] Failed to refresh token from Streamlit secrets: {e}")
+                                    import traceback
+                                    logger.error(traceback.format_exc())
+                                    
+                                    # Scope 불일치 감지
+                                    if "invalid_scope" in error_str.lower() or "bad request" in error_str.lower():
+                                        logger.error("[AdMob] ⚠️ Scope 불일치 감지: 토큰이 이전 scope로 생성되어 있습니다.")
+                                        logger.error("[AdMob] 새로운 scope로 토큰을 재생성해야 합니다.")
+                                        logger.error("[AdMob] 로컬에서 'python regenerate_admob_token.py' 실행 후 Streamlit Secrets 업데이트 필요")
+                                    creds = None
+                            
+                            if creds and creds.valid:
+                                # session_state에 저장
+                                if hasattr(st, 'session_state'):
+                                    st.session_state[session_key] = json.loads(creds.to_json())
+                                logger.info("[AdMob] ✅ Successfully loaded credentials from Streamlit secrets")
+                                self._credentials = creds
+                                return creds
+                            else:
+                                logger.warning(f"[AdMob] Credentials from Streamlit secrets are not valid. expired={creds.expired if creds else 'N/A'}, valid={creds.valid if creds else 'N/A'}")
+                        except Exception as e:
+                            logger.error(f"[AdMob] Failed to create credentials from Streamlit secrets: {e}")
+                            import traceback
+                            logger.error(traceback.format_exc())
+                else:
+                    logger.debug("[AdMob] ADMOB_TOKEN_JSON not found in Streamlit secrets")
+            except Exception as e:
+                logger.error(f"[AdMob] Failed to load from Streamlit secrets: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        # 2. session_state에서 토큰 확인 (웹 환경)
         if hasattr(st, 'session_state') and session_key in st.session_state:
             try:
                 creds_data = st.session_state[session_key]
@@ -64,12 +139,11 @@ class AdMobAPI(BaseNetworkAPI):
             except Exception as e:
                 logger.warning(f"[AdMob] Failed to load credentials from session_state: {e}")
         
-        # 2. 파일에서 토큰 로드 (로컬 환경)
+        # 3. 파일에서 토큰 로드 (로컬 환경)
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         token_file = os.path.join(base_dir, 'admob_token.json')
         token_file = os.path.abspath(token_file)
         
-        creds = None
         if os.path.exists(token_file):
             try:
                 creds = Credentials.from_authorized_user_file(token_file, ADMOB_SCOPES)
@@ -80,6 +154,7 @@ class AdMobAPI(BaseNetworkAPI):
                     st.session_state[session_key] = json.loads(creds.to_json())
             except Exception as e:
                 logger.warning(f"[AdMob] Failed to load token from file: {e}")
+                creds = None
         
         # Refresh if expired
         if creds and creds.expired and creds.refresh_token:
@@ -102,41 +177,21 @@ class AdMobAPI(BaseNetworkAPI):
                 logger.warning(f"[AdMob] Failed to refresh token: {e}")
                 creds = None
         
-        # 3. 새로 OAuth 인증 필요
+        # 4. 모든 방법 실패 - OAuth flow 시작
         if not creds:
-            # 웹 환경에서는 Streamlit secrets에서 먼저 확인
-            if hasattr(st, 'session_state'):
-                # Streamlit secrets에서 토큰 먼저 확인 (경고 메시지 표시 전)
-                try:
-                    if hasattr(st.secrets, 'get') and st.secrets.get('ADMOB_TOKEN_JSON'):
-                        token_json_str = st.secrets.get('ADMOB_TOKEN_JSON')
-                        if isinstance(token_json_str, str):
-                            token_data = json.loads(token_json_str)
-                        else:
-                            token_data = token_json_str
-                        creds = Credentials.from_authorized_user_info(token_data, ADMOB_SCOPES)
-                        
-                        # 토큰이 만료되었으면 refresh
-                        if creds.expired and creds.refresh_token:
-                            try:
-                                logger.info("[AdMob] Refreshing expired token from Streamlit secrets...")
-                                creds.refresh(Request())
-                                logger.info("[AdMob] Token refreshed successfully")
-                            except Exception as e:
-                                logger.warning(f"[AdMob] Failed to refresh token: {e}")
-                                creds = None
-                        
-                        if creds and creds.valid:
-                            # session_state에 저장
-                            st.session_state[session_key] = json.loads(creds.to_json())
-                            logger.info("[AdMob] Loaded credentials from Streamlit secrets")
-                            # 성공적으로 로드했으면 경고 메시지 표시하지 않음
-                            self._credentials = creds
-                            return creds
-                except Exception as e:
-                    logger.warning(f"[AdMob] Failed to load from Streamlit secrets: {e}")
-                
-                # Streamlit secrets에서도 로드 실패했을 때만 경고 메시지 표시
+            # Streamlit 환경인지 확인 (실제로 실행 중인지 체크)
+            is_streamlit_running = False
+            try:
+                # Streamlit이 실제로 실행 중인지 확인
+                from streamlit.runtime.scriptrunner import get_script_run_ctx
+                ctx = get_script_run_ctx()
+                is_streamlit_running = ctx is not None
+            except:
+                # Streamlit이 설치되지 않았거나 실행 중이 아님
+                is_streamlit_running = False
+            
+            # Streamlit 환경에서는 경고 메시지 표시
+            if is_streamlit_running:
                 st.error("⚠️ AdMob 인증이 필요합니다. 아래 안내를 따라주세요.")
                 st.info("""
                 **로컬 환경에서 인증하는 방법:**
@@ -152,35 +207,38 @@ class AdMobAPI(BaseNetworkAPI):
                 raise ValueError(
                     "AdMob 인증이 필요합니다.\n\n"
                     "**방법 1 (로컬 인증):**\n"
-                    "1. 로컬에서 `python -c \"from utils.network_apis.admob_api import AdMobAPI; api = AdMobAPI(); api._get_credentials()\"` 실행\n"
+                    "1. 로컬에서 `python regenerate_admob_token.py` 실행\n"
                     "2. 생성된 `admob_token.json` 파일 내용을 Streamlit Secrets의 `ADMOB_TOKEN_JSON`에 저장\n\n"
                     "**방법 2 (수동 저장):**\n"
                     "Streamlit Secrets에 `ADMOB_TOKEN_JSON` 키로 토큰 JSON을 저장하세요."
                 )
-            else:
-                # 로컬 환경: OAuth flow 시작
-                client_secrets_file = self._find_client_secrets_file()
-                if not client_secrets_file:
-                    raise ValueError(
-                        "Client secrets file not found. Please add client_secrets.json or client_secret.json to project root.\n"
-                        "You can download it from Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID"
-                    )
-                
-                logger.info(f"[AdMob] Starting OAuth flow with {client_secrets_file}")
-                logger.info("[AdMob] Browser will open for authentication. Please authorize the app.")
-                
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    client_secrets_file, ADMOB_SCOPES
+            
+            # 로컬 환경: OAuth flow 시작
+            client_secrets_file = self._find_client_secrets_file()
+            if not client_secrets_file:
+                raise ValueError(
+                    "Client secrets file not found. Please add client_secrets.json or client_secret.json to project root.\n"
+                    "You can download it from Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID"
                 )
-                creds = flow.run_local_server(port=0)
-                
-                # Save token to file
-                try:
-                    with open(token_file, 'w') as token:
-                        token.write(creds.to_json())
-                    logger.info(f"[AdMob] Token saved to {token_file}")
-                except Exception as e:
-                    logger.warning(f"[AdMob] Failed to save token: {e}")
+            
+            logger.info(f"[AdMob] Starting OAuth flow with {client_secrets_file}")
+            logger.info("[AdMob] Browser will open for authentication. Please authorize the app.")
+            print("[AdMob] 🌐 브라우저가 열립니다. Google 계정으로 로그인하고 권한을 승인하세요.")
+            
+            flow = InstalledAppFlow.from_client_secrets_file(
+                client_secrets_file, ADMOB_SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+            
+            # Save token to file
+            try:
+                with open(token_file, 'w') as token:
+                    token.write(creds.to_json())
+                logger.info(f"[AdMob] Token saved to {token_file}")
+                print(f"[AdMob] ✅ 토큰이 저장되었습니다: {token_file}")
+            except Exception as e:
+                logger.warning(f"[AdMob] Failed to save token: {e}")
+                print(f"[AdMob] ⚠️  토큰 저장 실패: {e}")
         
         self._credentials = creds
         return creds

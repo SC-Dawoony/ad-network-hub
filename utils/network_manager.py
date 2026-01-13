@@ -3267,6 +3267,133 @@ class MockNetworkManager:
             logger.error(f"[Vungle] Error fetching placements: {str(e)}")
             return []
     
+    def _get_pangle_apps(self) -> List[Dict]:
+        """Get apps list from Pangle API
+        
+        API: POST https://open-api.pangleglobal.com/union/media/open_api/site/query
+        """
+        security_key = _get_env_var("PANGLE_SECURITY_KEY")
+        user_id = _get_env_var("PANGLE_USER_ID")
+        role_id = _get_env_var("PANGLE_ROLE_ID")
+        
+        if not security_key or not user_id or not role_id:
+            logger.error("[Pangle] PANGLE_SECURITY_KEY, PANGLE_USER_ID, and PANGLE_ROLE_ID must be set")
+            return []
+        
+        try:
+            user_id_int = int(user_id)
+            role_id_int = int(role_id)
+        except (ValueError, TypeError):
+            logger.error("[Pangle] PANGLE_USER_ID and PANGLE_ROLE_ID must be integers")
+            return []
+        
+        # Check if sandbox mode is enabled
+        sandbox_env = _get_env_var("PANGLE_SANDBOX")
+        sandbox = sandbox_env and sandbox_env.lower() == "true" if sandbox_env else False
+        
+        if sandbox:
+            url = "http://open-api-sandbox.pangleglobal.com/union/media/open_api/site/query"
+            logger.info("[Pangle] Using SANDBOX environment for app query")
+        else:
+            url = "https://open-api.pangleglobal.com/union/media/open_api/site/query"
+            logger.info("[Pangle] Using PRODUCTION environment for app query")
+        
+        # Generate signature
+        timestamp = int(time.time())
+        nonce = random.randint(1, 2147483647)
+        signature = self._generate_pangle_signature(security_key, timestamp, nonce)
+        
+        # Request payload
+        payload = {
+            "user_id": user_id_int,
+            "role_id": role_id_int,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "sign": signature,
+            "version": "1.0",
+            "page": 1,
+            "page_size": 20
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Pangle] App Query API Request: POST {url}")
+        logger.info(f"[Pangle] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            
+            logger.info(f"[Pangle] Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[Pangle] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                code = result.get("code")
+                data = result.get("data", {})
+                
+                if code == 0 or code == 200:
+                    app_list = data.get("app_list", [])
+                    total = data.get("total", len(app_list))
+                    
+                    logger.info(f"[Pangle] Extracted {len(app_list)} apps from API response (total: {total})")
+                    
+                    # Convert to standard format
+                    formatted_apps = []
+                    for app in app_list:
+                        # Pangle API returns app_id (not site_id) in the query response
+                        # site_id is only returned in create app response
+                        app_id = app.get("app_id") or app.get("appId") or app.get("site_id") or app.get("siteId")
+                        app_name = app.get("app_name") or app.get("appName") or "Unknown"
+                        download_url = app.get("download_url") or app.get("downloadUrl") or ""
+                        os_type = app.get("os_type") or app.get("osType") or ""
+                        package_name = app.get("package_name") or app.get("packageName") or ""
+                        
+                        # Determine platform from os_type or download_url
+                        platform = "N/A"
+                        if os_type:
+                            # os_type: "ios" or "android"
+                            platform = "iOS" if os_type.lower() == "ios" else ("Android" if os_type.lower() == "android" else "N/A")
+                        elif download_url:
+                            if "play.google.com" in download_url or "android" in download_url.lower():
+                                platform = "Android"
+                            elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                                platform = "iOS"
+                        
+                        formatted_apps.append({
+                            "appCode": str(app_id) if app_id else "N/A",
+                            "siteId": str(app_id) if app_id else "N/A",  # Use app_id as siteId for Pangle query response
+                            "appId": str(app_id) if app_id else "N/A",  # Store app_id separately
+                            "name": app_name,
+                            "platform": platform,
+                            "status": app.get("status") or "Active",
+                            "downloadUrl": download_url,  # Store download URL for reference
+                            "pkgName": package_name,  # Store package name for slot name generation
+                            "osType": os_type,  # Store os_type for reference
+                        })
+                    
+                    logger.info(f"[Pangle] Converted to {len(formatted_apps)} apps in standard format")
+                    return formatted_apps
+                else:
+                    error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                    logger.error(f"[Pangle] API Error (Get Apps): {error_msg}")
+                    return []
+            else:
+                logger.error(f"[Pangle] Failed to get apps. Status: {response.status_code}")
+                logger.error(f"[Pangle] Response: {response.text[:200]}")
+                return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Pangle] API Error (Get Apps): {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.json()
+                    logger.error(f"[Pangle] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Pangle] Error Response (text): {e.response.text}")
+            return []
+    
     def _get_unity_projects(self) -> List[Dict]:
         """Get all projects (apps) from Unity API
         
@@ -3469,6 +3596,8 @@ class MockNetworkManager:
             return list(apps_dict.values())
         elif network == "unity":
             return self._get_unity_projects()
+        elif network == "pangle":
+            return self._get_pangle_apps()
         
         # Mock implementation for other networks
         return [

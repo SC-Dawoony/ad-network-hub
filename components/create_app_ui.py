@@ -205,10 +205,15 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             else:
                 # Build payload
                 try:
-                    # For IronSource, InMobi, BigOAds, and Fyber, handle both iOS and Android platforms (using Store URLs)
-                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber"]:
-                        ios_store_url = form_data.get("iosStoreUrl", "").strip()
-                        android_store_url = form_data.get("androidStoreUrl", "").strip()
+                    # For IronSource, InMobi, BigOAds, Fyber, and Pangle, handle both iOS and Android platforms (using Store URLs)
+                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber", "pangle"]:
+                        # For Pangle, use Download URL instead of Store URL
+                        if current_network == "pangle":
+                            ios_store_url = form_data.get("iosDownloadUrl", "").strip()
+                            android_store_url = form_data.get("androidDownloadUrl", "").strip()
+                        else:
+                            ios_store_url = form_data.get("iosStoreUrl", "").strip()
+                            android_store_url = form_data.get("androidStoreUrl", "").strip()
                         
                         if not ios_store_url and not android_store_url:
                             st.error("❌ At least one Store URL (iOS or Android) must be provided")
@@ -303,6 +308,10 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                                     )
                                 elif current_network == "admob":
                                     _process_admob_create_app_results(
+                                        current_network, network_display, form_data, results
+                                    )
+                                elif current_network == "pangle":
+                                    _process_pangle_create_app_results(
                                         current_network, network_display, form_data, results
                                     )
                     else:
@@ -1108,4 +1117,124 @@ def _process_fyber_create_app_results(current_network: str, network_display: str
             st.write(f"**Android Store URL:** {android_store_url[:50]}...")
         if ios_store_url:
             st.write(f"**iOS Store URL:** {ios_store_url[:50]}...")
+
+
+def _process_pangle_create_app_results(current_network: str, network_display: str, form_data: dict, results: List[Tuple[str, dict, dict]]):
+    """Process Pangle create app results for multiple platforms
+    
+    Args:
+        current_network: Current network identifier
+        network_display: Display name for the network
+        form_data: Form data submitted by user
+        results: List of tuples (platform, result, response) for each platform created
+    """
+    app_name = form_data.get("app_name", "Unknown")
+    ios_download_url = form_data.get("iosDownloadUrl", "").strip()
+    android_download_url = form_data.get("androidDownloadUrl", "").strip()
+    
+    # Store both siteIds
+    android_site_id = None
+    ios_site_id = None
+    android_result_data = None
+    ios_result_data = None
+    
+    for platform, result, response in results:
+        # Pangle: result contains site_id and app_id
+        result_data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+        site_id = result.get("site_id") or result_data.get("site_id")
+        app_id = result.get("app_id") or result_data.get("app_id") or site_id  # Fallback to site_id if app_id not found
+        
+        if platform == "Android":
+            android_site_id = site_id
+            android_app_id = app_id
+            android_result_data = result
+        elif platform == "iOS":
+            ios_site_id = site_id
+            ios_app_id = app_id
+            ios_result_data = result
+    
+    # Save combined app data with both siteIds and appIds
+    app_data = {
+        "appCode": app_name,  # Use app name as primary identifier
+        "siteId": android_site_id,  # Android siteId (primary)
+        "siteIdIOS": ios_site_id,  # iOS siteId
+        "appId": android_app_id,  # Android appId (primary)
+        "appIdIOS": ios_app_id,  # iOS appId
+        "name": app_name,
+        "platform": "both" if android_site_id and ios_site_id else ("android" if android_site_id else "ios"),
+        "platformStr": "both" if android_site_id and ios_site_id else ("android" if android_site_id else "ios"),
+        "downloadUrl": android_download_url if android_download_url else ios_download_url,
+        "iosDownloadUrl": ios_download_url,
+        "androidDownloadUrl": android_download_url,
+        "hasAndroid": bool(android_site_id),
+        "hasIOS": bool(ios_site_id)
+    }
+    SessionManager.add_created_app(current_network, app_data)
+    
+    # Add both apps to cache
+    cached_apps = SessionManager.get_cached_apps(current_network)
+    
+    if android_site_id:
+        android_app = {
+            "appCode": str(android_site_id),
+            "siteId": str(android_site_id),
+            "appId": str(android_app_id) if android_app_id else str(android_site_id),  # Use app_id if available, fallback to site_id
+            "name": app_name,
+            "platform": "Android",
+            "status": "Active",
+            "downloadUrl": android_download_url
+        }
+        if not any(app.get("siteId") == str(android_site_id) for app in cached_apps):
+            cached_apps.append(android_app)
+    
+    if ios_site_id:
+        ios_app = {
+            "appCode": str(ios_site_id),
+            "siteId": str(ios_site_id),
+            "appId": str(ios_app_id) if ios_app_id else str(ios_site_id),  # Use app_id if available, fallback to site_id
+            "name": app_name,
+            "platform": "iOS",
+            "status": "Active",
+            "downloadUrl": ios_download_url
+        }
+        if not any(app.get("siteId") == str(ios_site_id) for app in cached_apps):
+            cached_apps.append(ios_app)
+    
+    SessionManager.cache_apps(current_network, cached_apps)
+    
+    # Show success message
+    platforms_str = " and ".join([p for p, _, _ in results])
+    st.success(f"🎉 App created successfully for {platforms_str}!")
+    st.balloons()
+    
+    # Show result details
+    st.subheader("📝 Result")
+    result_col1, result_col2 = st.columns(2)
+    with result_col1:
+        st.write(f"**Network:** {network_display}")
+        st.write(f"**App Name:** {app_name}")
+        st.write("**Site ID:**")
+        if android_site_id:
+            st.write(f"  - **Android:** {android_site_id}")
+        if ios_site_id:
+            st.write(f"  - **iOS:** {ios_site_id}")
+        if not android_site_id and not ios_site_id:
+            st.write(f"  N/A")
+    with result_col2:
+        # Display platforms
+        platforms = []
+        if android_site_id:
+            platforms.append("Android")
+        if ios_site_id:
+            platforms.append("iOS")
+        if platforms:
+            st.write(f"**Platform:** {', '.join(platforms)}")
+        else:
+            st.write(f"**Platform:** N/A")
+        
+        # Display download URLs
+        if android_download_url:
+            st.write(f"**Android Download URL:** {android_download_url[:50]}...")
+        if ios_download_url:
+            st.write(f"**iOS Download URL:** {ios_download_url[:50]}...")
 

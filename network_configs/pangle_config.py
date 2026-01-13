@@ -47,7 +47,7 @@ class PangleConfig(NetworkConfig):
         ]
     
     def get_app_creation_fields(self) -> List[Field]:
-        """Get fields for app creation - all required fields shown"""
+        """Get fields for app creation - supports dual-platform creation"""
         # Note: user_id and role_id are shown separately in Create App page as read-only
         # They are not included here to avoid rendering them as input fields
         return [
@@ -60,13 +60,23 @@ class PangleConfig(NetworkConfig):
                 placeholder="Enter app name (1-60 characters)",
                 help_text="Length must be between 1 to 60 characters"
             ),
+            # Android fields
             Field(
-                name="download_url",
+                name="androidDownloadUrl",
                 field_type="text",
-                required=True,
-                label="Download URL*",
-                placeholder="https://apps.apple.com/... or https://play.google.com/store/apps/details?id=...",
-                help_text="App download URL from Apple App Store or Google Play Store"
+                required=False,
+                label="Android Download URL",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL for Android app (optional)"
+            ),
+            # iOS fields
+            Field(
+                name="iosDownloadUrl",
+                field_type="text",
+                required=False,
+                label="iOS Download URL",
+                placeholder="https://apps.apple.com/.../id1234567890",
+                help_text="Apple App Store URL for iOS app (optional)"
             ),
             Field(
                 name="app_category_code",
@@ -135,21 +145,28 @@ class PangleConfig(NetworkConfig):
     
     def validate_app_data(self, data: Dict) -> Tuple[bool, str]:
         """Validate app creation data"""
-        required_fields = ["app_name", "download_url", "app_category_code"]
+        required_fields = ["app_name", "app_category_code"]
         
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == "":
                 return False, f"Field '{field}' is required"
+        
+        # At least one download URL must be provided
+        android_url = data.get("androidDownloadUrl", "").strip()
+        ios_url = data.get("iosDownloadUrl", "").strip()
+        if not android_url and not ios_url:
+            return False, "At least one Download URL (Android or iOS) must be provided"
         
         # Validate app_name length (1-60 characters)
         app_name = data.get("app_name", "")
         if len(app_name) < 1 or len(app_name) > 60:
             return False, "App name must be between 1 to 60 characters"
         
-        # Validate download_url format
-        download_url = data.get("download_url", "")
-        if not (download_url.startswith("https://") or download_url.startswith("http://")):
-            return False, "Download URL must start with http:// or https://"
+        # Validate download_url format if provided
+        if android_url and not (android_url.startswith("https://") or android_url.startswith("http://")):
+            return False, "Android Download URL must start with http:// or https://"
+        if ios_url and not (ios_url.startswith("https://") or ios_url.startswith("http://")):
+            return False, "iOS Download URL must start with http:// or https://"
         
         # Validate app_category_code
         valid_codes = [code for _, code in self._get_app_category_codes()]
@@ -177,7 +194,7 @@ class PangleConfig(NetworkConfig):
     
     def validate_unit_data(self, data: Dict) -> Tuple[bool, str]:
         """Validate unit creation data"""
-        required_fields = ["site_id", "ad_placement_type"]
+        required_fields = ["app_id", "ad_placement_type"]
         
         for field in required_fields:
             if field not in data or data[field] is None or data[field] == "":
@@ -222,16 +239,32 @@ class PangleConfig(NetworkConfig):
         
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
+    def build_app_payload(self, form_data: Dict, platform: Optional[str] = None) -> Dict:
         """Build API payload for app creation
+        
+        Args:
+            form_data: Form data from UI
+            platform: "Android" or "iOS" (optional, for dual-platform creation)
         
         Note: timestamp, nonce, sign, version, status
         will be added by network_manager automatically
         user_id and role_id are included from form_data (set from .env in Create App page)
         """
+        # Determine download_url based on platform parameter or form_data
+        if platform == "Android":
+            download_url = form_data.get("androidDownloadUrl", "").strip()
+        elif platform == "iOS":
+            download_url = form_data.get("iosDownloadUrl", "").strip()
+        else:
+            # Legacy: use form_data directly (backward compatibility)
+            download_url = form_data.get("download_url", "").strip()
+            if not download_url:
+                # Try to get from platform-specific fields
+                download_url = form_data.get("androidDownloadUrl", "").strip() or form_data.get("iosDownloadUrl", "").strip()
+        
         payload = {
             "app_name": form_data.get("app_name"),
-            "download_url": form_data.get("download_url"),
+            "download_url": download_url,
             "app_category_code": form_data.get("app_category_code"),
         }
         
@@ -268,8 +301,16 @@ class PangleConfig(NetworkConfig):
         """
         ad_slot_type = form_data.get("ad_placement_type")  # This is ad_slot_type in API
         
+        # app_id is required and must be int
+        app_id = form_data.get("app_id")
+        if app_id is not None:
+            try:
+                app_id = int(app_id)
+            except (ValueError, TypeError):
+                pass  # Will be caught by validation
+        
         payload = {
-            "site_id": form_data.get("site_id"),
+            "app_id": app_id,
             "bidding_type": form_data.get("bidding_type", 1),  # Default: 1
             "ad_slot_type": ad_slot_type,
         }

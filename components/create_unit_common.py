@@ -1303,6 +1303,518 @@ def render_create_unit_common_ui(
                                 st.error(f"❌ Error creating placements: {str(e)}")
                                 logger.exception("Error creating Fyber placements")
         
+        # For Pangle, add "Create All 6 Placements (Android + iOS)" button
+        if current_network == "pangle":
+            # Get selected app info
+            selected_app_info = None
+            selected_platform = None
+            selected_app_name = None
+            selected_pkg_name = None
+            
+            if selected_app_code:
+                # Find selected app in apps list
+                for app in apps:
+                    app_identifier = app.get("siteId") or app.get("appCode")
+                    if str(app_identifier) == str(selected_app_code):
+                        selected_app_info = app
+                        selected_platform = app.get("platform", "") or app.get("osType", "")
+                        selected_platform = "android" if selected_platform.lower() == "android" else ("ios" if selected_platform.lower() == "ios" else None)
+                        selected_app_name = app.get("name", "")
+                        
+                        # Get package name
+                        download_url = app.get("downloadUrl", "")
+                        if download_url:
+                            import re
+                            if "play.google.com" in download_url:
+                                match = re.search(r'[?&]id=([^&]+)', download_url)
+                                if match:
+                                    selected_pkg_name = match.group(1)
+                            elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                                match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
+                                if match:
+                                    selected_pkg_name = match.group(1)
+                        
+                        if not selected_pkg_name:
+                            selected_pkg_name = app.get("pkgName", "")
+                        break
+            
+            # Find matching iOS app if Android is selected
+            ios_app_info = None
+            if selected_app_info and selected_platform == "android":
+                # Search for iOS app with same app_name or package_name
+                for app in apps:
+                    app_platform = app.get("platform", "") or app.get("osType", "")
+                    app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                    
+                    if app_platform_normalized == "ios":
+                        app_name_from_list = app.get("name", "")
+                        
+                        # Get package name from iOS app
+                        app_pkg_name = ""
+                        download_url = app.get("downloadUrl", "")
+                        if download_url:
+                            import re
+                            if "play.google.com" in download_url:
+                                match = re.search(r'[?&]id=([^&]+)', download_url)
+                                if match:
+                                    app_pkg_name = match.group(1)
+                            elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                                match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
+                                if match:
+                                    app_pkg_name = match.group(1)
+                        
+                        if not app_pkg_name:
+                            app_pkg_name = app.get("pkgName", "")
+                        
+                        # Check if app_name or package_name matches
+                        if (app_name_from_list == selected_app_name) or (app_pkg_name and selected_pkg_name and app_pkg_name == selected_pkg_name):
+                            ios_app_info = app
+                            logger.info(f"[Pangle] Found matching iOS app: name={app_name_from_list}, pkg={app_pkg_name}, siteId={app.get('siteId')}")
+                            break
+                
+                # If not found in apps list, try fetching all apps from API
+                if not ios_app_info:
+                    logger.info(f"[Pangle] iOS app not found in apps list, fetching all apps from API")
+                    try:
+                        all_apps = network_manager.get_apps(current_network)
+                        if all_apps:
+                            for app in all_apps:
+                                app_platform = app.get("platform", "") or app.get("osType", "")
+                                app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                                
+                                if app_platform_normalized == "ios":
+                                    app_name_from_list = app.get("name", "")
+                                    
+                                    # Get package name from iOS app
+                                    app_pkg_name = ""
+                                    download_url = app.get("downloadUrl", "")
+                                    if download_url:
+                                        import re
+                                        if "play.google.com" in download_url:
+                                            match = re.search(r'[?&]id=([^&]+)', download_url)
+                                            if match:
+                                                app_pkg_name = match.group(1)
+                                        elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                                            match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
+                                            if match:
+                                                app_pkg_name = match.group(1)
+                                    
+                                    if not app_pkg_name:
+                                        app_pkg_name = app.get("pkgName", "")
+                                    
+                                    # Check if app_name or package_name matches
+                                    if (app_name_from_list == selected_app_name) or (app_pkg_name and selected_pkg_name and app_pkg_name == selected_pkg_name):
+                                        ios_app_info = app
+                                        logger.info(f"[Pangle] Found matching iOS app in full apps list: name={app_name_from_list}, pkg={app_pkg_name}, siteId={app.get('siteId')}")
+                                        break
+                    except Exception as e:
+                        logger.warning(f"[Pangle] Failed to fetch all apps from API: {str(e)}")
+            
+            # Create All 6 Placements (Android + iOS) button
+            if selected_platform == "android" and ios_app_info:
+                if st.button("✨ Create All 6 Placements (Android + iOS: RV + IS + BN)", use_container_width=True, type="primary", key="create_all_6_pangle_placements"):
+                    with st.spinner("🚀 Creating all 6 placements (Android + iOS)..."):
+                        try:
+                            from utils.network_manager import get_network_manager
+                            network_manager = get_network_manager()
+                            
+                            android_site_id = selected_app_code
+                            ios_site_id = ios_app_info.get("siteId") or ios_app_info.get("appCode")
+                            
+                            # Get package names for name generation
+                            android_pkg_name = selected_pkg_name
+                            ios_pkg_name = ""
+                            ios_download_url = ios_app_info.get("downloadUrl", "")
+                            if ios_download_url:
+                                import re
+                                if "play.google.com" in ios_download_url:
+                                    match = re.search(r'[?&]id=([^&]+)', ios_download_url)
+                                    if match:
+                                        ios_pkg_name = match.group(1)
+                                elif "apps.apple.com" in ios_download_url or "itunes.apple.com" in ios_download_url:
+                                    match = re.search(r'/id(\d+)', ios_download_url) or re.search(r'[?&]id=(\d+)', ios_download_url)
+                                    if match:
+                                        ios_pkg_name = match.group(1)
+                            
+                            if not ios_pkg_name:
+                                ios_pkg_name = ios_app_info.get("pkgName", "")
+                            
+                            # If iOS pkg_name is iTunes ID, use Android pkg_name for iOS placement name generation
+                            if ios_pkg_name and ios_pkg_name.strip().isdigit():
+                                ios_pkg_name_for_name = android_pkg_name
+                            else:
+                                ios_pkg_name_for_name = ios_pkg_name
+                            
+                            create_payloads = []
+                            
+                            # Get Android app_id
+                            android_app_id = None
+                            if selected_app_info:
+                                android_app_id = selected_app_info.get("appId") or selected_app_info.get("siteId")
+                            if not android_app_id:
+                                android_app_id = android_site_id
+                            
+                            # Ensure Android app_id is valid
+                            if not android_app_id or android_app_id == "":
+                                st.error(f"❌ Android App ID is required but not found. siteId: {android_site_id}")
+                                logger.error(f"[Pangle] Android App ID validation failed - siteId: {android_site_id}")
+                                return
+                            
+                            # Convert to string if needed
+                            if isinstance(android_app_id, (int, float)):
+                                android_app_id = str(int(android_app_id))
+                            else:
+                                android_app_id = str(android_app_id) if android_app_id else None
+                            
+                            if not android_app_id or android_app_id == "":
+                                st.error(f"❌ Android App ID is required but is empty after conversion. siteId: {android_site_id}")
+                                logger.error(f"[Pangle] Android App ID conversion failed - siteId: {android_site_id}")
+                                return
+                            
+                            # Get iOS app_id
+                            ios_app_id = None
+                            if ios_app_info:
+                                ios_app_id = ios_app_info.get("appId") or ios_app_info.get("siteId")
+                            if not ios_app_id:
+                                ios_app_id = ios_site_id
+                            
+                            # Ensure iOS app_id is valid
+                            if not ios_app_id or ios_app_id == "":
+                                st.error(f"❌ iOS App ID is required but not found. siteId: {ios_site_id}")
+                                logger.error(f"[Pangle] iOS App ID validation failed - siteId: {ios_site_id}")
+                                return
+                            
+                            # Convert to string if needed
+                            if isinstance(ios_app_id, (int, float)):
+                                ios_app_id = str(int(ios_app_id))
+                            else:
+                                ios_app_id = str(ios_app_id) if ios_app_id else None
+                            
+                            if not ios_app_id or ios_app_id == "":
+                                st.error(f"❌ iOS App ID is required but is empty after conversion. siteId: {ios_site_id}")
+                                logger.error(f"[Pangle] iOS App ID conversion failed - siteId: {ios_site_id}")
+                                return
+                            
+                            logger.info(f"[Pangle] Create All 6 - Android: site_id={android_site_id}, app_id={android_app_id}, iOS: site_id={ios_site_id}, app_id={ios_app_id}")
+                            
+                            # Create Android placements
+                            for slot_key in ["RV", "IS", "BN"]:
+                                slot_config = slot_configs.get(slot_key, {})
+                                
+                                # Generate slot name for Android
+                                slot_name = _generate_slot_name(android_pkg_name, "android", slot_key.lower(), "pangle", network_manager=network_manager, app_name=selected_app_name)
+                                if not slot_name:
+                                    slot_name = f"{slot_key.lower()}_placement"
+                                
+                                # Convert app_id to int (Pangle API expects int)
+                                try:
+                                    android_app_id_int = int(android_app_id) if android_app_id else None
+                                except (ValueError, TypeError):
+                                    logger.error(f"[Pangle] Android App ID conversion failed - app_id: {android_app_id}")
+                                    st.error(f"❌ Android App ID must be a valid integer. Current value: {android_app_id}")
+                                    return
+                                
+                                if not android_app_id_int:
+                                    logger.error(f"[Pangle] Android App ID is None or empty")
+                                    st.error(f"❌ Android App ID is required but is empty after conversion.")
+                                    return
+                                
+                                payload = {
+                                    "app_id": android_app_id_int,  # Required field - must be int
+                                    "ad_placement_type": slot_config["ad_slot_type"],
+                                    "ad_slot_name": slot_name.strip(),  # User-selected name
+                                    "bidding_type": 1,
+                                }
+                                
+                                if slot_key == "BN":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "slide_banner": slot_config["slide_banner"],
+                                        "width": slot_config["width"],
+                                        "height": slot_config["height"],
+                                    })
+                                elif slot_key == "RV":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "orientation": slot_config["orientation"],
+                                        "reward_name": slot_config.get("reward_name", "Reward"),
+                                        "reward_count": slot_config.get("reward_count", 1),
+                                        "reward_is_callback": slot_config["reward_is_callback"],
+                                    })
+                                    if slot_config["reward_is_callback"] == 1 and slot_config.get("reward_callback_url"):
+                                        payload["reward_callback_url"] = slot_config["reward_callback_url"]
+                                elif slot_key == "IS":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "orientation": slot_config["orientation"],
+                                    })
+                                
+                                create_payloads.append(("Android", slot_key, slot_config, payload, slot_name, android_site_id))
+                            
+                            # Create iOS placements
+                            for slot_key in ["RV", "IS", "BN"]:
+                                slot_config = slot_configs.get(slot_key, {})
+                                
+                                # Generate slot name for iOS
+                                slot_name = _generate_slot_name(ios_pkg_name_for_name, "ios", slot_key.lower(), "pangle", network_manager=network_manager, app_name=selected_app_name)
+                                if not slot_name:
+                                    slot_name = f"{slot_key.lower()}_placement"
+                                
+                                # Convert app_id to int (Pangle API expects int)
+                                try:
+                                    ios_app_id_int = int(ios_app_id) if ios_app_id else None
+                                except (ValueError, TypeError):
+                                    logger.error(f"[Pangle] iOS App ID conversion failed - app_id: {ios_app_id}")
+                                    st.error(f"❌ iOS App ID must be a valid integer. Current value: {ios_app_id}")
+                                    return
+                                
+                                if not ios_app_id_int:
+                                    logger.error(f"[Pangle] iOS App ID is None or empty")
+                                    st.error(f"❌ iOS App ID is required but is empty after conversion.")
+                                    return
+                                
+                                payload = {
+                                    "app_id": ios_app_id_int,  # Required field - must be int
+                                    "ad_placement_type": slot_config["ad_slot_type"],
+                                    "ad_slot_name": slot_name.strip(),  # User-selected name
+                                    "bidding_type": 1,
+                                }
+                                
+                                if slot_key == "BN":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "slide_banner": slot_config["slide_banner"],
+                                        "width": slot_config["width"],
+                                        "height": slot_config["height"],
+                                    })
+                                elif slot_key == "RV":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "orientation": slot_config["orientation"],
+                                        "reward_name": slot_config.get("reward_name", "Reward"),
+                                        "reward_count": slot_config.get("reward_count", 1),
+                                        "reward_is_callback": slot_config["reward_is_callback"],
+                                    })
+                                    if slot_config["reward_is_callback"] == 1 and slot_config.get("reward_callback_url"):
+                                        payload["reward_callback_url"] = slot_config["reward_callback_url"]
+                                elif slot_key == "IS":
+                                    payload.update({
+                                        "render_type": slot_config["render_type"],
+                                        "orientation": slot_config["orientation"],
+                                    })
+                                
+                                create_payloads.append(("iOS", slot_key, slot_config, payload, slot_name, ios_site_id))
+                            
+                            # Create placements sequentially
+                            results = []
+                            for platform, slot_key, slot_config, payload, slot_name, site_id in create_payloads:
+                                # Display payload before API call
+                                st.markdown(f"#### 📤 Request Payload ({platform} - {slot_key})")
+                                st.json(payload)
+                                
+                                response = network_manager.create_unit(current_network, payload)
+                                
+                                # Display response
+                                st.markdown(f"#### 📥 Response ({platform} - {slot_key})")
+                                st.json(response)
+                                
+                                result = handle_api_response(response)
+                                results.append((platform, slot_key, response, result, slot_name, site_id, slot_config))
+                            
+                            # Process results
+                            success_count = 0
+                            failed_count = 0
+                            
+                            for platform, slot_key, response, result, slot_name, site_id, slot_config in results:
+                                if response.get("status") == 0 or response.get("code") == 0:
+                                    success_count += 1
+                                    if result:
+                                        unit_data = {
+                                            "slotCode": result.get("code_id", result.get("ad_unit_id", "N/A")),
+                                            "name": slot_name,
+                                            "appCode": site_id,
+                                            "slotType": slot_config["ad_slot_type"],
+                                            "adType": f"Type {slot_config['ad_slot_type']}",
+                                            "auctionType": "N/A"
+                                        }
+                                        SessionManager.add_created_unit(current_network, unit_data)
+                                        
+                                        cached_units = SessionManager.get_cached_units(current_network, site_id)
+                                        if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                            cached_units.append(unit_data)
+                                            SessionManager.cache_units(current_network, site_id, cached_units)
+                                else:
+                                    failed_count += 1
+                            
+                            # Display summary
+                            if success_count == 6:
+                                st.success(f"✅ Successfully created all 6 placements (Android + iOS)!")
+                                st.balloons()
+                            elif success_count > 0:
+                                st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                            else:
+                                st.error(f"❌ Failed to create placements")
+                            
+                            # Don't rerun - keep the response visible
+                        except Exception as e:
+                            st.error(f"❌ Error creating placements: {str(e)}")
+                            logger.exception("Error creating Pangle placements")
+            
+            # Create All 3 Placements button (for single platform or when iOS app not found)
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="secondary", key="create_all_3_pangle_placements"):
+                if not selected_app_code:
+                    st.toast("❌ Please select an App Code", icon="🚫")
+                else:
+                    # Get package name for name generation
+                    pkg_name = selected_pkg_name
+                    platform_str = selected_platform or "android"
+                    app_name_for_slot = selected_app_name or app_name
+                    
+                    if not pkg_name or pkg_name.strip().isdigit():
+                        st.toast("❌ Package name is required and must be valid (not iTunes ID). Please select an app.", icon="🚫")
+                    else:
+                        with st.spinner("🚀 Creating all 3 placements..."):
+                            try:
+                                from utils.network_manager import get_network_manager
+                                network_manager = get_network_manager()
+                                
+                                create_payloads = []
+                                
+                                for slot_key in ["RV", "IS", "BN"]:
+                                    slot_config = slot_configs.get(slot_key, {})
+                                    
+                                    # Generate slot name
+                                    slot_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "pangle", network_manager=network_manager, app_name=app_name_for_slot)
+                                    if not slot_name:
+                                        slot_name = f"{slot_key.lower()}_placement"
+                                    
+                                    # Get app_id and site_id for Pangle
+                                    site_id = selected_app_code
+                                    app_id = None
+                                    
+                                    # Try to get from app_info_to_use or apps list
+                                    if app_info_to_use:
+                                        site_id = app_info_to_use.get("siteId") or selected_app_code
+                                        app_id = app_info_to_use.get("appId") or app_info_to_use.get("siteId")
+                                    
+                                    if not app_id:
+                                        for app in apps:
+                                            app_identifier = app.get("siteId") or app.get("appCode")
+                                            if str(app_identifier) == str(selected_app_code):
+                                                site_id = app.get("siteId") or selected_app_code
+                                                app_id = app.get("appId") or app.get("siteId")
+                                                break
+                                    
+                                    # Fallback to site_id if app_id not found
+                                    if not app_id:
+                                        app_id = site_id
+                                    
+                                    # Ensure app_id is not None or empty
+                                    if not app_id or app_id == "":
+                                        logger.error(f"[Pangle] App ID validation failed for Create All 3 - siteId: {site_id}, appId: {app_id}")
+                                        st.error(f"❌ App ID is required but not found. siteId: {site_id}")
+                                        return
+                                    
+                                    # Convert to int (Pangle API expects int)
+                                    try:
+                                        app_id_int = int(app_id) if app_id else None
+                                    except (ValueError, TypeError):
+                                        logger.error(f"[Pangle] App ID conversion failed for Create All 3 - app_id: {app_id}")
+                                        st.error(f"❌ App ID must be a valid integer. Current value: {app_id}")
+                                        return
+                                    
+                                    if not app_id_int:
+                                        logger.error(f"[Pangle] App ID is None or empty for Create All 3")
+                                        st.error(f"❌ App ID is required but is empty after conversion.")
+                                        return
+                                    
+                                    payload = {
+                                        "app_id": app_id_int,  # Required field - must be int
+                                        "ad_placement_type": slot_config["ad_slot_type"],
+                                        "ad_slot_name": slot_name.strip(),  # User-selected name
+                                        "bidding_type": 1,
+                                    }
+                                    
+                                    if slot_key == "BN":
+                                        payload.update({
+                                            "render_type": slot_config["render_type"],
+                                            "slide_banner": slot_config["slide_banner"],
+                                            "width": slot_config["width"],
+                                            "height": slot_config["height"],
+                                        })
+                                    elif slot_key == "RV":
+                                        payload.update({
+                                            "render_type": slot_config["render_type"],
+                                            "orientation": slot_config["orientation"],
+                                            "reward_name": slot_config.get("reward_name", "Reward"),
+                                            "reward_count": slot_config.get("reward_count", 1),
+                                            "reward_is_callback": slot_config["reward_is_callback"],
+                                        })
+                                        if slot_config["reward_is_callback"] == 1 and slot_config.get("reward_callback_url"):
+                                            payload["reward_callback_url"] = slot_config["reward_callback_url"]
+                                    elif slot_key == "IS":
+                                        payload.update({
+                                            "render_type": slot_config["render_type"],
+                                            "orientation": slot_config["orientation"],
+                                        })
+                                    
+                                    create_payloads.append((slot_key, slot_config, payload, slot_name))
+                                
+                                # Create placements sequentially
+                                results = []
+                                for slot_key, slot_config, payload, slot_name in create_payloads:
+                                    # Display payload before API call
+                                    st.markdown(f"#### 📤 Request Payload ({slot_key})")
+                                    st.json(payload)
+                                    
+                                    response = network_manager.create_unit(current_network, payload)
+                                    
+                                    # Display response
+                                    st.markdown(f"#### 📥 Response ({slot_key})")
+                                    st.json(response)
+                                    
+                                    result = handle_api_response(response)
+                                    results.append((slot_key, response, result, slot_name, slot_config))
+                                
+                                # Process results
+                                success_count = 0
+                                failed_count = 0
+                                
+                                for slot_key, response, result, slot_name, slot_config in results:
+                                    if response.get("status") == 0 or response.get("code") == 0:
+                                        success_count += 1
+                                        if result:
+                                            unit_data = {
+                                                "slotCode": result.get("code_id", result.get("ad_unit_id", "N/A")),
+                                                "name": slot_name,
+                                                "appCode": selected_app_code,
+                                                "slotType": slot_config["ad_slot_type"],
+                                                "adType": f"Type {slot_config['ad_slot_type']}",
+                                                "auctionType": "N/A"
+                                            }
+                                            SessionManager.add_created_unit(current_network, unit_data)
+                                            
+                                            cached_units = SessionManager.get_cached_units(current_network, selected_app_code)
+                                            if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                cached_units.append(unit_data)
+                                                SessionManager.cache_units(current_network, selected_app_code, cached_units)
+                                    else:
+                                        failed_count += 1
+                                
+                                # Display summary
+                                if success_count == 3:
+                                    st.success(f"✅ Successfully created all 3 placements!")
+                                    st.balloons()
+                                elif success_count > 0:
+                                    st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                                else:
+                                    st.error(f"❌ Failed to create placements")
+                                
+                                # Don't rerun - keep the response visible
+                            except Exception as e:
+                                st.error(f"❌ Error creating placements: {str(e)}")
+                                logger.exception("Error creating Pangle placements")
+        
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
         
@@ -1312,10 +1824,30 @@ def render_create_unit_common_ui(
                     st.markdown(f"### 🎯 {slot_key} ({slot_config['name']})")
                     
                     if current_network == "pangle":
-                        _render_pangle_slot_ui(
-                            slot_key, slot_config, selected_app_code, app_info_to_use,
-                            app_name, network_manager, current_network
-                        )
+                        # Check if Android app is selected and matching iOS app exists
+                        has_android = selected_app_info and selected_platform == "android"
+                        has_ios = ios_app_info is not None
+                        
+                        if has_android and has_ios:
+                            # Display Android and iOS sections separately (like AppLovin/Fyber)
+                            st.markdown(f"#### Android")
+                            _render_pangle_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network, platform="android"
+                            )
+                            st.markdown("---")
+                            st.markdown(f"#### iOS")
+                            ios_site_id = ios_app_info.get("siteId") or ios_app_info.get("appCode")
+                            _render_pangle_slot_ui(
+                                slot_key, slot_config, ios_site_id, ios_app_info,
+                                app_name, apps, network_manager, current_network, platform="ios"
+                            )
+                        else:
+                            # Single platform (backward compatibility)
+                            _render_pangle_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network
+                            )
                     elif current_network == "mintegral":
                         _render_mintegral_slot_ui(
                             slot_key, slot_config, selected_app_code, app_info_to_use,
@@ -1545,21 +2077,283 @@ def _render_ironsource_slot_ui(slot_key, slot_config, selected_app_code, app_inf
 
 
 def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
-                            app_name, network_manager, current_network):
-    """Render Pangle slot UI"""
-    slot_name_key = f"pangle_slot_{slot_key}_name"
+                            app_name, apps, network_manager, current_network, platform=None):
+    """Render Pangle slot UI
     
-    if selected_app_code and app_info_to_use:
-        pkg_name = app_info_to_use.get("pkgName", "")
-        platform_str = app_info_to_use.get("platformStr", "android")
-        app_name_for_slot = app_info_to_use.get("name", app_name)
+    Args:
+        platform: "android" or "ios" to specify which platform to render (for dual-platform display)
+    """
+    # Use platform-specific key for slot name if platform is specified
+    if platform:
+        slot_name_key = f"pangle_slot_{slot_key}_{platform}_name"
+    else:
+        slot_name_key = f"pangle_slot_{slot_key}_name"
+    
+    # Track last selected app code to detect changes
+    if platform:
+        last_app_code_key = f"pangle_last_app_code_{slot_key}_{platform}"
+    else:
+        last_app_code_key = f"pangle_last_app_code_{slot_key}"
+    last_app_code = st.session_state.get(last_app_code_key, "")
+    
+    # Auto-generate slot name if not set or if app selection changed
+    app_selection_changed = selected_app_code and selected_app_code != last_app_code
+    should_regenerate = (
+        slot_name_key not in st.session_state or 
+        app_selection_changed
+    )
+    
+    if selected_app_code and should_regenerate:
+        pkg_name = ""
+        # Use platform parameter if provided, otherwise detect from app info
+        if platform:
+            platform_str = platform
+        else:
+            platform_str = "android"
+        app_name_for_slot = app_name
         
-        if pkg_name:
-            default_name = _generate_slot_name(pkg_name, platform_str, slot_key.lower(), "pangle", network_manager=network_manager, app_name=app_name_for_slot)
-            if slot_name_key not in st.session_state:
+        if app_info_to_use:
+            # First, try to get pkgName directly (most reliable)
+            pkg_name_from_field = app_info_to_use.get("pkgName", "")
+            
+            # Check if pkgName is a valid package name (not iTunes ID)
+            # Valid package name should contain at least one dot and not be purely numeric
+            is_valid_pkg_name = pkg_name_from_field and "." in pkg_name_from_field and not pkg_name_from_field.strip().isdigit()
+            
+            if is_valid_pkg_name:
+                # Use pkgName directly if it's a valid package name
+                pkg_name = pkg_name_from_field
+                logger.info(f"[Pangle] Using pkgName from field: {pkg_name}")
+            else:
+                # If pkgName is not valid (empty or iTunes ID), try to extract from downloadUrl
+                download_url = app_info_to_use.get("downloadUrl", "")
+                if download_url:
+                    # Extract package name from download URL
+                    if "play.google.com" in download_url:
+                        # Android: extract from ?id=package_name
+                        import re
+                        match = re.search(r'[?&]id=([^&]+)', download_url)
+                        if match:
+                            pkg_name = match.group(1)
+                        platform_str = "android"
+                    elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                        # iOS: extract from /id{numbers} or ?id={numbers}
+                        import re
+                        match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
+                        if match:
+                            # For iOS, this is iTunes ID (numeric)
+                            pkg_name = match.group(1)
+                        platform_str = "ios"
+                
+                # Fallback to pkgName if downloadUrl extraction failed
+                if not pkg_name:
+                    pkg_name = pkg_name_from_field
+            
+            # Use platform parameter if provided, otherwise use from app_info_to_use
+            if not platform:
+                platform_str = app_info_to_use.get("platformStr", platform_str)
+            app_name_for_slot = app_info_to_use.get("name", app_name)
+        
+        # If not found in app_info_to_use, try apps list
+        if not pkg_name and selected_app_code:
+            for app in apps:
+                app_identifier = app.get("siteId") or app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
+                    # First, try to get pkgName directly (most reliable)
+                    pkg_name_from_field = app.get("pkgName", "")
+                    
+                    # Check if pkgName is a valid package name (not iTunes ID)
+                    # Valid package name should contain at least one dot and not be purely numeric
+                    is_valid_pkg_name = pkg_name_from_field and "." in pkg_name_from_field and not pkg_name_from_field.strip().isdigit()
+                    
+                    if is_valid_pkg_name:
+                        # Use pkgName directly if it's a valid package name
+                        pkg_name = pkg_name_from_field
+                        logger.info(f"[Pangle] Using pkgName from apps list: {pkg_name}")
+                    else:
+                        # If pkgName is not valid (empty or iTunes ID), try to extract from downloadUrl
+                        download_url = app.get("downloadUrl", "")
+                        if download_url:
+                            # Extract package name from download URL
+                            if "play.google.com" in download_url:
+                                import re
+                                match = re.search(r'[?&]id=([^&]+)', download_url)
+                                if match:
+                                    pkg_name = match.group(1)
+                                if not platform:
+                                    platform_str = "android"
+                            elif "apps.apple.com" in download_url or "itunes.apple.com" in download_url:
+                                import re
+                                match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
+                                if match:
+                                    # For iOS, this is iTunes ID (numeric)
+                                    pkg_name = match.group(1)
+                                if not platform:
+                                    platform_str = "ios"
+                        
+                        # Fallback to pkgName if downloadUrl extraction failed
+                        if not pkg_name:
+                            pkg_name = pkg_name_from_field
+                    
+                    # Use platform parameter if provided, otherwise detect from app
+                    if not platform:
+                        platform_str_val = app.get("platform", "") or app.get("osType", "")
+                        if platform_str_val:
+                            platform_str = "android" if platform_str_val.lower() == "android" else ("ios" if platform_str_val.lower() == "ios" else platform_str)
+                    
+                    app_name_for_slot = app.get("name", app_name)
+                    break
+        
+        # For Pangle, handle iOS apps specially:
+        # 1. If iOS app's pkg_name is iTunes ID (numeric only), find Android app with same app_name
+        # 2. If iOS app's pkg_name is actual package name, check for Android app with same package_name
+        # 3. If Android app not found, remove trailing digits from package_name
+        import re
+        current_pkg_name = pkg_name
+        # Use platform parameter if provided, otherwise use platform_str
+        current_platform = platform if platform else platform_str
+        is_ios_itunes_id = current_platform == "ios" and current_pkg_name and current_pkg_name.strip().isdigit()
+        
+        # Update platform_str to match current_platform for consistency
+        platform_str = current_platform
+        
+        android_found = False
+        
+        if is_ios_itunes_id:
+            # iOS app with iTunes ID: find Android app with same app_name
+            logger.info(f"[Pangle] iOS app with iTunes ID: {current_pkg_name}, searching for Android app with same app_name: {app_name_for_slot}")
+            for app in apps:
+                app_platform = app.get("platform", "") or app.get("osType", "")
+                app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                app_name_from_list = app.get("name", "")
+                
+                if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                    # Get package name from Android app
+                    app_pkg_name = ""
+                    download_url = app.get("downloadUrl", "")
+                    if download_url and "play.google.com" in download_url:
+                        match = re.search(r'[?&]id=([^&]+)', download_url)
+                        if match:
+                            app_pkg_name = match.group(1)
+                    else:
+                        app_pkg_name = app.get("pkgName", "")
+                    
+                    if app_pkg_name and not app_pkg_name.strip().isdigit():
+                        logger.info(f"[Pangle] Found Android app with same name, using package: {app_pkg_name}")
+                        pkg_name = app_pkg_name
+                        android_found = True
+                        break
+            
+            # If not found in apps list, try fetching all apps from API
+            if not android_found:
+                logger.info(f"[Pangle] Android app with name '{app_name_for_slot}' not found in apps list, fetching all apps from API")
+                try:
+                    all_apps = network_manager.get_apps(current_network)
+                    if all_apps:
+                        for app in all_apps:
+                            app_platform = app.get("platform", "") or app.get("osType", "")
+                            app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                            app_name_from_list = app.get("name", "")
+                            
+                            if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                                app_pkg_name = ""
+                                download_url = app.get("downloadUrl", "")
+                                if download_url and "play.google.com" in download_url:
+                                    match = re.search(r'[?&]id=([^&]+)', download_url)
+                                    if match:
+                                        app_pkg_name = match.group(1)
+                                else:
+                                    app_pkg_name = app.get("pkgName", "")
+                                
+                                if app_pkg_name and not app_pkg_name.strip().isdigit():
+                                    logger.info(f"[Pangle] Found Android app with same name in full apps list, using package: {app_pkg_name}")
+                                    pkg_name = app_pkg_name
+                                    android_found = True
+                                    break
+                except Exception as e:
+                    logger.warning(f"[Pangle] Failed to fetch all apps from API: {str(e)}")
+        elif current_pkg_name:
+            # iOS or Android app with actual package name: check for Android app with same package_name
+            logger.info(f"[Pangle] Checking for Android app with same package_name: {current_pkg_name}")
+            for app in apps:
+                app_platform = app.get("platform", "") or app.get("osType", "")
+                app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                
+                if app_platform_normalized == "android":
+                    # Get package name from app
+                    app_pkg_name = ""
+                    download_url = app.get("downloadUrl", "")
+                    if download_url and "play.google.com" in download_url:
+                        match = re.search(r'[?&]id=([^&]+)', download_url)
+                        if match:
+                            app_pkg_name = match.group(1)
+                    else:
+                        app_pkg_name = app.get("pkgName", "")
+                    
+                    # Check if package names match
+                    if app_pkg_name and current_pkg_name and app_pkg_name == current_pkg_name:
+                        logger.info(f"[Pangle] Found Android app with same package_name: {app_pkg_name}")
+                        pkg_name = app_pkg_name
+                        android_found = True
+                        break
+            
+            # If not found in apps list, try fetching all apps from API
+            if not android_found and current_pkg_name:
+                logger.info(f"[Pangle] Android app with package_name '{current_pkg_name}' not found in apps list, fetching all apps from API")
+                try:
+                    all_apps = network_manager.get_apps(current_network)
+                    if all_apps:
+                        for app in all_apps:
+                            app_platform = app.get("platform", "") or app.get("osType", "")
+                            app_platform_normalized = "android" if app_platform.lower() == "android" else ("ios" if app_platform.lower() == "ios" else "")
+                            
+                            if app_platform_normalized == "android":
+                                app_pkg_name = ""
+                                download_url = app.get("downloadUrl", "")
+                                if download_url and "play.google.com" in download_url:
+                                    match = re.search(r'[?&]id=([^&]+)', download_url)
+                                    if match:
+                                        app_pkg_name = match.group(1)
+                                else:
+                                    app_pkg_name = app.get("pkgName", "")
+                                
+                                if app_pkg_name and current_pkg_name and app_pkg_name == current_pkg_name:
+                                    logger.info(f"[Pangle] Found Android app with same package_name in full apps list: {app_pkg_name}")
+                                    pkg_name = app_pkg_name
+                                    android_found = True
+                                    break
+                except Exception as e:
+                    logger.warning(f"[Pangle] Failed to fetch all apps from API: {str(e)}")
+            
+            # If Android app with same package_name not found, remove trailing digits
+            if not android_found and current_pkg_name:
+                # Remove trailing digits from package_name
+                pkg_name_cleaned = re.sub(r'\d+$', '', current_pkg_name).rstrip('_').rstrip('-')
+                if pkg_name_cleaned and pkg_name_cleaned != current_pkg_name:
+                    logger.info(f"[Pangle] Android app with package_name '{current_pkg_name}' not found, removing trailing digits: {pkg_name_cleaned}")
+                    pkg_name = pkg_name_cleaned
+                else:
+                    pkg_name = current_pkg_name
+        
+        # Generate slot name if we have a valid package name (not iTunes ID)
+        # Use current_platform (from platform parameter or detected) for name generation
+        if pkg_name and not (pkg_name.strip().isdigit()):
+            default_name = _generate_slot_name(pkg_name, current_platform, slot_key.lower(), "pangle", network_manager=network_manager, app_name=app_name_for_slot)
+            if default_name:
                 st.session_state[slot_name_key] = default_name
+            else:
+                # generate_slot_name returned empty, use fallback
+                default_name = f"{slot_key.lower()}_placement"
+                st.session_state[slot_name_key] = default_name
+        else:
+            # No valid package name found, use fallback
+            default_name = f"{slot_key.lower()}_placement"
+            st.session_state[slot_name_key] = default_name
+        
+        # Update last app code
+        st.session_state[last_app_code_key] = selected_app_code
     elif slot_name_key not in st.session_state:
-        default_name = f"slot_{slot_key.lower()}"
+        default_name = f"{slot_key.lower()}_placement"
         st.session_state[slot_name_key] = default_name
     
     slot_name = st.text_input(
@@ -1568,6 +2362,31 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
         key=slot_name_key,
         help=f"Name for {slot_config['name']} ad placement"
     )
+    
+    # Display site_id (app_id) for Pangle
+    # Get actual site_id from app_info_to_use or apps list
+    display_site_id = None
+    if app_info_to_use:
+        display_site_id = app_info_to_use.get("siteId")
+    
+    if not display_site_id and selected_app_code:
+        # Try to get from apps list
+        for app in apps:
+            app_identifier = app.get("siteId") or app.get("appCode")
+            if str(app_identifier) == str(selected_app_code):
+                display_site_id = app.get("siteId")
+                break
+    
+    # Fallback to selected_app_code
+    if not display_site_id:
+        display_site_id = selected_app_code
+    
+    if display_site_id:
+        platform_display = "iOS" if platform == "ios" else "Android" if platform else ""
+        if platform_display:
+            st.info(f"📱 {platform_display} Site ID: {display_site_id}")
+        else:
+            st.info(f"📱 Site ID: {display_site_id}")
     
     st.info(f"**API Version:** 1.1.13 (auto-generated)")
     
@@ -1601,12 +2420,15 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
     st.markdown(settings_html, unsafe_allow_html=True)
     
     with st.expander("⚙️ Edit Settings"):
+        # Add platform suffix to all widget keys to avoid duplicates
+        key_suffix = f"_{platform}" if platform else ""
+        
         if slot_key == "BN":
             slide_banner = st.selectbox(
                 "Slide Banner",
                 options=[("No", 1), ("Yes", 2)],
                 index=0 if slot_config["slide_banner"] == 1 else 1,
-                key=f"{slot_key}_slide_banner",
+                key=f"{slot_key}_slide_banner{key_suffix}",
                 format_func=lambda x: x[0]
             )
             slot_config["slide_banner"] = slide_banner[1]
@@ -1615,7 +2437,7 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "Banner Size",
                 options=[("640x100 (320*50)", (640, 100)), ("600x500 (300*250)", (600, 500))],
                 index=0 if (slot_config["width"], slot_config["height"]) == (640, 100) else 1,
-                key=f"{slot_key}_banner_size",
+                key=f"{slot_key}_banner_size{key_suffix}",
                 format_func=lambda x: x[0]
             )
             slot_config["width"] = banner_size[1][0]
@@ -1625,15 +2447,15 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "Orientation",
                 options=[("Vertical", 1), ("Horizontal", 2)],
                 index=0 if slot_config["orientation"] == 1 else 1,
-                key=f"{slot_key}_orientation",
+                key=f"{slot_key}_orientation{key_suffix}",
                 format_func=lambda x: x[0]
             )
             slot_config["orientation"] = orientation[1]
             
             reward_name = st.text_input(
                 "Reward Name*",
-                value=st.session_state.get(f"{slot_key}_reward_name", slot_config.get("reward_name", "Reward")),
-                key=f"{slot_key}_reward_name",
+                value=st.session_state.get(f"{slot_key}_reward_name{key_suffix}", slot_config.get("reward_name", "Reward")),
+                key=f"{slot_key}_reward_name{key_suffix}",
                 help="Reward name (1-60 characters)"
             )
             slot_config["reward_name"] = reward_name
@@ -1642,8 +2464,8 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "Reward Count*",
                 min_value=0,
                 max_value=9007199254740991,
-                value=st.session_state.get(f"{slot_key}_reward_count", slot_config.get("reward_count", 1)),
-                key=f"{slot_key}_reward_count"
+                value=st.session_state.get(f"{slot_key}_reward_count{key_suffix}", slot_config.get("reward_count", 1)),
+                key=f"{slot_key}_reward_count{key_suffix}"
             )
             slot_config["reward_count"] = reward_count
             
@@ -1651,7 +2473,7 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "Reward Callback",
                 options=[("No Server Callback", 0), ("Server Callback", 1)],
                 index=0 if slot_config["reward_is_callback"] == 0 else 1,
-                key=f"{slot_key}_reward_is_callback",
+                key=f"{slot_key}_reward_is_callback{key_suffix}",
                 format_func=lambda x: x[0]
             )
             slot_config["reward_is_callback"] = reward_is_callback[1]
@@ -1659,8 +2481,8 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
             if reward_is_callback[1] == 1:
                 reward_callback_url = st.text_input(
                     "Reward Callback URL*",
-                    value=st.session_state.get(f"{slot_key}_reward_callback_url", ""),
-                    key=f"{slot_key}_reward_callback_url",
+                    value=st.session_state.get(f"{slot_key}_reward_callback_url{key_suffix}", ""),
+                    key=f"{slot_key}_reward_callback_url{key_suffix}",
                     help="Required when server callback is enabled"
                 )
                 slot_config["reward_callback_url"] = reward_callback_url
@@ -1669,20 +2491,81 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "Orientation",
                 options=[("Vertical", 1), ("Horizontal", 2)],
                 index=0 if slot_config["orientation"] == 1 else 1,
-                key=f"{slot_key}_orientation",
+                key=f"{slot_key}_orientation{key_suffix}",
                 format_func=lambda x: x[0]
             )
             slot_config["orientation"] = orientation[1]
     
-    if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_pangle_{slot_key}"):
+    button_key = f"create_pangle_{slot_key}_{platform}" if platform else f"create_pangle_{slot_key}"
+    button_label = f"✅ Create {slot_key} Placement ({platform.upper()})" if platform else f"✅ Create {slot_key} Placement"
+    if st.button(button_label, use_container_width=True, key=button_key):
         if not slot_name:
             st.toast("❌ Slot Name is required", icon="🚫")
         elif slot_key == "RV" and (not slot_config.get("reward_name") or slot_config.get("reward_count") is None):
             st.toast("❌ Reward Name and Reward Count are required for Rewarded Video", icon="🚫")
         else:
+            # For Pangle, use both app_id and site_id
+            # Priority: 1) app_info_to_use, 2) apps list, 3) selected_app_code
+            site_id = None
+            app_id = None
+            
+            if app_info_to_use:
+                site_id = app_info_to_use.get("siteId")
+                app_id = app_info_to_use.get("appId") or app_info_to_use.get("siteId")  # Fallback to site_id if app_id not found
+                logger.info(f"[Pangle] From app_info_to_use: siteId={site_id}, appId={app_id}, keys: {list(app_info_to_use.keys())}")
+            
+            if not site_id or not app_id:
+                # Try to get from apps list
+                for app in apps:
+                    app_identifier = app.get("siteId") or app.get("appCode")
+                    if str(app_identifier) == str(selected_app_code):
+                        if not site_id:
+                            site_id = app.get("siteId")
+                        if not app_id:
+                            app_id = app.get("appId") or app.get("siteId")  # Fallback to site_id if app_id not found
+                        logger.info(f"[Pangle] Found from apps list: siteId={site_id}, appId={app_id}")
+                        break
+            
+            # Fallback to selected_app_code if not found
+            if not site_id:
+                site_id = selected_app_code
+                logger.warning(f"[Pangle] siteId not found, using selected_app_code: {site_id}")
+            if not app_id or app_id == "" or app_id is None:
+                app_id = site_id  # Use site_id as fallback for app_id
+                logger.warning(f"[Pangle] appId not found or empty, using site_id: {app_id}")
+            
+            # Ensure app_id is not None or empty string
+            if not app_id or app_id == "":
+                st.error(f"❌ App ID is required but not found. siteId: {site_id}, selected_app_code: {selected_app_code}")
+                logger.error(f"[Pangle] App ID validation failed - siteId: {site_id}, appId: {app_id}, selected_app_code: {selected_app_code}")
+                return
+            
+            # Convert to string if needed (Pangle API expects string or int)
+            if isinstance(app_id, (int, float)):
+                app_id = str(int(app_id))
+            else:
+                app_id = str(app_id) if app_id else None
+            
+            if not app_id or app_id == "":
+                st.error(f"❌ App ID is required but is empty after conversion. siteId: {site_id}")
+                logger.error(f"[Pangle] App ID conversion failed - siteId: {site_id}, appId after conversion: {app_id}")
+                return
+            
+            platform_display = platform.upper() if platform else ""
+            logger.info(f"[Pangle] Creating {slot_key} placement - platform: {platform_display}, app_id: {app_id} (type: {type(app_id)})")
+            
+            # Convert app_id to int (Pangle API expects int)
+            try:
+                app_id_int = int(app_id) if app_id else None
+            except (ValueError, TypeError):
+                st.error(f"❌ App ID must be a valid integer. Current value: {app_id}")
+                logger.error(f"[Pangle] App ID conversion failed - app_id: {app_id}")
+                return
+            
             payload = {
-                "app_id": selected_app_code,
+                "app_id": app_id_int,  # Required field - must be int
                 "ad_placement_type": slot_config["ad_slot_type"],
+                "ad_slot_name": slot_name.strip(),  # User-selected name
                 "bidding_type": 1,
             }
             
@@ -1709,11 +2592,22 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                     "orientation": slot_config["orientation"],
                 })
             
+            # Log and display final payload
+            import json as json_module
+            logger.info(f"[Pangle] Final payload: {json_module.dumps(payload, indent=2)}")
+            st.markdown("#### 📤 Request Payload")
+            st.json(payload)
+            
             with st.spinner(f"Creating {slot_key} placement..."):
                 try:
                     from utils.network_manager import get_network_manager
                     network_manager = get_network_manager()
                     response = network_manager.create_unit(current_network, payload)
+                    
+                    # Display full response
+                    st.markdown("#### 📥 Response")
+                    st.json(response)
+                    
                     result = handle_api_response(response)
                     
                     if result:
@@ -1733,10 +2627,14 @@ def _render_pangle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                             SessionManager.cache_units(current_network, selected_app_code, cached_units)
                         
                         st.success(f"✅ {slot_key} placement created successfully!")
-                        st.rerun()
+                        # Don't rerun - keep the response visible
+                    else:
+                        st.error(f"❌ Failed to create {slot_key} placement. Check response above.")
                 except Exception as e:
                     st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
                     SessionManager.log_error(current_network, str(e))
+                    import traceback
+                    st.code(traceback.format_exc())
 
 
 def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
