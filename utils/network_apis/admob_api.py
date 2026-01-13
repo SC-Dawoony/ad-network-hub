@@ -104,8 +104,39 @@ class AdMobAPI(BaseNetworkAPI):
         
         # 3. 새로 OAuth 인증 필요
         if not creds:
-            # 웹 환경에서는 에러 메시지 표시
+            # 웹 환경에서는 Streamlit secrets에서 먼저 확인
             if hasattr(st, 'session_state'):
+                # Streamlit secrets에서 토큰 먼저 확인 (경고 메시지 표시 전)
+                try:
+                    if hasattr(st.secrets, 'get') and st.secrets.get('ADMOB_TOKEN_JSON'):
+                        token_json_str = st.secrets.get('ADMOB_TOKEN_JSON')
+                        if isinstance(token_json_str, str):
+                            token_data = json.loads(token_json_str)
+                        else:
+                            token_data = token_json_str
+                        creds = Credentials.from_authorized_user_info(token_data, ADMOB_SCOPES)
+                        
+                        # 토큰이 만료되었으면 refresh
+                        if creds.expired and creds.refresh_token:
+                            try:
+                                logger.info("[AdMob] Refreshing expired token from Streamlit secrets...")
+                                creds.refresh(Request())
+                                logger.info("[AdMob] Token refreshed successfully")
+                            except Exception as e:
+                                logger.warning(f"[AdMob] Failed to refresh token: {e}")
+                                creds = None
+                        
+                        if creds and creds.valid:
+                            # session_state에 저장
+                            st.session_state[session_key] = json.loads(creds.to_json())
+                            logger.info("[AdMob] Loaded credentials from Streamlit secrets")
+                            # 성공적으로 로드했으면 경고 메시지 표시하지 않음
+                            self._credentials = creds
+                            return creds
+                except Exception as e:
+                    logger.warning(f"[AdMob] Failed to load from Streamlit secrets: {e}")
+                
+                # Streamlit secrets에서도 로드 실패했을 때만 경고 메시지 표시
                 st.error("⚠️ AdMob 인증이 필요합니다. 아래 안내를 따라주세요.")
                 st.info("""
                 **로컬 환경에서 인증하는 방법:**
@@ -118,31 +149,14 @@ class AdMobAPI(BaseNetworkAPI):
                 - `admob_token.json` 내용을 `ADMOB_TOKEN_JSON`에 저장
                 """)
                 
-                # Streamlit secrets에서 토큰 확인
-                try:
-                    if hasattr(st.secrets, 'get') and st.secrets.get('ADMOB_TOKEN_JSON'):
-                        token_json_str = st.secrets.get('ADMOB_TOKEN_JSON')
-                        if isinstance(token_json_str, str):
-                            token_data = json.loads(token_json_str)
-                        else:
-                            token_data = token_json_str
-                        creds = Credentials.from_authorized_user_info(token_data, ADMOB_SCOPES)
-                        
-                        # session_state에 저장
-                        st.session_state[session_key] = json.loads(creds.to_json())
-                        logger.info("[AdMob] Loaded credentials from Streamlit secrets")
-                    else:
-                        raise ValueError("No credentials found")
-                except Exception as e:
-                    logger.warning(f"[AdMob] Failed to load from Streamlit secrets: {e}")
-                    raise ValueError(
-                        "AdMob 인증이 필요합니다.\n\n"
-                        "**방법 1 (로컬 인증):**\n"
-                        "1. 로컬에서 `python -c \"from utils.network_apis.admob_api import AdMobAPI; api = AdMobAPI(); api._get_credentials()\"` 실행\n"
-                        "2. 생성된 `admob_token.json` 파일 내용을 Streamlit Secrets의 `ADMOB_TOKEN_JSON`에 저장\n\n"
-                        "**방법 2 (수동 저장):**\n"
-                        "Streamlit Secrets에 `ADMOB_TOKEN_JSON` 키로 토큰 JSON을 저장하세요."
-                    )
+                raise ValueError(
+                    "AdMob 인증이 필요합니다.\n\n"
+                    "**방법 1 (로컬 인증):**\n"
+                    "1. 로컬에서 `python -c \"from utils.network_apis.admob_api import AdMobAPI; api = AdMobAPI(); api._get_credentials()\"` 실행\n"
+                    "2. 생성된 `admob_token.json` 파일 내용을 Streamlit Secrets의 `ADMOB_TOKEN_JSON`에 저장\n\n"
+                    "**방법 2 (수동 저장):**\n"
+                    "Streamlit Secrets에 `ADMOB_TOKEN_JSON` 키로 토큰 JSON을 저장하세요."
+                )
             else:
                 # 로컬 환경: OAuth flow 시작
                 client_secrets_file = self._find_client_secrets_file()
