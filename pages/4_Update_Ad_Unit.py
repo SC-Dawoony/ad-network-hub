@@ -538,6 +538,16 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         project_id = app_ids.get("projectId") or app_id
                                         app_key = project_id  # Use projectId for Unity unit lookup
                                     
+                                    # For Pangle, query all ad units (no app_id filter in API call)
+                                    # Filter by app_id on client side for better performance
+                                    if actual_network == "pangle":
+                                        # Pangle: Query all ad units, filter by app_id on client side
+                                        # app_id will be passed to get_pangle_units for client-side filtering
+                                        if app_id:
+                                            logger.info(f"[Pangle] Will query all ad units and filter by app_id: {app_id} on client side")
+                                        else:
+                                            logger.warning(f"[Pangle] app_id not available, will query all ad units")
+                                    
                                     # Debug logging for BigOAds
                                     if actual_network == "bigoads":
                                         logger.info(f"[BigOAds] ========== Debug Info ==========")
@@ -557,13 +567,32 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         st.write(f"🔍 [BigOAds Debug] app_key: {app_key}, app_id: {app_id}")
                                     
                                     # Get units for this app (sequential: app -> units)
-                                    units = get_network_units(actual_network, app_key or app_id or "")
+                                    # For Pangle, query all ad units and filter by app_id on client side
+                                    # For other networks, use app_key or app_id
+                                    if actual_network == "pangle":
+                                        # Pangle: Pass app_id for client-side filtering (API will query all ad units)
+                                        unit_lookup_id = app_id or ""
+                                        st.write(f"🔍 [Pangle Debug] Before get_network_units: app_id={app_id} (will filter on client side)")
+                                    else:
+                                        unit_lookup_id = app_key or app_id or ""
+                                    
+                                    units = get_network_units(actual_network, unit_lookup_id)
                                     
                                     # Debug logging for BigOAds units
                                     if actual_network == "bigoads":
                                         st.write(f"🔍 [BigOAds Debug] Units count: {len(units) if units else 0}")
                                         if units:
                                             st.write(f"🔍 [BigOAds Debug] First unit: {units[0]}")
+                                    
+                                    # Debug logging for Pangle units
+                                    if actual_network == "pangle":
+                                        st.write(f"🔍 [Pangle Debug] Units count: {len(units) if units else 0}")
+                                        if units:
+                                            st.write(f"🔍 [Pangle Debug] First unit keys: {list(units[0].keys()) if units else []}")
+                                            st.write(f"🔍 [Pangle Debug] First unit: {units[0]}")
+                                        else:
+                                            st.write(f"⚠️ [Pangle Debug] No units returned from API!")
+                                            st.write(f"⚠️ [Pangle Debug] app_id used for API call: {app_id}")
                                     
                                     # Find matching unit by ad_format
                                     matched_unit = None
@@ -604,12 +633,36 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                             else:
                                                 st.write(f"⚠️ [BigOAds Debug] No unit matched!")
                                                 st.write(f"⚠️ [BigOAds Debug] This means ad_network_app_id should still be set from app_key: {app_key}")
+                                        
+                                        # Debug logging for Pangle unit matching
+                                        if actual_network == "pangle":
+                                            st.write(f"🔍 [Pangle Debug] ========== Unit Matching ==========")
+                                            st.write(f"🔍 [Pangle Debug] Ad format: {applovin_unit['ad_format']}")
+                                            st.write(f"🔍 [Pangle Debug] Platform: {applovin_unit['platform']}")
+                                            st.write(f"🔍 [Pangle Debug] Total units available: {len(units)}")
+                                            if units:
+                                                st.write(f"🔍 [Pangle Debug] All units ad_slot_type: {[u.get('ad_slot_type') for u in units]}")
+                                                st.write(f"🔍 [Pangle Debug] All units ad_slot_name: {[u.get('ad_slot_name') for u in units]}")
+                                                st.write(f"🔍 [Pangle Debug] All units ad_slot_id: {[u.get('ad_slot_id') for u in units]}")
+                                            st.write(f"🔍 [Pangle Debug] Matched unit: {matched_unit}")
+                                            if matched_unit:
+                                                st.write(f"🔍 [Pangle Debug] Matched unit ad_slot_name: {matched_unit.get('ad_slot_name', 'N/A')}")
+                                                st.write(f"🔍 [Pangle Debug] Matched unit ad_slot_id: {matched_unit.get('ad_slot_id', 'N/A')}")
+                                                st.write(f"🔍 [Pangle Debug] Matched unit ad_slot_type: {matched_unit.get('ad_slot_type', 'N/A')}")
+                                                st.write(f"🔍 [Pangle Debug] Matched unit all keys: {list(matched_unit.keys())}")
+                                            else:
+                                                st.write(f"⚠️ [Pangle Debug] No unit matched!")
+                                                st.write(f"⚠️ [Pangle Debug] This means ad_network_app_id should still be set from app_id: {app_id}")
                                     else:
                                         # No units found
                                         if actual_network == "bigoads":
                                             st.write(f"⚠️ [BigOAds Debug] No units returned from API!")
                                             st.write(f"⚠️ [BigOAds Debug] app_key used for API call: {app_key}")
                                             st.write(f"⚠️ [BigOAds Debug] This means ad_network_app_id should still be set from app_key: {app_key}")
+                                        elif actual_network == "pangle":
+                                            st.write(f"⚠️ [Pangle Debug] No units returned from API!")
+                                            st.write(f"⚠️ [Pangle Debug] app_id used for API call: {app_id}")
+                                            st.write(f"⚠️ [Pangle Debug] This means ad_network_app_id should still be set from app_id: {app_id}")
                                     
                                     # Extract unit ID
                                     unit_id = ""
@@ -698,6 +751,23 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                                     logger.warning(f"[Unity] No unit_id found in placements or unit fields")
                                             
                                             logger.info(f"[Unity] Final unit_id: {unit_id}")
+                                        elif actual_network == "pangle":
+                                            # Pangle uses ad_slot_id for ad_unit_id (from API response: data.ad_slot_list[].ad_slot_id)
+                                            unit_id = matched_unit.get("ad_slot_id") or ""
+                                            if unit_id:
+                                                logger.info(f"[Pangle] Extracted unit_id '{unit_id}' from matched_unit.ad_slot_id")
+                                            else:
+                                                logger.warning(f"[Pangle] Could not extract unit_id. Matched unit keys: {list(matched_unit.keys())}")
+                                                st.write(f"⚠️ [Pangle Debug] Could not extract unit_id. Matched unit: {matched_unit}")
+                                                # Fallback to other possible field names
+                                                unit_id = (
+                                                    matched_unit.get("slot_id") or
+                                                    matched_unit.get("code_id") or
+                                                    matched_unit.get("id") or
+                                                    ""
+                                                )
+                                                if unit_id:
+                                                    logger.warning(f"[Pangle] Using fallback field for unit_id: {unit_id}")
                                         else:
                                             unit_id = (
                                                 matched_unit.get("adUnitId") or
@@ -713,6 +783,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     # For Fyber, use app_id for ad_network_app_id and empty ad_network_app_key
                                     # For BigOAds, use appCode for ad_network_app_id and empty ad_network_app_key
                                     # For Vungle, use applicationId for ad_network_app_id and empty ad_network_app_key
+                                    # For Pangle, use app_id for ad_network_app_id and empty ad_network_app_key
                                     if actual_network == "ironsource":
                                         ad_network_app_id = str(app_key) if app_key else ""
                                         ad_network_app_key = ""
@@ -725,6 +796,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "fyber":
                                         ad_network_app_id = str(app_id) if app_id else ""
                                         ad_network_app_key = ""  # Empty for Fyber
+                                    elif actual_network == "pangle":
+                                        ad_network_app_id = str(app_id) if app_id else ""
+                                        ad_network_app_key = ""  # Empty for Pangle
                                     elif actual_network == "bigoads":
                                         # For BigOAds, use appCode (app_key) for ad_network_app_id
                                         # app_key should already have fallback logic applied above
@@ -874,6 +948,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     elif actual_network == "vungle":
                                         ad_network_app_id = ""  # Empty for Vungle (app not found)
                                         ad_network_app_key = ""  # Empty for Vungle
+                                    elif actual_network == "pangle":
+                                        ad_network_app_id = ""  # Empty for Pangle (app not found)
+                                        ad_network_app_key = ""  # Empty for Pangle
                                     else:
                                         ad_network_app_id = ""
                                         ad_network_app_key = ""

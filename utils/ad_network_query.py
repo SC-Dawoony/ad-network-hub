@@ -1008,6 +1008,69 @@ def find_matching_unit(
             logger.warning(f"[Unity] No matching units found for format '{target_format}' (target_format={target_format.lower()})")
             return None
     
+    # For Pangle, match by ad_slot_type from API response
+    if network == "pangle":
+        # Pangle API response structure: data.ad_slot_list[].ad_slot_type
+        # ad_slot_type values: 1 (Native Ad), 2 (Banner Ad), 3 (App Open Ad), 5 (Rewarded Video Ad), 6 (Interstitial Ad)
+        # We match by comparing ad_slot_type from response with target_format (already mapped to numeric value)
+        matching_units = []
+        target_ad_slot_type = target_format  # target_format is already the numeric ad_slot_type from map_ad_format_to_network_format
+        logger.info(f"[Pangle] Finding unit: ad_format={ad_format}, target_format={target_format}, target_ad_slot_type={target_ad_slot_type} (type: {type(target_ad_slot_type)})")
+        logger.info(f"[Pangle] Total units to check: {len(network_units)}")
+        
+        # Debug: Log all units' ad_slot_type values from API response
+        for idx, unit in enumerate(network_units):
+            unit_ad_slot_type = unit.get("ad_slot_type")  # From API response: data.ad_slot_list[].ad_slot_type
+            unit_name = unit.get("ad_slot_name", "N/A")
+            unit_ad_slot_id = unit.get("ad_slot_id", "N/A")
+            logger.info(f"[Pangle] Unit[{idx}]: name={unit_name}, ad_slot_id={unit_ad_slot_id}, ad_slot_type={unit_ad_slot_type} (type: {type(unit_ad_slot_type)}), all_keys={list(unit.keys())}")
+        
+        for unit in network_units:
+            # Get ad_slot_type from API response (data.ad_slot_list[].ad_slot_type)
+            unit_ad_slot_type = unit.get("ad_slot_type")
+            unit_name = unit.get("ad_slot_name", "N/A")
+            
+            # Check if ad_slot_type field exists in response
+            if unit_ad_slot_type is None:
+                logger.warning(f"[Pangle] Unit '{unit_name}' has no 'ad_slot_type' field in API response. Available keys: {list(unit.keys())}")
+                continue
+            
+            logger.info(f"[Pangle] Checking unit: name={unit_name}, ad_slot_type={unit_ad_slot_type} (from API response, type: {type(unit_ad_slot_type)})")
+            # Compare ad_slot_type from API response with target ad_slot_type
+            try:
+                unit_ad_slot_type_int = int(unit_ad_slot_type)
+                target_ad_slot_type_int = int(target_ad_slot_type)
+                if unit_ad_slot_type_int == target_ad_slot_type_int:
+                    logger.info(f"[Pangle] ✓ Match found: {unit_name} (ad_slot_type={unit_ad_slot_type_int} from API response == target={target_ad_slot_type_int})")
+                    matching_units.append(unit)
+                else:
+                    logger.info(f"[Pangle] ✗ No match: {unit_name} (ad_slot_type={unit_ad_slot_type_int} from API response != target={target_ad_slot_type_int})")
+            except (ValueError, TypeError) as e:
+                # If conversion fails, skip
+                logger.warning(f"[Pangle] Cannot compare ad_slot_type: {unit_name}, ad_slot_type={unit_ad_slot_type}, error={e}")
+                continue
+        
+        logger.info(f"[Pangle] Total matching units found: {len(matching_units)}")
+        
+        # If multiple matches and platform is provided, prioritize by platform indicator in name
+        if len(matching_units) > 1 and platform:
+            platform_normalized = platform.lower()
+            platform_indicator = "_aos_" if platform_normalized == "android" else "_ios_"
+            
+            for unit in matching_units:
+                slot_name = unit.get("ad_slot_name", "").lower()
+                if platform_indicator in slot_name:
+                    logger.info(f"[Pangle] Found unit with platform indicator '{platform_indicator}' in name: {unit.get('ad_slot_name')}")
+                    return unit
+            
+            # If no unit has platform indicator, return first match
+            logger.warning(f"[Pangle] Multiple units found for format '{target_format}' but none have platform indicator '{platform_indicator}' in name")
+            return matching_units[0] if matching_units else None
+        elif len(matching_units) == 1:
+            return matching_units[0]
+        else:
+            return None
+    
     # For other networks or when platform is not provided, use simple format matching
     for unit in network_units:
         unit_format = unit.get("adFormat", "").lower()
@@ -1704,12 +1767,179 @@ def get_vungle_units(app_id: Optional[str] = None) -> List[Dict]:
         return []
 
 
+def _mask_sensitive_data(data: Dict) -> Dict:
+    """Mask sensitive data in dict for logging"""
+    masked = data.copy()
+    sensitive_keys = ["sign", "skey", "secret", "token", "password", "authorization"]
+    for key in sensitive_keys:
+        if key in masked:
+            masked[key] = "***MASKED***"
+    return masked
+
+
+def get_pangle_units(app_id: Optional[str] = None) -> List[Dict]:
+    """Get Pangle ad units (placements)
+    
+    API: POST https://open-api.pangleglobal.com/union/media/open_api/code/query
+    
+    Strategy: Query all ad units using user_id and role_id (no app_id filter),
+    then filter by app_id on client side for better performance and caching.
+    
+    Args:
+        app_id: Optional Pangle app ID (site_id or app_id) to filter by.
+                If provided, filters results on client side.
+                If None, returns all ad units.
+    
+    Returns:
+        List of ad unit dicts with ad_slot_id, ad_slot_name, ad_slot_type, app_id, etc.
+        Filtered by app_id on client side if app_id is provided.
+    """
+    try:
+        security_key = _get_env_var("PANGLE_SECURITY_KEY")
+        user_id = _get_env_var("PANGLE_USER_ID")
+        role_id = _get_env_var("PANGLE_ROLE_ID")
+        
+        if not security_key or not user_id or not role_id:
+            logger.error("[Pangle] Cannot get units: PANGLE_SECURITY_KEY, PANGLE_USER_ID, and PANGLE_ROLE_ID must be set")
+            return []
+        
+        try:
+            user_id_int = int(user_id)
+            role_id_int = int(role_id)
+            app_id_int = int(app_id) if app_id and app_id.isdigit() else None
+        except (ValueError, TypeError):
+            logger.error("[Pangle] PANGLE_USER_ID, PANGLE_ROLE_ID must be integers")
+            if app_id:
+                logger.error(f"[Pangle] app_id must be an integer if provided: {app_id}")
+            return []
+        
+        # Check if sandbox mode is enabled
+        sandbox_env = _get_env_var("PANGLE_SANDBOX")
+        sandbox = sandbox_env and sandbox_env.lower() == "true" if sandbox_env else False
+        
+        if sandbox:
+            url = "http://open-api-sandbox.pangleglobal.com/union/media/open_api/code/query"
+            logger.info("[Pangle] Using SANDBOX environment for unit query")
+        else:
+            url = "https://open-api.pangleglobal.com/union/media/open_api/code/query"
+            logger.info("[Pangle] Using PRODUCTION environment for unit query")
+        
+        # Generate signature
+        import time
+        import random
+        timestamp = int(time.time())
+        nonce = random.randint(1, 2147483647)
+        
+        # Generate signature using network_manager's method
+        network_manager = get_network_manager()
+        signature = network_manager._generate_pangle_signature(security_key, timestamp, nonce)
+        
+        # Request payload: Query ALL ad units using user_id and role_id (no app_id filter)
+        # This allows us to cache all ad units and filter on client side
+        payload = {
+            "user_id": user_id_int,
+            "role_id": role_id_int,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "sign": signature,
+            "version": "1.0",
+            "page": 1,
+            "page_size": 100  # Increase page size to get more results
+        }
+        
+        # Do NOT include app_id in payload - query all ad units
+        # Filter by app_id on client side after receiving response
+        logger.info(f"[Pangle] Querying ALL ad units (user_id={user_id_int}, role_id={role_id_int}, no app_id filter)")
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Pangle] Unit Query API Request: POST {url}")
+        logger.info(f"[Pangle] Request Payload: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        import requests
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        logger.info(f"[Pangle] Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                logger.info(f"[Pangle] Response Body: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                code = result.get("code")
+                data = result.get("data", {})
+                
+                if code == 0 or code == 200:
+                    # Pangle API response structure: {code: 0, data: {ad_slot_list: [...], page_info: {...}}}
+                    # Extract ad_slot_list from data
+                    ad_slot_list = data.get("ad_slot_list", [])
+                    
+                    # Fallback to other possible field names
+                    if not ad_slot_list:
+                        ad_slot_list = (
+                            data.get("list") or
+                            data.get("ad_slots") or
+                            data.get("slots") or
+                            []
+                        )
+                    
+                    # If data itself is a list, use it directly
+                    if isinstance(data, list):
+                        ad_slot_list = data
+                    
+                    # Get total from page_info if available
+                    page_info = data.get("page_info", {})
+                    total = page_info.get("total_number") if page_info else data.get("total", len(ad_slot_list))
+                    
+                    logger.info(f"[Pangle] Extracted {len(ad_slot_list)} ad units from API response (total: {total})")
+                    
+                    # Filter by app_id on client side if provided
+                    if app_id_int:
+                        original_count = len(ad_slot_list)
+                        ad_slot_list = [unit for unit in ad_slot_list if unit.get("app_id") == app_id_int]
+                        logger.info(f"[Pangle] Filtered {original_count} units to {len(ad_slot_list)} units for app_id: {app_id_int}")
+                    elif app_id:
+                        # app_id was provided but not a valid integer, try string comparison
+                        original_count = len(ad_slot_list)
+                        ad_slot_list = [unit for unit in ad_slot_list if str(unit.get("app_id")) == str(app_id)]
+                        logger.info(f"[Pangle] Filtered {original_count} units to {len(ad_slot_list)} units for app_id: {app_id} (string comparison)")
+                    
+                    if ad_slot_list and len(ad_slot_list) > 0:
+                        logger.info(f"[Pangle] First unit keys: {list(ad_slot_list[0].keys())}")
+                        logger.info(f"[Pangle] First unit ad_slot_id: {ad_slot_list[0].get('ad_slot_id', 'N/A')}")
+                        logger.info(f"[Pangle] First unit app_id: {ad_slot_list[0].get('app_id', 'N/A')}")
+                        logger.info(f"[Pangle] First unit: {json.dumps(_mask_sensitive_data(ad_slot_list[0]), indent=2)}")
+                    return ad_slot_list
+                else:
+                    error_msg = result.get("msg") or result.get("message") or "Unknown error"
+                    logger.error(f"[Pangle] API returned code={code}: {error_msg}")
+                    return []
+            except json.JSONDecodeError as e:
+                logger.error(f"[Pangle] JSON decode error: {str(e)}")
+                logger.error(f"[Pangle] Response text: {response.text[:500]}")
+                return []
+        else:
+            try:
+                error_body = response.json()
+                logger.error(f"[Pangle] Error Response: {json.dumps(error_body, indent=2)}")
+            except:
+                logger.error(f"[Pangle] Error Response (text): {response.text}")
+            return []
+    except Exception as e:
+        logger.error(f"[Pangle] API Error (Get Units): {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+
 def get_network_units(network: str, app_code: str) -> List[Dict]:
     """Get ad units for a network app
     
     Args:
-        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber", "vungle", "unity")
-        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber/Vungle, appCode for BigOAds, projectId for Unity, etc.)
+        network: Network name (e.g., "ironsource", "bigoads", "inmobi", "mintegral", "fyber", "vungle", "unity", "pangle")
+        app_code: App code (appKey for IronSource, appId for InMobi/Mintegral/Fyber/Vungle/Pangle, appCode for BigOAds, projectId for Unity, etc.)
     
     Returns:
         List of ad unit dicts
@@ -1729,6 +1959,11 @@ def get_network_units(network: str, app_code: str) -> List[Dict]:
         return get_vungle_units(app_code)
     elif network == "unity":
         return get_unity_units(app_code)  # app_code is projectId for Unity
+    elif network == "pangle":
+        logger.info(f"[Pangle] get_network_units called with app_code: {app_code}")
+        units = get_pangle_units(app_code)  # app_code is app_id for Pangle
+        logger.info(f"[Pangle] get_pangle_units returned {len(units) if units else 0} units")
+        return units
     
     logger.warning(f"[{network}] get_network_units not implemented yet")
     return []
@@ -1750,6 +1985,7 @@ def map_applovin_network_to_actual_network(applovin_network: str) -> Optional[st
         "FYBER_BIDDING": "fyber",
         "MINTEGRAL_BIDDING": "mintegral",
         "PANGLE_BIDDING": "pangle",
+        "TIKTOK_BIDDING": "pangle",  # TikTok is Pangle
         "VUNGLE_BIDDING": "vungle",
         "UNITY_BIDDING": "unity",
         # Add more mappings as needed
@@ -1825,6 +2061,16 @@ def map_ad_format_to_network_format(ad_format: str, network: str) -> str:
             "BANNER": "Banner"
         }
         return format_map.get(ad_format_upper, ad_format.capitalize())
+    elif network == "pangle":
+        # Pangle: ad_slot_type numbers from API response
+        # API response field: ad_slot_type
+        # Available values: 1 (Native Ad), 2 (Banner Ad), 3 (App Open Ad), 5 (Rewarded Video Ad), 6 (Interstitial Ad)
+        format_map = {
+            "REWARD": 5,  # Rewarded Video Ad (ad_slot_type: 5)
+            "INTER": 6,   # Interstitial Ad (ad_slot_type: 6)
+            "BANNER": 2   # Banner Ad (ad_slot_type: 2)
+        }
+        return format_map.get(ad_format_upper, ad_format.lower())
     
     # Default: return lowercase
     return ad_format.lower()
@@ -1903,6 +2149,12 @@ def extract_app_identifiers(app: Dict, network: str) -> Dict[str, Optional[str]]
         
         result["stores"] = stores  # Store stores for gameId extraction
         result["app_id"] = project_id  # For now, use projectId (gameId will be extracted separately)
+    elif network == "pangle":
+        # Pangle uses app_id (or site_id) for app identification
+        app_id_value = app.get("appId") or app.get("siteId") or app.get("id")
+        result["app_id"] = app_id_value
+        result["app_code"] = str(app_id_value) if app_id_value else None
+        logger.info(f"[Pangle] extract_app_identifiers: app keys={list(app.keys())}, appId={app.get('appId')}, siteId={app.get('siteId')}, extracted app_id={app_id_value}")
     else:
         # Generic fallback
         result["app_code"] = app.get("appCode") or app.get("appKey") or app.get("appId")
