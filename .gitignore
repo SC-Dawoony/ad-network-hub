@@ -26,6 +26,7 @@ ENV/
 Thumbs.db
 
 # Streamlit
+.streamlit/
 .streamlit/secrets.toml
 
 # AdMob OAuth
@@ -42,3 +43,8 @@ PANGLE_AUTH_GUIDE.md
 APPLOVIN_AD_UNIT_DESIGN.md
 SUPABASE_AD_NETWORK_DATA_DESIGN.md
 GOOGLE_OAUTH_LOGIN_PLAN.md
+ADMOB_TOKEN_REGENERATION_GUIDE.md
+STREAMLIT_CLOUD_SECRETS_GUIDE.md
+
+# Scripts
+scripts/

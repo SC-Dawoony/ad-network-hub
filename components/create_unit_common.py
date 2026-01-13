@@ -1019,22 +1019,33 @@ def render_create_unit_common_ui(
                 if app_info_to_use:
                     app_id = app_info_to_use.get("appId") or app_info_to_use.get("appIdAndroid") or app_info_to_use.get("appIdIOS")
                     app_store_id = app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
-                    pkg_name = app_info_to_use.get("pkgName") or app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+                    # For AdMob, get appStoreId from linkedAppInfo
+                    linked_info = app_info_to_use.get("linkedAppInfo", {})
+                    if linked_info:
+                        app_store_id = linked_info.get("appStoreId") or app_store_id
+                    pkg_name = app_store_id or app_info_to_use.get("pkgName", "")
                     platform_str = app_info_to_use.get("platformStr", "android")
                     app_name_for_slot = app_info_to_use.get("name", app_name)
                     
                     if platform_str == "both":
                         platform_str = "android"
                         if not pkg_name:
-                            pkg_name = app_info_to_use.get("androidAppStoreId")
+                            # For AdMob, try to get from linkedAppInfo
+                            android_linked_info = app_info_to_use.get("linkedAppInfo", {})
+                            if android_linked_info:
+                                pkg_name = android_linked_info.get("appStoreId") or app_info_to_use.get("androidAppStoreId")
+                            else:
+                                pkg_name = app_info_to_use.get("androidAppStoreId")
                 
                 if not app_id and not app_store_id:
                     for app in apps:
                         app_identifier = app.get("appId") or app.get("appCode")
                         if str(app_identifier) == str(selected_app_code):
                             app_id = app.get("appId")
-                            app_store_id = app.get("appStoreId")
-                            pkg_name = app.get("appStoreId") or app.get("pkgName", "")
+                            # For AdMob, get appStoreId from linkedAppInfo
+                            linked_info = app.get("linkedAppInfo", {})
+                            app_store_id = linked_info.get("appStoreId") if linked_info else app.get("appStoreId")
+                            pkg_name = app_store_id or app.get("pkgName", "")
                             platform_str_val = app.get("platform", "")
                             platform_str = "android" if platform_str_val == "ANDROID" else ("ios" if platform_str_val == "IOS" else "android")
                             app_name_for_slot = app.get("name", app_name)
@@ -1066,11 +1077,36 @@ def render_create_unit_common_ui(
                             for slot_key in ["RV", "IS", "BN"]:
                                 slot_type = slot_type_map.get(slot_key, slot_key.lower())
                                 ad_format = format_map.get(slot_key, "REWARDED")
-                                display_name = _generate_slot_name(pkg_name, platform_str, slot_type, "admob", bundle_id=None, network_manager=network_manager, app_name=app_name_for_slot)
                                 
-                                if not display_name:
-                                    # Fallback: use slot_type (rv, is, bn) instead of ad_format.lower()
-                                    display_name = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+                                # For AdMob, use linkedAppInfo.appStoreId's last part after "."
+                                # If iOS and appStoreId is numeric only, find Android app with same name
+                                display_name_pkg = pkg_name
+                                
+                                # Check if iOS and appStoreId is numeric only (iTunes ID)
+                                if platform_str == "ios" and app_store_id and app_store_id.strip().isdigit():
+                                    # Find Android app with same name
+                                    logger.info(f"[AdMob] iOS appStoreId is numeric ({app_store_id}), searching for Android app with same name: {app_name_for_slot}")
+                                    for app in apps:
+                                        app_name_match = app.get("name", "")
+                                        app_platform = app.get("platform", "")
+                                        if app_name_match == app_name_for_slot and app_platform == "ANDROID":
+                                            # Use Android app's linkedAppInfo.appStoreId
+                                            android_linked_info = app.get("linkedAppInfo", {})
+                                            android_app_store_id = android_linked_info.get("appStoreId") if android_linked_info else app.get("appStoreId")
+                                            if android_app_store_id:
+                                                display_name_pkg = android_app_store_id
+                                                logger.info(f"[AdMob] Found Android app with same name, using appStoreId: {android_app_store_id}")
+                                                break
+                                
+                                # Extract last part after "." for display name
+                                if display_name_pkg and "." in display_name_pkg:
+                                    last_part = display_name_pkg.split(".")[-1]
+                                else:
+                                    last_part = display_name_pkg if display_name_pkg else "app"
+                                
+                                # Format: {last_part}_{os}_admob_{adtype}_bidding
+                                os_str = "aos" if platform_str == "android" else "ios"
+                                display_name = f"{last_part}_{os_str}_admob_{slot_type}_bidding"
                                 
                                 display_names.append((slot_key, display_name))
                                 
@@ -2426,46 +2462,113 @@ def _render_admob_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
     
     if selected_app_code:
         if app_info_to_use:
-            app_id = app_info_to_use.get("appId") or app_info_to_use.get("appIdAndroid") or app_info_to_use.get("appIdIOS")
-            app_store_id = app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
-            pkg_name = app_info_to_use.get("pkgName") or app_info_to_use.get("androidAppStoreId") or app_info_to_use.get("iosAppStoreId")
+            # For AdMob, use appId and appStoreId directly
+            app_id = app_info_to_use.get("appId")
+            app_store_id = app_info_to_use.get("appStoreId")
+            # For AdMob display name, use linkedAppInfo.appStoreId
+            linked_info = app_info_to_use.get("linkedAppInfo", {})
+            if linked_info:
+                app_store_id = linked_info.get("appStoreId") or app_store_id
+            pkg_name = app_store_id or app_info_to_use.get("pkgName", "")
             platform_str = app_info_to_use.get("platformStr", "android")
             app_name_for_slot = app_info_to_use.get("name", app_name)
-            
-            if platform_str == "both":
-                platform_str = "android"
-                if not pkg_name:
-                    pkg_name = app_info_to_use.get("androidAppStoreId")
         
         if not app_id and not app_store_id:
             for app in apps:
                 app_identifier = app.get("appId") or app.get("appCode")
                 if str(app_identifier) == str(selected_app_code):
                     app_id = app.get("appId")
-                    app_store_id = app.get("appStoreId")
-                    pkg_name = app.get("appStoreId") or app.get("pkgName", "")
+                    # For AdMob, get appStoreId from linkedAppInfo
+                    linked_info = app.get("linkedAppInfo", {})
+                    app_store_id = linked_info.get("appStoreId") if linked_info else app.get("appStoreId")
+                    pkg_name = app_store_id or app.get("pkgName", "")
                     platform_str_val = app.get("platform", "")
                     platform_str = "android" if platform_str_val == "ANDROID" else ("ios" if platform_str_val == "IOS" else "android")
                     app_name_for_slot = app.get("name", app_name)
                     break
     
     # Auto-generate display name if not set or if app info is available
-    if display_name_key not in st.session_state or (selected_app_code and app_info_to_use):
-        if selected_app_code and pkg_name:
+    should_regenerate = (
+        display_name_key not in st.session_state or 
+        (selected_app_code and (app_info_to_use or apps))
+    )
+    
+    if should_regenerate and selected_app_code:
+        # Try to get appStoreId from linkedAppInfo if not already set
+        if not app_store_id or not pkg_name:
+            # Try to get from apps list
+            for app in apps:
+                app_identifier = app.get("appId") or app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
+                    if not app_id:
+                        app_id = app.get("appId")
+                    # For AdMob, get appStoreId from linkedAppInfo
+                    linked_info = app.get("linkedAppInfo", {})
+                    if linked_info:
+                        app_store_id = linked_info.get("appStoreId") or app_store_id
+                        pkg_name = app_store_id or pkg_name
+                    else:
+                        app_store_id = app.get("appStoreId") or app_store_id
+                        pkg_name = app_store_id or app.get("pkgName", "") or pkg_name
+                    
+                    if not platform_str or platform_str == "android":
+                        platform_str_val = app.get("platform", "")
+                        platform_str = "android" if platform_str_val == "ANDROID" else ("ios" if platform_str_val == "IOS" else "android")
+                    if not app_name_for_slot or app_name_for_slot == app_name:
+                        app_name_for_slot = app.get("name", app_name)
+                    break
+        
+        # Log for debugging
+        logger.info(f"[AdMob] Display name generation - selected_app_code: {selected_app_code}, pkg_name: {pkg_name}, app_store_id: {app_store_id}, platform_str: {platform_str}, app_name: {app_name_for_slot}")
+        
+        if pkg_name or app_store_id:
+            # For AdMob, use linkedAppInfo.appStoreId's last part after "."
+            # If iOS and appStoreId is numeric only, find Android app with same name
+            display_name_pkg = pkg_name or app_store_id
+            
+            # Check if iOS and appStoreId is numeric only (iTunes ID)
+            if platform_str == "ios" and app_store_id and app_store_id.strip().isdigit():
+                # Find Android app with same name
+                logger.info(f"[AdMob] iOS appStoreId is numeric ({app_store_id}), searching for Android app with same name: {app_name_for_slot}")
+                for app in apps:
+                    app_name_match = app.get("name", "")
+                    app_platform = app.get("platform", "")
+                    if app_name_match == app_name_for_slot and app_platform == "ANDROID":
+                        # Use Android app's linkedAppInfo.appStoreId
+                        android_linked_info = app.get("linkedAppInfo", {})
+                        android_app_store_id = android_linked_info.get("appStoreId") if android_linked_info else app.get("appStoreId")
+                        if android_app_store_id:
+                            display_name_pkg = android_app_store_id
+                            logger.info(f"[AdMob] Found Android app with same name, using appStoreId: {android_app_store_id}")
+                            break
+            
+            # Extract last part after "." for display name
+            if display_name_pkg and "." in display_name_pkg:
+                last_part = display_name_pkg.split(".")[-1]
+            else:
+                last_part = display_name_pkg if display_name_pkg else "app"
+            
             slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
             slot_type = slot_type_map.get(slot_key, slot_key.lower())
-            default_name = _generate_slot_name(pkg_name, platform_str, slot_type, "admob", bundle_id=None, network_manager=network_manager, app_name=app_name_for_slot)
-            if default_name:
-                st.session_state[display_name_key] = default_name
-            else:
-                # Fallback: use slot_type (rv, is, bn) instead of ad_format.lower()
-                st.session_state[display_name_key] = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+            # Format: {last_part}_{os}_admob_{adtype}_bidding
+            os_str = "aos" if platform_str == "android" else "ios"
+            default_name = f"{last_part}_{os_str}_admob_{slot_type}_bidding"
+            
+            logger.info(f"[AdMob] Generated display name: {default_name} (from pkg: {display_name_pkg}, last_part: {last_part})")
+            st.session_state[display_name_key] = default_name
         elif display_name_key not in st.session_state:
             # Fallback: use slot_type (rv, is, bn)
             slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
             slot_type = slot_type_map.get(slot_key, slot_key.lower())
             default_name = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+            logger.warning(f"[AdMob] Using fallback display name: {default_name} (pkg_name and app_store_id not found)")
             st.session_state[display_name_key] = default_name
+    elif display_name_key not in st.session_state:
+        # Fallback: use slot_type (rv, is, bn)
+        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+        slot_type = slot_type_map.get(slot_key, slot_key.lower())
+        default_name = f"{slot_key.lower()}_admob_{slot_type}_bidding"
+        st.session_state[display_name_key] = default_name
     
     display_name = st.text_input(
         "Display Name*",

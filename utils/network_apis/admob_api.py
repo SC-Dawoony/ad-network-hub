@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # OAuth scopes
 ADMOB_SCOPES = [
-    'https://www.googleapis.com/auth/admob.readonly',
+    'https://www.googleapis.com/auth/admob.monetization',
     'https://www.googleapis.com/auth/admob.googlebidding.readwrite'
 ]
 
@@ -278,7 +278,19 @@ class AdMobAPI(BaseNetworkAPI):
                 
                 response = service.accounts().apps().list(**request_params).execute()
                 apps_list = response.get('apps', [])
-                all_apps.extend(apps_list)
+                
+                # Format apps: replace 'name' field with displayName from manualAppInfo or linkedAppInfo
+                formatted_apps = []
+                for app in apps_list:
+                    formatted_app = app.copy()
+                    # Use manualAppInfo.displayName if available, otherwise linkedAppInfo.displayName
+                    manual_info = app.get('manualAppInfo', {})
+                    linked_info = app.get('linkedAppInfo', {})
+                    display_name = manual_info.get('displayName') or linked_info.get('displayName') or app.get('name', 'Unknown')
+                    formatted_app['name'] = display_name
+                    formatted_apps.append(formatted_app)
+                
+                all_apps.extend(formatted_apps)
                 
                 logger.info(f"[AdMob] Page {page_count}: {len(apps_list)} apps (total: {len(all_apps)})")
                 

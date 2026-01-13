@@ -63,12 +63,35 @@ def _get_env_var(key: str) -> Optional[str]:
         logger.warning(f"[Env] Error accessing Streamlit secrets: {str(e)}")
     
     # Fallback to environment variables (from .env file or system env)
+    # First try os.getenv (in case load_dotenv was already called)
     env_value = os.getenv(key)
     if env_value:
         logger.info(f"[Env] Found {key} in environment variables (length: {len(env_value)})")
-    else:
-        logger.warning(f"[Env] {key} not found in environment variables")
-    return env_value
+        return env_value
+    
+    # If not found, try to load .env file directly
+    try:
+        from dotenv import load_dotenv
+        # Get the project root directory (assuming base_network_api.py is in utils/network_apis/)
+        import pathlib
+        current_file = pathlib.Path(__file__)
+        project_root = current_file.parent.parent.parent
+        env_file = project_root / '.env'
+        
+        if env_file.exists():
+            # Load .env file
+            load_dotenv(env_file, override=False)
+            env_value = os.getenv(key)
+            if env_value:
+                logger.info(f"[Env] Found {key} in .env file (length: {len(env_value)})")
+                return env_value
+    except ImportError:
+        logger.debug("[Env] python-dotenv not available, skipping .env file loading")
+    except Exception as e:
+        logger.debug(f"[Env] Error loading .env file: {str(e)}")
+    
+    logger.warning(f"[Env] {key} not found in environment variables or .env file")
+    return None
 
 
 def _mask_sensitive_data(data) -> Dict:

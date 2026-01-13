@@ -36,8 +36,8 @@ def render_app_code_selector(current_network: str, network_manager):
             logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
-    # For IronSource and BigOAds, add manual "조회" button to fetch apps from API
-    if current_network in ["ironsource", "bigoads"]:
+    # For IronSource, BigOAds, and AdMob, add manual "조회" button to fetch apps from API
+    if current_network in ["ironsource", "bigoads", "admob"]:
         # Check if user wants to fetch apps from API
         fetch_apps_key = f"{current_network}_fetch_apps_from_api"
         api_apps_key = f"{current_network}_api_apps"
@@ -76,8 +76,8 @@ def render_app_code_selector(current_network: str, network_manager):
         api_apps = st.session_state[api_apps_key]
     
     # Merge cached apps with API apps
-    # For IronSource and BigOAds, prioritize cached apps (from Create App response)
-    if current_network in ["ironsource", "bigoads"]:
+    # For IronSource, BigOAds, and AdMob, prioritize cached apps (from Create App response)
+    if current_network in ["ironsource", "bigoads", "admob"]:
         # Use cached apps first (from Create App response)
         apps = cached_apps.copy() if cached_apps else []
         # Add API apps that are not in cache
@@ -93,6 +93,13 @@ def render_app_code_selector(current_network: str, network_manager):
                 for api_app in api_apps:
                     api_code = api_app.get("appCode")
                     if api_code and api_code not in cached_app_codes:
+                        apps.append(api_app)
+            elif current_network == "admob":
+                # For AdMob, use appId as identifier
+                cached_app_ids = {app.get("appId") for app in apps if app.get("appId")}
+                for api_app in api_apps:
+                    api_id = api_app.get("appId")
+                    if api_id and api_id not in cached_app_ids:
                         apps.append(api_app)
     elif current_network in ["mintegral", "inmobi"] and api_apps:
         # For other networks, prioritize API apps (they are more recent)
@@ -209,12 +216,15 @@ def render_app_code_selector(current_network: str, network_manager):
         # For other networks, use original logic
         if apps:
             for app in apps:
-                # For InMobi, use appId or appCode; for BigOAds, use appCode or appId; for others, use appCode
+                # For InMobi, use appId or appCode; for BigOAds, use appCode or appId; for AdMob, use appId; for others, use appCode
                 if current_network == "inmobi":
                     app_code = app.get("appId") or app.get("appCode", "N/A")
                 elif current_network == "bigoads":
                     # BigOAds API response may have appId instead of appCode
                     app_code = app.get("appCode") or app.get("appId") or "N/A"
+                elif current_network == "admob":
+                    # AdMob uses appId (e.g., "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY")
+                    app_code = app.get("appId", "N/A")
                 else:
                     app_code = app.get("appCode", "N/A")
                 
@@ -238,7 +248,9 @@ def render_app_code_selector(current_network: str, network_manager):
                 
                 app_info_map[app_code] = {
                     "appCode": app_code,
-                    "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi"] else None,
+                    "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi", "admob"] else None,
+                    "appId": app.get("appId") if current_network == "admob" else None,
+                    "appStoreId": app.get("appStoreId") if current_network == "admob" else None,
                     "name": app_name,
                     "platform": platform_num,
                     "platformStr": platform_str,
@@ -250,6 +262,21 @@ def render_app_code_selector(current_network: str, network_manager):
                 # For BigOAds, add pkgNameDisplay
                 if current_network == "bigoads":
                     app_info_map[app_code]["pkgNameDisplay"] = app.get("pkgNameDisplay", "")
+                # For AdMob, add linkedAppInfo and appStoreId from linkedAppInfo
+                if current_network == "admob":
+                    linked_info = app.get("linkedAppInfo", {})
+                    if linked_info:
+                        app_info_map[app_code]["linkedAppInfo"] = linked_info
+                        # Use appStoreId from linkedAppInfo if available
+                        linked_app_store_id = linked_info.get("appStoreId")
+                        if linked_app_store_id:
+                            app_info_map[app_code]["appStoreId"] = linked_app_store_id
+                            app_info_map[app_code]["pkgName"] = linked_app_store_id  # Use for display name generation
+                    else:
+                        # Fallback to direct appStoreId
+                        app_info_map[app_code]["appStoreId"] = app.get("appStoreId", "")
+                        if app_info_map[app_code]["appStoreId"]:
+                            app_info_map[app_code]["pkgName"] = app_info_map[app_code]["appStoreId"]
     
     # Always add "Manual Entry" option (even if apps exist)
     manual_entry_option = "✏️ Enter manually"
@@ -319,7 +346,12 @@ def render_app_code_selector(current_network: str, network_manager):
             else:
                 # For other networks, try to find the last created app in the list
                 for idx, app in enumerate(apps):
-                    if app.get("appCode") == last_created_app_code:
+                    if current_network == "admob":
+                        # For AdMob, use appId
+                        if app.get("appId") == last_created_app_code:
+                            default_index = idx
+                            break
+                    elif app.get("appCode") == last_created_app_code:
                         default_index = idx
                         break
     
@@ -579,11 +611,13 @@ def render_app_code_selector(current_network: str, network_manager):
             # For other networks, use original logic
             selected_app_data = None
             for app in apps:
-                # For InMobi and Fyber, check appId; for others, check appCode
+                # For InMobi, Fyber, and AdMob, check appId; for others, check appCode
                 if current_network == "inmobi":
                     app_identifier = app.get("appId")
                 elif current_network == "fyber":
                     app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
+                elif current_network == "admob":
+                    app_identifier = app.get("appId")
                 else:
                     app_identifier = app.get("appCode")
                 if str(app_identifier) == str(selected_app_code):
@@ -745,6 +779,13 @@ def render_app_code_selector(current_network: str, network_manager):
                             app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["pkgName"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["name"] = app.get("name", app_name)
+                        
+                        # For AdMob, get appId and appStoreId from API response
+                        if current_network == "admob":
+                            app_info_to_use["appId"] = app.get("appId", "")
+                            app_info_to_use["appStoreId"] = app.get("appStoreId", "")
+                            app_info_to_use["name"] = app.get("name", app_name)
+                            app_info_to_use["app_id"] = app.get("appId", "")
                         
                         break
     
