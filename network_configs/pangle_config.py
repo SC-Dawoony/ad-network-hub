@@ -91,8 +91,9 @@ class PangleConfig(NetworkConfig):
                 field_type="text",
                 required=False,
                 label="Mask Rule IDs",
-                placeholder="Enter blocking rule IDs separated by commas (e.g., 1, 2, 3)",
-                help_text="List of blocking rule IDs that can be bound to the app. Separate multiple IDs with commas."
+                placeholder="531582 (fixed)",
+                default="531582",
+                help_text="Fixed mask rule ID: 531582 (will be sent as [531582])"
             ),
             Field(
                 name="coppa_value",
@@ -274,17 +275,9 @@ class PangleConfig(NetworkConfig):
         if form_data.get("role_id"):
             payload["role_id"] = form_data.get("role_id")
         
-        # Include mask_rule_ids if provided (parse comma-separated string to list)
-        mask_rule_ids_str = form_data.get("mask_rule_ids", "")
-        if mask_rule_ids_str and mask_rule_ids_str.strip():
-            try:
-                # Parse comma-separated string to list of integers
-                mask_rule_ids = [int(id.strip()) for id in mask_rule_ids_str.split(",") if id.strip()]
-                if mask_rule_ids:
-                    payload["mask_rule_ids"] = mask_rule_ids
-            except ValueError:
-                # If parsing fails, skip it (validation should catch this)
-                pass
+        # Include mask_rule_ids as fixed value [531582]
+        # Always include mask_rule_ids with fixed value 531582
+        payload["mask_rule_ids"] = [531582]
         
         # Include coppa_value if provided (default is 0)
         coppa_value = form_data.get("coppa_value", 0)

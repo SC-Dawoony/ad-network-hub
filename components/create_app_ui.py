@@ -314,6 +314,10 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                                     _process_pangle_create_app_results(
                                         current_network, network_display, form_data, results
                                     )
+                                elif current_network == "vungle":
+                                    _process_vungle_create_app_results(
+                                        current_network, network_display, form_data, results
+                                    )
                     else:
                         # For other networks, use original logic
                         payload = config.build_app_payload(form_data)
@@ -1235,6 +1239,130 @@ def _process_pangle_create_app_results(current_network: str, network_display: st
         # Display download URLs
         if android_download_url:
             st.write(f"**Android Download URL:** {android_download_url[:50]}...")
+
+
+def _process_vungle_create_app_results(current_network: str, network_display: str, form_data: dict, results: List[Tuple[str, dict, dict]]):
+    """Process Vungle create app results for multiple platforms
+    
+    Args:
+        current_network: Current network identifier
+        network_display: Display name for the network
+        form_data: Form data submitted by user
+        results: List of tuples (platform, result, response) for each platform created
+    """
+    app_name = form_data.get("app_name", "Unknown")
+    android_store_id = form_data.get("androidStoreId", "").strip()
+    ios_store_id = form_data.get("iosStoreId", "").strip()
+    
+    # Store app data for each platform
+    android_vungle_app_id = None
+    ios_vungle_app_id = None
+    android_default_placement = None
+    ios_default_placement = None
+    android_result_data = None
+    ios_result_data = None
+    
+    for platform, result, response in results:
+        result_data = result.get("result", {}) if isinstance(result.get("result"), dict) else result
+        vungle_app_id = result_data.get("vungleAppId")
+        default_placement = result_data.get("defaultPlacement")
+        
+        if platform == "Android":
+            android_vungle_app_id = vungle_app_id
+            android_default_placement = default_placement
+            android_result_data = result_data
+        elif platform == "iOS":
+            ios_vungle_app_id = vungle_app_id
+            ios_default_placement = default_placement
+            ios_result_data = result_data
+    
+    # Save app data
+    app_data = {
+        "appCode": android_vungle_app_id or ios_vungle_app_id,  # Use first available app ID
+        "vungleAppId": android_vungle_app_id or ios_vungle_app_id,
+        "vungleAppIdIOS": ios_vungle_app_id,
+        "defaultPlacement": android_default_placement or ios_default_placement,
+        "defaultPlacementIOS": ios_default_placement,
+        "name": app_name,
+        "platform": "both" if android_vungle_app_id and ios_vungle_app_id else ("android" if android_vungle_app_id else "ios"),
+        "platformStr": "both" if android_vungle_app_id and ios_vungle_app_id else ("android" if android_vungle_app_id else "ios"),
+        "hasAndroid": bool(android_vungle_app_id),
+        "hasIOS": bool(ios_vungle_app_id),
+        "androidStoreId": android_store_id,  # Store Android Store ID for placement name generation
+        "iosStoreId": ios_store_id,  # Store iOS Store ID for placement name generation
+    }
+    
+    SessionManager.save_created_app(current_network, app_data)
+    
+    # Cache apps for app selector
+    cached_apps = SessionManager.get_cached_apps(current_network) or []
+    
+    if android_vungle_app_id:
+        android_app = {
+            "appCode": str(android_vungle_app_id),
+            "vungleAppId": str(android_vungle_app_id),
+            "defaultPlacement": str(android_default_placement) if android_default_placement else None,
+            "name": app_name,
+            "platform": "Android",
+            "status": "Active",
+            "androidStoreId": android_store_id,  # Store Android Store ID for placement name generation
+        }
+        if not any(app.get("vungleAppId") == str(android_vungle_app_id) for app in cached_apps):
+            cached_apps.append(android_app)
+    
+    if ios_vungle_app_id:
+        ios_app = {
+            "appCode": str(ios_vungle_app_id),
+            "vungleAppId": str(ios_vungle_app_id),
+            "defaultPlacement": str(ios_default_placement) if ios_default_placement else None,
+            "name": app_name,
+            "platform": "iOS",
+            "status": "Active",
+            "iosStoreId": ios_store_id,  # Store iOS Store ID for placement name generation
+        }
+        if not any(app.get("vungleAppId") == str(ios_vungle_app_id) for app in cached_apps):
+            cached_apps.append(ios_app)
+    
+    SessionManager.cache_apps(current_network, cached_apps)
+    
+    # Show success message
+    platforms_str = " and ".join([p for p, _, _ in results])
+    st.success(f"🎉 App created successfully for {platforms_str}!")
+    st.balloons()
+    
+    # Show result details
+    st.subheader("📝 Result")
+    result_col1, result_col2 = st.columns(2)
+    with result_col1:
+        st.write(f"**Network:** {network_display}")
+        st.write(f"**App Name:** {app_name}")
+        st.write("**Vungle App ID:**")
+        if android_vungle_app_id:
+            st.write(f"  - **Android:** {android_vungle_app_id}")
+        if ios_vungle_app_id:
+            st.write(f"  - **iOS:** {ios_vungle_app_id}")
+        if not android_vungle_app_id and not ios_vungle_app_id:
+            st.write(f"  N/A")
+    with result_col2:
+        # Display platforms
+        platforms = []
+        if android_vungle_app_id:
+            platforms.append("Android")
+        if ios_vungle_app_id:
+            platforms.append("iOS")
+        if platforms:
+            st.write(f"**Platform:** {', '.join(platforms)}")
+        else:
+            st.write(f"**Platform:** N/A")
+        
+        # Display default placements
+        st.write("**Default Placement:**")
+        if android_default_placement:
+            st.write(f"  - **Android:** {android_default_placement}")
+        if ios_default_placement:
+            st.write(f"  - **iOS:** {ios_default_placement}")
+        if not android_default_placement and not ios_default_placement:
+            st.write(f"  N/A")
         if ios_download_url:
             st.write(f"**iOS Download URL:** {ios_download_url[:50]}...")
 

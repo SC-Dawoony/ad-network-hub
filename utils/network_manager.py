@@ -176,6 +176,8 @@ class MockNetworkManager:
             return self._create_unity_project(payload)
         elif network == "admob":
             return self._create_admob_app(payload)
+        elif network == "vungle":
+            return self._create_vungle_app(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create App (Mock)")
@@ -777,6 +779,8 @@ class MockNetworkManager:
                 from utils.network_apis.admob_api import AdMobAPI
                 self._admob_api = AdMobAPI()
             return self._admob_api.create_unit(payload, app_key=app_key)
+        elif network == "vungle":
+            return self._create_vungle_unit(payload)
         
         # Mock implementation for other networks
         logger.info(f"[{network.title()}] API Request: Create Unit (Mock)")
@@ -3273,6 +3277,327 @@ class MockNetworkManager:
             logger.error(f"[Vungle] Error fetching placements: {str(e)}")
             return []
     
+    def _get_vungle_applications(self) -> List[Dict]:
+        """Get applications list from Vungle API
+        
+        API: GET https://publisher-api.vungle.com/api/v1/applications
+        
+        Returns:
+            List of application dicts
+        """
+        jwt_token = self._get_vungle_jwt_token()
+        if not jwt_token:
+            logger.error("[Vungle] Failed to get JWT token for applications")
+            return []
+        
+        base_url = "https://publisher-api.vungle.com/api/v1"
+        applications_url = f"{base_url}/applications"
+        
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Vungle] Fetching applications from {applications_url}")
+        
+        try:
+            response = requests.get(applications_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Debug: log raw response structure
+                logger.info(f"[Vungle] Raw API response type: {type(result)}")
+                if isinstance(result, dict):
+                    logger.info(f"[Vungle] Response keys: {list(result.keys())}")
+                
+                # Parse response - can be list or dict
+                applications = []
+                if isinstance(result, list):
+                    applications = result
+                    logger.info(f"[Vungle] Response is a list with {len(applications)} items")
+                elif isinstance(result, dict):
+                    applications = result.get("data", result.get("applications", result.get("list", [])))
+                    if not isinstance(applications, list):
+                        applications = []
+                    logger.info(f"[Vungle] Response is a dict, extracted {len(applications)} applications")
+                
+                # Format applications to standard format
+                formatted_apps = []
+                for app in applications:
+                    # Vungle API returns both "id" and "vungleAppId" fields (both have the same value)
+                    vungle_app_id = app.get("vungleAppId") or app.get("id")
+                    app_name = app.get("name", "Unknown")
+                    platform = app.get("platform", "")
+                    store = app.get("store", {})
+                    store_id = store.get("id", "") if isinstance(store, dict) else ""
+                    
+                    # Debug logging
+                    logger.info(f"[Vungle] Processing app: name={app_name}, id={app.get('id')}, vungleAppId={app.get('vungleAppId')}, final_vungle_app_id={vungle_app_id}")
+                    
+                    # Skip apps without id or vungleAppId
+                    if not vungle_app_id:
+                        logger.warning(f"[Vungle] Skipping app without id or vungleAppId: {app_name}, app keys: {list(app.keys())}")
+                        continue
+                    
+                    # Determine platform display
+                    platform_display = "N/A"
+                    if platform:
+                        platform_display = "Android" if platform.lower() == "android" else ("iOS" if platform.lower() == "ios" else platform)
+                    
+                    formatted_app = {
+                        "appCode": str(vungle_app_id),  # Always set to vungleAppId or id (never "N/A")
+                        "vungleAppId": str(vungle_app_id),  # Store vungleAppId or id
+                        "defaultPlacement": app.get("defaultPlacement"),  # May not be in list response
+                        "name": app_name,
+                        "platform": platform_display,
+                        "status": app.get("status", "Active"),
+                        "pkgName": store_id,  # Store ID can be used as package name
+                        "storeId": store_id,  # Store ID from store.id for placement name generation
+                    }
+                    formatted_apps.append(formatted_app)
+                    logger.info(f"[Vungle] Added formatted app: appCode={formatted_app['appCode']}, vungleAppId={formatted_app['vungleAppId']}, name={formatted_app['name']}")
+                
+                logger.info(f"[Vungle] Retrieved {len(formatted_apps)} applications")
+                return formatted_apps
+            else:
+                logger.error(f"[Vungle] Failed to get applications: {response.status_code} - {response.text[:200]}")
+                if response.status_code == 401:
+                    logger.error("[Vungle] Authentication failed - JWT token may be expired")
+                elif response.status_code == 403:
+                    logger.error("[Vungle] Permission denied")
+                return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Vungle] Error fetching applications: {str(e)}")
+            return []
+    
+    def _create_vungle_app(self, payload: Dict) -> Dict:
+        """Create Vungle application
+        
+        API: POST https://publisher-api.vungle.com/api/v1/applications
+        
+        Args:
+            payload: App creation payload with platform, name, store, isCoppa
+        
+        Returns:
+            Dict with status, result containing vungleAppId, name, platform
+        """
+        jwt_token = self._get_vungle_jwt_token()
+        if not jwt_token:
+            logger.error("[Vungle] Failed to get JWT token for app creation")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "Failed to get JWT token",
+                "result": None
+            }
+        
+        base_url = "https://publisher-api.vungle.com/api/v1"
+        apps_url = f"{base_url}/applications"
+        
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Vungle] Creating application: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(apps_url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"[Vungle] Application created successfully: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": {
+                        "vungleAppId": result.get("vungleAppId") or result.get("id"),
+                        "name": result.get("name"),
+                        "platform": result.get("platform"),
+                        "defaultPlacement": result.get("defaultPlacement")
+                    }
+                }
+            else:
+                error_msg = f"Failed to create application: {response.status_code}"
+                try:
+                    error_body = response.json()
+                    error_msg = error_body.get("message", error_body.get("msg", error_msg))
+                    logger.error(f"[Vungle] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Vungle] Error Response (text): {response.text[:200]}")
+                
+                return {
+                    "status": 1,
+                    "code": response.status_code,
+                    "msg": error_msg,
+                    "result": None
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Vungle] Error creating application: {str(e)}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": f"Error creating application: {str(e)}",
+                "result": None
+            }
+    
+    def _deactivate_vungle_placements(self, vungle_app_id: str, default_placement_id: Optional[str] = None) -> bool:
+        """Deactivate all existing placements for a Vungle app
+        
+        API: PATCH https://publisher-api.vungle.com/api/v1/placements/{id}
+        
+        Args:
+            vungle_app_id: Vungle App ID (vungleAppId)
+            default_placement_id: Default placement ID from Create App response (optional)
+        
+        Returns:
+            True if all placements were deactivated successfully, False otherwise
+        """
+        jwt_token = self._get_vungle_jwt_token()
+        if not jwt_token:
+            logger.error("[Vungle] Failed to get JWT token for deactivating placements")
+            return False
+        
+        # Get all placements for this app
+        placements = self._get_vungle_placements()
+        app_placements = [
+            p for p in placements 
+            if p.get("application") == vungle_app_id or p.get("applicationId") == vungle_app_id
+        ]
+        
+        # If default_placement_id is provided, prioritize it
+        if default_placement_id:
+            # Check if default_placement_id is in the list
+            default_placement = next(
+                (p for p in app_placements if p.get("id") == default_placement_id),
+                None
+            )
+            if default_placement:
+                # Move default placement to the front of the list
+                app_placements = [default_placement] + [p for p in app_placements if p.get("id") != default_placement_id]
+        
+        if not app_placements:
+            logger.info(f"[Vungle] No existing placements found for app {vungle_app_id}")
+            return True
+        
+        base_url = "https://publisher-api.vungle.com/api/v1"
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        success_count = 0
+        for placement in app_placements:
+            placement_id = placement.get("id")
+            if not placement_id:
+                continue
+            
+            placement_url = f"{base_url}/placements/{placement_id}"
+            deactivate_payload = {
+                "status": "inactive"
+            }
+            
+            try:
+                response = requests.patch(placement_url, headers=headers, json=deactivate_payload, timeout=30)
+                
+                if response.status_code in [200, 201]:
+                    logger.info(f"[Vungle] Deactivated placement {placement_id}")
+                    success_count += 1
+                else:
+                    logger.warning(f"[Vungle] Failed to deactivate placement {placement_id}: {response.status_code} - {response.text[:200]}")
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"[Vungle] Error deactivating placement {placement_id}: {str(e)}")
+        
+        logger.info(f"[Vungle] Deactivated {success_count}/{len(app_placements)} placements for app {vungle_app_id}")
+        return success_count == len(app_placements)
+    
+    def _create_vungle_unit(self, payload: Dict) -> Dict:
+        """Create Vungle placement (ad unit)
+        
+        API: POST https://publisher-api.vungle.com/api/v1/placements
+        
+        Before creating, deactivates all existing placements for the app.
+        
+        Args:
+            payload: Placement creation payload with application, name, type, allowEndCards, isHBParticipation
+        
+        Returns:
+            Dict with status, result containing placement info
+        """
+        jwt_token = self._get_vungle_jwt_token()
+        if not jwt_token:
+            logger.error("[Vungle] Failed to get JWT token for placement creation")
+            return {
+                "status": 1,
+                "code": "AUTH_ERROR",
+                "msg": "Failed to get JWT token",
+                "result": None
+            }
+        
+        # Deactivate existing placements for this app first
+        vungle_app_id = payload.get("application", "").strip()
+        # Get defaultPlacement from payload if provided (from Create App response)
+        default_placement_id = payload.pop("defaultPlacement", None)
+        if vungle_app_id:
+            logger.info(f"[Vungle] Deactivating existing placements for app {vungle_app_id}")
+            if default_placement_id:
+                logger.info(f"[Vungle] Using defaultPlacement ID: {default_placement_id}")
+            self._deactivate_vungle_placements(vungle_app_id, default_placement_id)
+        
+        base_url = "https://publisher-api.vungle.com/api/v1"
+        placements_url = f"{base_url}/placements"
+        
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"[Vungle] Creating placement: {json.dumps(_mask_sensitive_data(payload), indent=2)}")
+        
+        try:
+            response = requests.post(placements_url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"[Vungle] Placement created successfully: {json.dumps(_mask_sensitive_data(result), indent=2)}")
+                
+                return {
+                    "status": 0,
+                    "code": 0,
+                    "msg": "Success",
+                    "result": result
+                }
+            else:
+                error_msg = f"Failed to create placement: {response.status_code}"
+                try:
+                    error_body = response.json()
+                    error_msg = error_body.get("message", error_body.get("msg", error_msg))
+                    logger.error(f"[Vungle] Error Response: {json.dumps(error_body, indent=2)}")
+                except:
+                    logger.error(f"[Vungle] Error Response (text): {response.text[:200]}")
+                
+                return {
+                    "status": 1,
+                    "code": response.status_code,
+                    "msg": error_msg,
+                    "result": None
+                }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Vungle] Error creating placement: {str(e)}")
+            return {
+                "status": 1,
+                "code": "API_ERROR",
+                "msg": f"Error creating placement: {str(e)}",
+                "result": None
+            }
+    
     def _get_pangle_apps(self) -> List[Dict]:
         """Get apps list from Pangle API
         
@@ -3585,21 +3910,7 @@ class MockNetworkManager:
                 self._admob_api = AdMobAPI()
             return self._admob_api.get_apps(app_key=app_key)
         elif network == "vungle":
-            # For Vungle, placements contain both app and unit info
-            # Extract unique apps from placements
-            placements = self._get_vungle_placements()
-            apps_dict = {}
-            for placement in placements:
-                app_id = placement.get("applicationId")
-                if app_id and app_id not in apps_dict:
-                    apps_dict[app_id] = {
-                        "appId": app_id,
-                        "name": placement.get("applicationName", ""),
-                        "platform": placement.get("platform", ""),
-                        "packageName": placement.get("packageName", ""),
-                        "bundleId": placement.get("bundleId", "")
-                    }
-            return list(apps_dict.values())
+            return self._get_vungle_applications()
         elif network == "unity":
             return self._get_unity_projects()
         elif network == "pangle":

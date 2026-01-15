@@ -250,14 +250,9 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
     else:
         last_part = final_pkg_name
     
-    # For IronSource and InMobi, ALWAYS convert last_part to lowercase (whether from pkg_name, bundle_id, or BigOAds pkgNameDisplay)
-    # This ensures consistent lowercase naming for IronSource and InMobi ad units
-    if network.lower() in ["ironsource", "inmobi"]:
-        last_part = last_part.lower()
-        # Double-check: ensure it's actually lowercase (defensive programming)
-        if last_part != last_part.lower():
-            logger.warning(f"{network}: last_part was not lowercase: {last_part}, forcing lowercase")
-            last_part = last_part.lower()
+    # ALWAYS convert last_part to lowercase for all networks
+    # This ensures consistent lowercase naming for all ad units
+    last_part = last_part.lower()
     
     # Normalize platform_str first, then map to os: Android -> aos, iOS -> ios
     normalized_platform = normalize_platform_str(platform_str, network)

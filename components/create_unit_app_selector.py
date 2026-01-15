@@ -1,6 +1,7 @@
 """App Code selector component for Create Unit"""
 import streamlit as st
 import logging
+import json
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
 from components.create_app_helpers import normalize_platform_str, generate_slot_name
@@ -36,8 +37,8 @@ def render_app_code_selector(current_network: str, network_manager):
             logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
-    # For IronSource, BigOAds, AdMob, Pangle, and Fyber, add manual "조회" button to fetch apps from API
-    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber"]:
+    # For IronSource, BigOAds, AdMob, Pangle, Fyber, and Vungle, add manual "조회" button to fetch apps from API
+    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber", "vungle"]:
         # Check if user wants to fetch apps from API
         fetch_apps_key = f"{current_network}_fetch_apps_from_api"
         api_apps_key = f"{current_network}_api_apps"
@@ -86,8 +87,8 @@ def render_app_code_selector(current_network: str, network_manager):
         api_apps = st.session_state[api_apps_key]
     
     # Merge cached apps with API apps
-    # For IronSource, BigOAds, AdMob, Pangle, and Fyber, prioritize cached apps (from Create App response)
-    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber"]:
+    # For IronSource, BigOAds, AdMob, Pangle, Fyber, and Vungle, prioritize cached apps (from Create App response)
+    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber", "vungle"]:
         # Use cached apps first (from Create App response)
         apps = cached_apps.copy() if cached_apps else []
         # Add API apps that are not in cache
@@ -125,6 +126,14 @@ def render_app_code_selector(current_network: str, network_manager):
                     api_app_id = api_app.get("appId") or api_app.get("appCode") or api_app.get("id")
                     if api_app_id and api_app_id not in cached_app_ids:
                         apps.append(api_app)
+            elif current_network == "vungle":
+                # For Vungle, use vungleAppId as identifier
+                cached_app_ids = {str(app.get("vungleAppId") or app.get("appCode")) for app in apps if app.get("vungleAppId") or app.get("appCode")}
+                for api_app in api_apps:
+                    api_id = str(api_app.get("vungleAppId") or api_app.get("appCode"))
+                    if api_id and api_id != "None" and api_id not in cached_app_ids:
+                        apps.append(api_app)
+                        logger.info(f"[Vungle] Added API app to list: vungleAppId={api_id}, name={api_app.get('name')}")
     elif current_network in ["mintegral", "inmobi"] and api_apps:
         # For other networks, prioritize API apps (they are more recent)
         apps = api_apps.copy()
@@ -240,7 +249,7 @@ def render_app_code_selector(current_network: str, network_manager):
         # For other networks, use original logic
         if apps:
             for app in apps:
-                # For InMobi, use appId or appCode; for BigOAds, use appCode or appId; for AdMob, use appId; for Pangle, use siteId; for others, use appCode
+                # For InMobi, use appId or appCode; for BigOAds, use appCode or appId; for AdMob, use appId; for Pangle, use siteId; for Vungle, use vungleAppId; for others, use appCode
                 if current_network == "inmobi":
                     app_code = app.get("appId") or app.get("appCode", "N/A")
                 elif current_network == "bigoads":
@@ -252,13 +261,23 @@ def render_app_code_selector(current_network: str, network_manager):
                 elif current_network == "pangle":
                     # Pangle uses siteId
                     app_code = app.get("siteId") or app.get("appCode", "N/A")
+                elif current_network == "vungle":
+                    # Vungle uses vungleAppId
+                    app_code = app.get("vungleAppId") or app.get("appCode", "N/A")
+                    logger.info(f"[Vungle] Extracting app_code: vungleAppId={app.get('vungleAppId')}, appCode={app.get('appCode')}, final_app_code={app_code}")
                 else:
                     app_code = app.get("appCode", "N/A")
                 
                 # Skip apps with invalid appCode (empty, None, or "N/A")
                 if not app_code or app_code == "N/A" or (isinstance(app_code, str) and not app_code.strip()):
-                    logger.warning(f"[{current_network}] Skipping app with invalid appCode: {app_code}")
+                    logger.warning(f"[{current_network}] Skipping app with invalid appCode: {app_code}, app keys: {list(app.keys()) if isinstance(app, dict) else 'not a dict'}")
+                    if current_network == "vungle":
+                        logger.warning(f"[Vungle] App details: {json.dumps(app, indent=2) if isinstance(app, dict) else app}")
                     continue
+                
+                # Debug logging for Vungle
+                if current_network == "vungle":
+                    logger.info(f"[Vungle] Processing app: app_code={app_code}, name={app.get('name')}, vungleAppId={app.get('vungleAppId')}, appCode={app.get('appCode')}")
                 
                 app_name = app.get("name", "Unknown")
                 platform = app.get("platform", "")
@@ -278,6 +297,10 @@ def render_app_code_selector(current_network: str, network_manager):
                     "siteId": app.get("siteId") if current_network == "pangle" else None,
                     "app_id": app.get("app_id") or app.get("appId") if current_network in ["mintegral", "inmobi", "admob", "pangle"] else None,
                     "appId": app.get("appId") if current_network in ["admob", "pangle"] else None,
+                    "vungleAppId": app.get("vungleAppId") if current_network == "vungle" else None,
+                    "defaultPlacement": app.get("defaultPlacement") if current_network == "vungle" else None,
+                    "androidStoreId": app.get("androidStoreId") if current_network == "vungle" else None,
+                    "iosStoreId": app.get("iosStoreId") if current_network == "vungle" else None,
                     "appStoreId": app.get("appStoreId") if current_network == "admob" else None,
                     "name": app_name,
                     "platform": platform_num,
@@ -649,7 +672,7 @@ def render_app_code_selector(current_network: str, network_manager):
             # For other networks, use original logic
             selected_app_data = None
             for app in apps:
-                # For InMobi, Fyber, AdMob, and Pangle, check specific identifiers; for others, check appCode
+                # For InMobi, Fyber, AdMob, Pangle, and Vungle, check specific identifiers; for others, check appCode
                 if current_network == "inmobi":
                     app_identifier = app.get("appId")
                 elif current_network == "fyber":
@@ -658,6 +681,8 @@ def render_app_code_selector(current_network: str, network_manager):
                     app_identifier = app.get("appId")
                 elif current_network == "pangle":
                     app_identifier = app.get("siteId") or app.get("appCode")
+                elif current_network == "vungle":
+                    app_identifier = app.get("vungleAppId") or app.get("appCode")
                 else:
                     app_identifier = app.get("appCode")
                 if str(app_identifier) == str(selected_app_code):
@@ -861,6 +886,17 @@ def render_app_code_selector(current_network: str, network_manager):
                                     match = re.search(r'/id(\d+)', download_url) or re.search(r'[?&]id=(\d+)', download_url)
                                     if match:
                                         app_info_to_use["pkgName"] = match.group(1)
+                        # For Vungle, get vungleAppId and defaultPlacement from API response
+                        elif current_network == "vungle":
+                            app_info_to_use["vungleAppId"] = app.get("vungleAppId") or app.get("appCode")
+                            app_info_to_use["defaultPlacement"] = app.get("defaultPlacement")
+                            app_info_to_use["storeId"] = app.get("storeId", "")  # Store ID from API response (store.id)
+                            # Fallback to pkgName if Store ID not available
+                            if not app_info_to_use.get("storeId"):
+                                app_info_to_use["pkgName"] = app.get("pkgName", "")
+                            app_info_to_use["name"] = app.get("name", app_name)
+                            app_info_to_use["platform"] = app.get("platform", "")
+                            app_info_to_use["platformStr"] = "android" if app.get("platform", "") == "Android" else ("ios" if app.get("platform", "") == "iOS" else "android")
                         
                         break
     

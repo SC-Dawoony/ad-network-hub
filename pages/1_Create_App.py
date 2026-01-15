@@ -56,12 +56,12 @@ if not config.supports_create_app():
         st.warning(f"⚠️ {network_display}는 API를 통한 앱 생성 기능을 지원하지 않습니다.")
         st.info("💡 AppLovin에서는 앱을 수동으로 생성해야 합니다. 대시보드에서 앱을 생성한 후, 아래 'Create Unit' 섹션에서 Ad Unit을 생성할 수 있습니다.")
     else:
-        st.warning(f"⚠️ {network_display} does not support app creation via API")
-        st.info("Please create apps manually in the network's dashboard")
-        st.stop()
+    st.warning(f"⚠️ {network_display} does not support app creation via API")
+    st.info("Please create apps manually in the network's dashboard")
+    st.stop()
 
 if current_network != "applovin":
-    st.info(f"✅ {network_display} - Create API Available")
+st.info(f"✅ {network_display} - Create API Available")
 
 st.divider()
 
@@ -123,6 +123,13 @@ render_create_app_ui(current_network, network_display, config)
 render_unity_update_ad_units(current_network)
 
 # ============================================================================
+# VUNGLE DEACTIVATE PLACEMENTS SECTION (Before Create Unit)
+# ============================================================================
+if current_network == "vungle":
+    from components.vungle_deactivate_placements import render_vungle_deactivate_placements
+    render_vungle_deactivate_placements(current_network)
+
+# ============================================================================
 # IRONSOURCE DEACTIVATE AD-UNITS SECTION (Before Create Unit)
 # ============================================================================
 if current_network == "ironsource":
@@ -132,10 +139,10 @@ if current_network == "ironsource":
 # ============================================================================
 # CREATE UNIT / CREATE AD UNIT SECTION
 # ============================================================================
-st.divider()
-
+        st.divider()
+    
 # For IronSource, show "Create Ad Unit" (minimize space like GET Instance)
-if current_network == "ironsource":
+                        if current_network == "ironsource":
     st.subheader("🎯 Create Ad Unit")
     # Minimize space between subheader and buttons (like GET Instance)
     st.markdown("""
@@ -149,7 +156,7 @@ if current_network == "ironsource":
     </style>
     """, unsafe_allow_html=True)
 else:
-    st.subheader("🎯 Create Unit")
+st.subheader("🎯 Create Unit")
 
 # Check if network supports unit creation
 if not config.supports_create_unit():
@@ -172,7 +179,7 @@ elif current_network == "ironsource":
         network_manager=network_manager,
         config=config
     )
-else:
+                            else:
     network_manager = get_network_manager()
     
     # Render App Code selector
@@ -181,10 +188,10 @@ else:
     # Show UI for slot creation (always show, but require app code selection)
     if selected_app_code:
         st.info(f"**Selected app:** {app_name} ({selected_app_code})")
-    else:
+        else:
         # Show message if no app code selected (only for non-Unity networks)
         if current_network != "unity":
-            st.info("💡 Please select an App Code above to create units.")
+        st.info("💡 Please select an App Code above to create units.")
         app_info_to_use = None
     
     # Create Unit UI (always show, but require app code selection)
@@ -203,7 +210,7 @@ else:
 # ============================================================================
 # IRONSOURCE GET INSTANCES SECTION (After Create Unit)
 # ============================================================================
-if current_network == "ironsource":
+                                    if current_network == "ironsource":
     from components.ironsource_get_instances import render_ironsource_get_instances
     render_ironsource_get_instances(current_network)
 

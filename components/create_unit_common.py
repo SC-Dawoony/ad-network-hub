@@ -354,6 +354,21 @@ def render_create_unit_common_ui(
         }
     }
     
+    slot_configs_vungle = {
+        "RV": {
+            "name": "Rewarded",
+            "type": "rewarded",
+        },
+        "IS": {
+            "name": "Interstitial",
+            "type": "interstitial",
+        },
+        "BN": {
+            "name": "Banner",
+            "type": "banner",
+        }
+    }
+    
     # Select configs based on network
     if current_network == "ironsource":
         slot_configs = slot_configs_ironsource
@@ -367,6 +382,8 @@ def render_create_unit_common_ui(
         slot_configs = slot_configs_fyber
     elif current_network == "admob":
         slot_configs = slot_configs_admob
+    elif current_network == "vungle":
+        slot_configs = slot_configs_vungle
     else:
         slot_configs = slot_configs_bigoads
     
@@ -1987,6 +2004,188 @@ def render_create_unit_common_ui(
                         st.toast(f"❌ Invalid App ID: {app_id}", icon="🚫")
                         logger.exception(f"Invalid App ID for Mintegral: {app_id}")
         
+        # For Vungle, check if Android app is selected and iOS app exists (similar to Pangle)
+        vungle_android_app_info = None
+        vungle_ios_app_info = None
+        if current_network == "vungle" and selected_app_code:
+            # Find Android app
+            for app in apps:
+                app_identifier = app.get("vungleAppId") or app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
+                    platform_val = app.get("platform", "")
+                    if platform_val == "Android":
+                        vungle_android_app_info = app
+                    elif platform_val == "iOS":
+                        vungle_ios_app_info = app
+                    break
+            
+            # If Android app selected, find matching iOS app by name
+            if vungle_android_app_info and not vungle_ios_app_info:
+                android_app_name = vungle_android_app_info.get("name", "")
+                for app in apps:
+                    app_platform = app.get("platform", "")
+                    app_name_match = app.get("name", "")
+                    if app_platform == "iOS" and app_name_match == android_app_name:
+                        vungle_ios_app_info = app
+                        break
+            
+            # If app_info_to_use exists, use it to determine platform
+            if app_info_to_use:
+                platform_from_info = app_info_to_use.get("platform", "")
+                if platform_from_info == "Android" or (vungle_android_app_info and not vungle_ios_app_info):
+                    # Android app selected, try to find iOS app
+                    app_name_for_match = app_info_to_use.get("name", app_name)
+                    for app in apps:
+                        app_platform = app.get("platform", "")
+                        app_name_match = app.get("name", "")
+                        if app_platform == "iOS" and app_name_match == app_name_for_match:
+                            vungle_ios_app_info = app
+                            break
+            
+            # If not found in apps list, try fetching all apps from API
+            if vungle_android_app_info and not vungle_ios_app_info:
+                logger.info(f"[Vungle] iOS app not found in apps list, fetching all apps from API")
+                try:
+                    all_apps = network_manager.get_apps(current_network)
+                    if all_apps:
+                        android_app_name = vungle_android_app_info.get("name", "")
+                        for app in all_apps:
+                            app_platform = app.get("platform", "")
+                            app_name_match = app.get("name", "")
+                            if app_platform == "iOS" and app_name_match == android_app_name:
+                                vungle_ios_app_info = app
+                                logger.info(f"[Vungle] Found matching iOS app in full apps list: name={app_name_match}, vungleAppId={app.get('vungleAppId')}")
+                                break
+                except Exception as e:
+                    logger.warning(f"[Vungle] Failed to fetch all apps from API: {str(e)}")
+            
+            # Create All 6 Placements (Android + iOS) button
+            if vungle_android_app_info and vungle_ios_app_info:
+                if st.button("✨ Create All 6 Placements (Android + iOS: RV + IS + BN)", use_container_width=True, type="primary", key="create_all_6_vungle_placements"):
+                    with st.spinner("🚀 Creating all 6 placements (Android + iOS)..."):
+                        try:
+                            from utils.network_manager import get_network_manager
+                            network_manager = get_network_manager()
+                            
+                            android_vungle_app_id = vungle_android_app_info.get("vungleAppId") or vungle_android_app_info.get("appCode")
+                            ios_vungle_app_id = vungle_ios_app_info.get("vungleAppId") or vungle_ios_app_info.get("appCode")
+                            
+                            android_default_placement = vungle_android_app_info.get("defaultPlacement")
+                            ios_default_placement = vungle_ios_app_info.get("defaultPlacement")
+                            
+                            # Get Store ID from Android app (store.id from API response)
+                            android_store_id = vungle_android_app_info.get("storeId", "")
+                            if not android_store_id:
+                                android_store_id = vungle_android_app_info.get("pkgName", "")
+                            
+                            # Extract last part after "." and convert to lowercase for placement name
+                            if "." in android_store_id:
+                                last_part = android_store_id.split(".")[-1].lower()
+                            else:
+                                last_part = android_store_id.lower()
+                            
+                            create_payloads = []
+                            
+                            # Create Android placements
+                            for slot_key in ["RV", "IS", "BN"]:
+                                slot_config = slot_configs.get(slot_key, {})
+                                
+                                # Generate placement name for Android
+                                os_str = "aos"
+                                placement_name = f"{last_part}_{os_str}_vungle_placement"
+                                
+                                payload = {
+                                    "application": str(android_vungle_app_id).strip(),
+                                    "name": placement_name,
+                                    "type": slot_config["type"],
+                                    "allowEndCards": True,
+                                    "isHBParticipation": True
+                                }
+                                
+                                if android_default_placement:
+                                    payload["defaultPlacement"] = android_default_placement
+                                
+                                create_payloads.append(("Android", slot_key, slot_config, payload, placement_name, android_vungle_app_id))
+                            
+                            # Create iOS placements
+                            for slot_key in ["RV", "IS", "BN"]:
+                                slot_config = slot_configs.get(slot_key, {})
+                                
+                                # Generate placement name for iOS (using Android store.id)
+                                os_str = "ios"
+                                placement_name = f"{last_part}_{os_str}_vungle_placement"
+                                
+                                payload = {
+                                    "application": str(ios_vungle_app_id).strip(),
+                                    "name": placement_name,
+                                    "type": slot_config["type"],
+                                    "allowEndCards": True,
+                                    "isHBParticipation": True
+                                }
+                                
+                                if ios_default_placement:
+                                    payload["defaultPlacement"] = ios_default_placement
+                                
+                                create_payloads.append(("iOS", slot_key, slot_config, payload, placement_name, ios_vungle_app_id))
+                            
+                            # Create placements sequentially
+                            results = []
+                            for platform, slot_key, slot_config, payload, placement_name, vungle_app_id in create_payloads:
+                                # Display payload before API call
+                                st.markdown(f"#### 📤 Request Payload ({platform} - {slot_key})")
+                                st.json(payload)
+                                
+                                response = network_manager.create_unit(current_network, payload)
+                                
+                                # Display response
+                                st.markdown(f"#### 📥 Response ({platform} - {slot_key})")
+                                st.json(response)
+                                
+                                result = handle_api_response(response)
+                                results.append((platform, slot_key, response, result, placement_name, vungle_app_id, slot_config))
+                            
+                            # Process results
+                            success_count = 0
+                            failed_count = 0
+                            
+                            for platform, slot_key, response, result, placement_name, vungle_app_id, slot_config in results:
+                                if response.get("status") == 0:
+                                    success_count += 1
+                                    if result:
+                                        result_data = response.get("result", {})
+                                        placement_id = result_data.get("id") or result_data.get("placementId", "N/A")
+                                        
+                                        unit_data = {
+                                            "slotCode": placement_id,
+                                            "name": placement_name,
+                                            "appCode": str(vungle_app_id),
+                                            "slotType": slot_config["type"],
+                                            "adType": slot_config["type"],
+                                            "auctionType": "N/A"
+                                        }
+                                        SessionManager.add_created_unit(current_network, unit_data)
+                                        
+                                        cached_units = SessionManager.get_cached_units(current_network, str(vungle_app_id))
+                                        if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                            cached_units.append(unit_data)
+                                            SessionManager.cache_units(current_network, str(vungle_app_id), cached_units)
+                                else:
+                                    failed_count += 1
+                            
+                            # Display summary
+                            if success_count == 6:
+                                st.success(f"✅ Successfully created all 6 placements (Android + iOS)!")
+                                st.balloons()
+                            elif success_count > 0:
+                                st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                            else:
+                                st.error(f"❌ Failed to create placements")
+                            
+                            # Don't rerun - keep the response visible
+                        except Exception as e:
+                            st.error(f"❌ Error creating placements: {str(e)}")
+                            logger.exception("Error creating Vungle placements")
+        
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
         
@@ -2059,6 +2258,48 @@ def render_create_unit_common_ui(
                             slot_key, slot_config, selected_app_code, app_info_to_use,
                             app_name, apps, network_manager, current_network
                         )
+                    elif current_network == "vungle":
+                        # Check if Android app is selected and matching iOS app exists
+                        has_android = vungle_android_app_info is not None
+                        has_ios = vungle_ios_app_info is not None
+                        
+                        if has_android and has_ios:
+                            # Display Android and iOS sections separately (like Pangle)
+                            st.markdown(f"#### Android")
+                            android_app_info_to_use = {
+                                "vungleAppId": vungle_android_app_info.get("vungleAppId") or vungle_android_app_info.get("appCode"),
+                                "defaultPlacement": vungle_android_app_info.get("defaultPlacement"),
+                                "name": vungle_android_app_info.get("name", app_name),
+                                "platform": "Android",
+                                "platformStr": "android",
+                                "storeId": vungle_android_app_info.get("storeId", ""),  # Use store.id from API response
+                            }
+                            _render_vungle_slot_ui(
+                                slot_key, slot_config, str(android_app_info_to_use["vungleAppId"]), 
+                                android_app_info_to_use, vungle_android_app_info.get("name", app_name), 
+                                apps, network_manager, current_network, platform="android"
+                            )
+                            st.markdown("---")
+                            st.markdown(f"#### iOS")
+                            ios_app_info_to_use = {
+                                "vungleAppId": vungle_ios_app_info.get("vungleAppId") or vungle_ios_app_info.get("appCode"),
+                                "defaultPlacement": vungle_ios_app_info.get("defaultPlacement"),
+                                "name": vungle_ios_app_info.get("name", app_name),
+                                "platform": "iOS",
+                                "platformStr": "ios",
+                                "storeId": vungle_android_app_info.get("storeId", ""),  # Use Android app's store.id for placement name
+                            }
+                            _render_vungle_slot_ui(
+                                slot_key, slot_config, str(ios_app_info_to_use["vungleAppId"]), 
+                                ios_app_info_to_use, vungle_ios_app_info.get("name", app_name), 
+                                apps, network_manager, current_network, platform="ios"
+                            )
+                        else:
+                            # Single platform (backward compatibility)
+                            _render_vungle_slot_ui(
+                                slot_key, slot_config, selected_app_code, app_info_to_use,
+                                app_name, apps, network_manager, current_network
+                            )
                     else:
                         # BigOAds and other networks
                         _render_bigoads_slot_ui(
@@ -3765,6 +4006,189 @@ def _render_admob_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                         st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error creating {slot_key} ad unit: {str(e)}")
+                    SessionManager.log_error(current_network, str(e))
+
+
+def _render_vungle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_use,
+                            app_name, apps, network_manager, current_network, platform=None):
+    """Render Vungle placement creation UI
+    
+    Args:
+        slot_key: Slot key (RV, IS, BN)
+        slot_config: Slot configuration
+        selected_app_code: Selected app code (vungleAppId)
+        app_info_to_use: App info dict
+        app_name: App name
+        apps: List of apps
+        network_manager: Network manager instance
+        current_network: Current network identifier
+        platform: Optional platform override ("android" or "ios")
+    """
+    # Use platform parameter if provided, otherwise determine from app_info_to_use
+    if platform:
+        platform_str = platform
+    else:
+        platform_str = "android"
+    
+    # Set platform_display for UI
+    platform_display = "Android" if platform_str == "android" else "iOS"
+    
+    placement_name_key = f"vungle_slot_{slot_key}_name_{platform_str}" if platform else f"vungle_slot_{slot_key}_name"
+    
+    # Get app info
+    vungle_app_id = None
+    default_placement = None
+    store_id = ""  # Store ID from API response (store.id)
+    app_name_for_slot = app_name
+    
+    if selected_app_code:
+        if app_info_to_use:
+            vungle_app_id = app_info_to_use.get("vungleAppId") or app_info_to_use.get("appCode")
+            default_placement = app_info_to_use.get("defaultPlacement")
+            if not platform:
+                platform_str = app_info_to_use.get("platformStr", "android")
+                platform_display = "Android" if platform_str == "android" else "iOS"
+            app_name_for_slot = app_info_to_use.get("name", app_name)
+            # Get Store ID from app_info_to_use (from API response store.id)
+            store_id = app_info_to_use.get("storeId", "")
+            # Fallback to pkgName if Store ID not available
+            if not store_id:
+                store_id = app_info_to_use.get("pkgName", "")
+        
+        if not vungle_app_id:
+            for app in apps:
+                app_identifier = app.get("vungleAppId") or app.get("appCode")
+                if str(app_identifier) == str(selected_app_code):
+                    vungle_app_id = app.get("vungleAppId") or app.get("appCode")
+                    default_placement = app.get("defaultPlacement")
+                    if not platform:
+                        platform_str_val = app.get("platform", "")
+                        platform_str = "android" if platform_str_val == "Android" else ("ios" if platform_str_val == "iOS" else "android")
+                        platform_display = "Android" if platform_str == "android" else "iOS"
+                    app_name_for_slot = app.get("name", app_name)
+                    # Get Store ID from apps list (from API response store.id)
+                    store_id = app.get("storeId", "")
+                    # Fallback to pkgName if Store ID not available
+                    if not store_id:
+                        store_id = app.get("pkgName", "")
+                    break
+    
+    # Auto-generate placement name if not set
+    should_regenerate = (
+        placement_name_key not in st.session_state or 
+        (selected_app_code and (app_info_to_use or apps))
+    )
+    
+    if should_regenerate and selected_app_code and store_id:
+        # Generate placement name using Store ID from API response (store.id)
+        # Extract last part after "." and convert to lowercase
+        if "." in store_id:
+            last_part = store_id.split(".")[-1].lower()
+        else:
+            last_part = store_id.lower()
+        
+        os_str = "aos" if platform_str == "android" else "ios"
+        
+        # Format: {last_part}_{os_str}_vungle_placement
+        default_name = f"{last_part}_{os_str}_vungle_placement"
+        st.session_state[placement_name_key] = default_name
+        logger.info(f"[Vungle] Generated placement name: store_id={store_id}, last_part={last_part}, platform={platform_str}, name={default_name}")
+    
+    # Placement name input (all slots use "Placement Name" label)
+    placement_name = st.text_input(
+        "Placement Name*",
+        value=st.session_state.get(placement_name_key, ""),
+        key=placement_name_key,
+        placeholder="Enter placement name",
+        help="Name for the placement"
+    )
+    
+    # Display Current Settings
+    st.markdown("**Current Settings:**")
+    settings_html = '<div style="min-height: 120px; margin-bottom: 10px;">'
+    settings_html += f'<ul style="margin: 0; padding-left: 20px;">'
+    settings_html += f'<li>Type: {slot_config["type"].title()}</li>'
+    settings_html += f'<li>Allow End Cards: True</li>'
+    settings_html += f'<li>HB Participation: True</li>'
+    settings_html += '</ul></div>'
+    st.markdown(settings_html, unsafe_allow_html=True)
+    
+    # Application ID (vungleAppId) - read-only if available
+    if vungle_app_id:
+        st.info(f"📱 {platform_display} Vungle App ID: {vungle_app_id}")
+        if default_placement:
+            st.info(f"📌 Default Placement: {default_placement}")
+    else:
+        manual_app_id = st.text_input(
+            f"{platform_display} Vungle App ID*",
+            value=selected_app_code or "",
+            key=f"vungle_manual_app_id_{slot_key}_{platform_str}" if platform else f"vungle_manual_app_id_{slot_key}",
+            placeholder="Enter Vungle App ID",
+            help="Vungle App ID from Create App response (vungleAppId)"
+        )
+        vungle_app_id = manual_app_id.strip() if manual_app_id else selected_app_code
+    
+    # Create button
+    button_key = f"create_vungle_{slot_key}_{platform_str}" if platform else f"create_vungle_{slot_key}"
+    if st.button(f"✅ Create {slot_config['name']} Placement ({platform_display})", key=button_key):
+        if not placement_name or not placement_name.strip():
+            st.error("❌ Placement name is required")
+        elif not vungle_app_id:
+            st.error("❌ Vungle App ID is required")
+        else:
+            # Build payload
+            payload = {
+                "application": str(vungle_app_id).strip(),
+                "name": placement_name.strip(),
+                "type": slot_config["type"],
+                "allowEndCards": True,
+                "isHBParticipation": True
+            }
+            
+            # Add defaultPlacement if available (for deactivation)
+            if default_placement:
+                payload["defaultPlacement"] = default_placement
+            
+            import json as json_module
+            logger.info(f"[Vungle] Creating placement - vungleAppId: {vungle_app_id}, payload: {json_module.dumps(payload)}")
+            
+            with st.spinner(f"Creating {slot_config['name']} placement (deactivating existing placements first)..."):
+                try:
+                    response = network_manager.create_unit(current_network, payload)
+                    
+                    # Display payload and response
+                    st.markdown("#### 📤 Request Payload")
+                    st.json(payload)
+                    st.markdown("#### 📥 Response")
+                    st.json(response)
+                    
+                    result = handle_api_response(response)
+                    
+                    if result and response.get("status") == 0:
+                        result_data = response.get("result", {})
+                        placement_id = result_data.get("id") or result_data.get("placementId", "N/A")
+                        
+                        unit_data = {
+                            "slotCode": placement_id,
+                            "name": placement_name,
+                            "appCode": str(vungle_app_id),
+                            "slotType": slot_config["type"],
+                            "adType": slot_config["type"],
+                            "auctionType": "N/A"
+                        }
+                        SessionManager.add_created_unit(current_network, unit_data)
+                        
+                        cached_units = SessionManager.get_cached_units(current_network, str(vungle_app_id))
+                        if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                            cached_units.append(unit_data)
+                            SessionManager.cache_units(current_network, str(vungle_app_id), cached_units)
+                        
+                        st.success(f"✅ {slot_config['name']} placement created successfully!")
+                    else:
+                        st.error(f"❌ Failed to create {slot_config['name']} placement. Check response above.")
+                except Exception as e:
+                    st.error(f"❌ Error creating {slot_config['name']} placement: {str(e)}")
+                    logger.exception(f"[Vungle] Error creating placement: {str(e)}")
                     SessionManager.log_error(current_network, str(e))
 
 
