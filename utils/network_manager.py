@@ -3083,6 +3083,8 @@ class MockNetworkManager:
             params["publisherId"] = publisher_id
         if app_id:
             params["appId"] = app_id
+        # Add sort parameter for DESC order (newest first)
+        params["sort"] = "DESC"
         
         logger.info(f"[Fyber] Get Apps API Request: GET {url}")
         logger.info(f"[Fyber] Params: {json.dumps(params, indent=2)}")
@@ -3136,6 +3138,10 @@ class MockNetworkManager:
                     })
                 
                 logger.info(f"[Fyber] Converted to {len(formatted_apps)} apps in standard format")
+                
+                # Sort by App Code (appId) in DESC order (newest/highest first)
+                formatted_apps.sort(key=lambda x: int(x.get("appId", 0)) if str(x.get("appId", "0")).isdigit() else 0, reverse=True)
+                
                 return formatted_apps
             else:
                 logger.error(f"[Fyber] Failed to get apps. Status: {response.status_code}")

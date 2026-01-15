@@ -1815,6 +1815,178 @@ def render_create_unit_common_ui(
                                 st.error(f"❌ Error creating placements: {str(e)}")
                                 logger.exception("Error creating Pangle placements")
         
+        # For Mintegral, add "Create All 3 Placements" button
+        if current_network == "mintegral":
+            # Get app info for Mintegral
+            app_id = None
+            pkg_name = ""
+            platform_str = "android"
+            app_name_for_slot = app_name
+            
+            if selected_app_code:
+                if app_info_to_use:
+                    app_id = app_info_to_use.get("app_id") or app_info_to_use.get("appId") or app_info_to_use.get("appCode")
+                    pkg_name = app_info_to_use.get("pkgName", "")
+                    platform_str = _normalize_platform_str(app_info_to_use.get("platformStr", "android"), "mintegral")
+                    app_name_for_slot = app_info_to_use.get("name", app_name)
+                
+                if not app_id or not pkg_name:
+                    for app in apps:
+                        app_identifier = app.get("appCode")
+                        if str(app_identifier) == str(selected_app_code) or app_identifier == selected_app_code:
+                            if not app_id:
+                                app_id = app.get("app_id") or app.get("appId") or app.get("appCode")
+                            if not pkg_name:
+                                pkg_name = app.get("pkgName", "")
+                                platform_from_app = app.get("platform", "")
+                                platform_str = _normalize_platform_str(platform_from_app, "mintegral")
+                                app_name_for_slot = app.get("name", app_name)
+                            break
+                
+                # For iOS apps, if pkg_name is iTunes ID, try to find Android version
+                platform_str = _normalize_platform_str(platform_str, "mintegral")
+                if platform_str == "ios" and pkg_name and pkg_name.startswith("id") and pkg_name[2:].isdigit():
+                    # Search for Android app with same app_name
+                    for app in apps:
+                        app_platform = app.get("platform", "")
+                        app_platform_normalized = _normalize_platform_str(app_platform, "mintegral")
+                        app_name_from_list = app.get("name", "")
+                        
+                        if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                            android_pkg_name = app.get("pkgName", "")
+                            if android_pkg_name and not android_pkg_name.startswith("id"):
+                                pkg_name = android_pkg_name
+                                break
+                    
+                    # If not found in apps list, try fetching all apps from API
+                    if pkg_name.startswith("id") and pkg_name[2:].isdigit():
+                        try:
+                            all_apps = network_manager.get_apps(current_network)
+                            if all_apps:
+                                for app in all_apps:
+                                    app_platform = app.get("platform", "")
+                                    app_platform_normalized = _normalize_platform_str(app_platform, "mintegral")
+                                    app_name_from_list = app.get("name", "")
+                                    
+                                    if app_platform_normalized == "android" and app_name_from_list == app_name_for_slot:
+                                        android_pkg_name = app.get("pkgName", "")
+                                        if android_pkg_name and not android_pkg_name.startswith("id"):
+                                            pkg_name = android_pkg_name
+                                            break
+                        except Exception as e:
+                            logger.warning(f"[Mintegral] Failed to fetch all apps from API: {str(e)}")
+            
+            # Create All 3 Placements button
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_mintegral_placements"):
+                if not selected_app_code:
+                    st.toast("❌ Please select an App Code", icon="🚫")
+                else:
+                    # Ensure app_id is a valid integer
+                    try:
+                        app_id_int = int(app_id) if app_id else None
+                        if not app_id_int or app_id_int <= 0:
+                            st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
+                        else:
+                            if not pkg_name or (pkg_name.startswith("id") and pkg_name[2:].isdigit()):
+                                st.toast("❌ Package name is required and must be valid (not iTunes ID). Please select an app.", icon="🚫")
+                            else:
+                                with st.spinner("🚀 Creating all 3 placements..."):
+                                    try:
+                                        from utils.network_manager import get_network_manager
+                                        network_manager = get_network_manager()
+                                        
+                                        slot_type_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+                                        create_payloads = []
+                                        placement_names = []
+                                        
+                                        for slot_key in ["RV", "IS", "BN"]:
+                                            slot_type = slot_type_map.get(slot_key, slot_key.lower())
+                                            slot_config = slot_configs.get(slot_key, {})
+                                            
+                                            # Generate placement name
+                                            placement_name = _generate_slot_name(pkg_name, platform_str, slot_type, "mintegral", network_manager=network_manager, app_name=app_name_for_slot)
+                                            if not placement_name:
+                                                placement_name = f"{slot_key.lower()}_placement"
+                                            placement_names.append((slot_key, placement_name))
+                                            
+                                            payload = {
+                                                "app_id": app_id_int,
+                                                "placement_name": placement_name,
+                                                "ad_type": slot_config["ad_type"],
+                                                "integrate_type": slot_config.get("integrate_type", "sdk"),
+                                                "hb_unit_name": placement_name,
+                                            }
+                                            
+                                            if slot_key == "RV":
+                                                payload["skip_time"] = slot_config.get("skip_time", -1)
+                                            elif slot_key == "IS":
+                                                payload["content_type"] = slot_config.get("content_type", "both")
+                                                payload["ad_space_type"] = slot_config.get("ad_space_type", 1)
+                                                payload["skip_time"] = slot_config.get("skip_time", -1)
+                                            elif slot_key == "BN":
+                                                payload["show_close_button"] = slot_config.get("show_close_button", 0)
+                                                payload["auto_fresh"] = slot_config.get("auto_fresh", 0)
+                                            
+                                            create_payloads.append((slot_key, slot_config, payload, placement_name))
+                                        
+                                        # Create placements sequentially
+                                        results = []
+                                        for slot_key, slot_config, payload, placement_name in create_payloads:
+                                            # Display payload before API call
+                                            st.markdown(f"#### 📤 Request Payload ({slot_key})")
+                                            st.json(payload)
+                                            
+                                            response = network_manager.create_unit(current_network, payload)
+                                            
+                                            # Display response
+                                            st.markdown(f"#### 📥 Response ({slot_key})")
+                                            st.json(response)
+                                            
+                                            result = handle_api_response(response)
+                                            results.append((slot_key, response, result, placement_name, slot_config))
+                                        
+                                        # Process results
+                                        success_count = 0
+                                        failed_count = 0
+                                        
+                                        for slot_key, response, result, placement_name, slot_config in results:
+                                            if response.get("status") == 0 or response.get("code") == 0:
+                                                success_count += 1
+                                                if result:
+                                                    unit_data = {
+                                                        "slotCode": result.get("placement_id", result.get("id", "N/A")),
+                                                        "name": placement_name,
+                                                        "appCode": str(app_id_int),
+                                                        "slotType": slot_config["ad_type"],
+                                                        "adType": slot_config["ad_type"],
+                                                        "auctionType": "N/A"
+                                                    }
+                                                    SessionManager.add_created_unit(current_network, unit_data)
+                                                    
+                                                    cached_units = SessionManager.get_cached_units(current_network, str(app_id_int))
+                                                    if not any(unit.get("slotCode") == unit_data["slotCode"] for unit in cached_units):
+                                                        cached_units.append(unit_data)
+                                                        SessionManager.cache_units(current_network, str(app_id_int), cached_units)
+                                            else:
+                                                failed_count += 1
+                                        
+                                        # Display summary
+                                        if success_count == 3:
+                                            st.success(f"✅ Successfully created all 3 placements!")
+                                            st.balloons()
+                                        elif success_count > 0:
+                                            st.warning(f"⚠️ Created {success_count} placements, {failed_count} failed")
+                                        else:
+                                            st.error(f"❌ Failed to create placements")
+                                        
+                                        # Don't rerun - keep the response visible
+                                    except Exception as e:
+                                        st.error(f"❌ Error creating placements: {str(e)}")
+                                        logger.exception("Error creating Mintegral placements")
+                    except (ValueError, TypeError) as e:
+                        st.toast(f"❌ Invalid App ID: {app_id}", icon="🚫")
+                        logger.exception(f"Invalid App ID for Mintegral: {app_id}")
+        
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
         
@@ -2642,12 +2814,22 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
     """Render Mintegral slot UI"""
     placement_name_key = f"mintegral_slot_{slot_key}_name"
     
-    # Track last selected app code to detect changes
-    last_app_code_key = f"mintegral_last_app_code_{slot_key}"
-    last_app_code = st.session_state.get(last_app_code_key, "")
+    # Track last selected app code to detect changes (shared across all slots)
+    # Use a shared key to ensure all slots regenerate when app changes
+    shared_last_app_code_key = "mintegral_last_app_code_shared"
+    last_app_code = st.session_state.get(shared_last_app_code_key, "")
     
     # Auto-generate placement name if not set or if app selection changed
     app_selection_changed = selected_app_code and selected_app_code != last_app_code
+    
+    # Force regeneration if app selection changed (for all slots)
+    # This ensures RV, IS, BN all regenerate when iOS app is selected
+    if app_selection_changed:
+        # Clear placement name to force regeneration
+        if placement_name_key in st.session_state:
+            del st.session_state[placement_name_key]
+        logger.info(f"[Mintegral] App selection changed from '{last_app_code}' to '{selected_app_code}', clearing placement name for {slot_key}")
+    
     should_regenerate = (
         placement_name_key not in st.session_state or 
         app_selection_changed
@@ -2754,8 +2936,8 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
             default_name = f"{slot_key.lower()}_placement"
             st.session_state[placement_name_key] = default_name
         
-        # Update last app code
-        st.session_state[last_app_code_key] = selected_app_code
+        # Update last app code (shared across all slots)
+        st.session_state[shared_last_app_code_key] = selected_app_code
     elif placement_name_key not in st.session_state:
         default_name = f"{slot_key.lower()}_placement"
         st.session_state[placement_name_key] = default_name
@@ -2980,7 +3162,12 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
                             SessionManager.cache_units(current_network, str(app_id), cached_units)
                         
                         st.success(f"✅ {slot_key} placement created successfully!")
-                        st.rerun()
+                        # Display payload and response
+                        st.markdown("#### 📤 Request Payload")
+                        st.json(payload)
+                        st.markdown("#### 📥 Response")
+                        st.json(response)
+                        # Don't rerun - keep the response visible
                 except Exception as e:
                     st.error(f"❌ Error creating {slot_key} placement: {str(e)}")
                     SessionManager.log_error(current_network, str(e))
@@ -3173,15 +3360,33 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
     # Auto-generate placement name if not set or if app info is available
     if placement_name_key not in st.session_state or (selected_app_code and app_info_to_use):
         if selected_app_code and app_info_to_use:
-            # Get bundle_id and platform_str based on platform
-            if platform == "ios":
-                # For iOS, try to get iOS-specific bundle
-                bundle_id = app_info_to_use.get("iosBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
-                platform_str = "ios"
+            # Get bundle_id and platform_str based on platform parameter or app_info_to_use
+            # If platform parameter is provided, use it; otherwise, determine from app_info_to_use
+            if platform:
+                # Use platform parameter if provided
+                if platform == "ios":
+                    bundle_id = app_info_to_use.get("iosBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                    platform_str = "ios"
+                else:
+                    bundle_id = app_info_to_use.get("androidBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                    platform_str = "android"
             else:
-                # For Android or no platform specified
-                bundle_id = app_info_to_use.get("androidBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
-                platform_str = "android"
+                # No platform parameter, determine from app_info_to_use or apps list
+                # Check if app_info_to_use has platform info (prefer platformStr, then platform)
+                platform_str_from_info = app_info_to_use.get("platformStr", "")
+                if not platform_str_from_info:
+                    app_platform_raw = app_info_to_use.get("platform", "")
+                    if app_platform_raw:
+                        # Normalize platform using helper function
+                        platform_str_from_info = _normalize_platform_str(str(app_platform_raw), "fyber")
+                
+                if platform_str_from_info == "ios":
+                    bundle_id = app_info_to_use.get("iosBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                    platform_str = "ios"
+                else:
+                    # Default to Android or check apps list
+                    bundle_id = app_info_to_use.get("androidBundle") or app_info_to_use.get("bundleId") or app_info_to_use.get("bundle") or app_info_to_use.get("pkgName", "")
+                    platform_str = "android"
             
             pkg_name = app_info_to_use.get("pkgName", "")
             app_name_for_slot = app_info_to_use.get("name", app_name)
@@ -3197,7 +3402,7 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
             # If app_id is available but app_info_to_use is not, try to get bundleId from apps list
             bundle_id = ""
             pkg_name = ""
-            platform_str = "android"
+            platform_str = "android"  # Default, will be updated from app info
             app_name_for_slot = app_name
             
             for app in apps:
@@ -3209,6 +3414,10 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                     platform_str = _normalize_platform_str(platform_from_app, "fyber")
                     app_name_for_slot = app.get("name", app_name)
                     break
+            
+            # If platform parameter is provided, use it (overrides app's platform)
+            if platform:
+                platform_str = platform
             
             source_pkg = bundle_id if bundle_id else pkg_name
             
@@ -3269,16 +3478,34 @@ def _render_fyber_slot_ui(slot_key, slot_config, selected_app_code, app_info_to_
                 selected_app_code = current_app_code
             
             code_to_parse = current_app_code if current_app_code else selected_app_code
-            if not app_id or app_id <= 0:
+            # Convert app_id to int if it's a string, then check
+            app_id_int = None
+            if app_id:
                 try:
-                    app_id = int(code_to_parse)
+                    app_id_int = int(app_id) if isinstance(app_id, (int, str)) else None
+                except (ValueError, TypeError):
+                    app_id_int = None
+            
+            if not app_id_int or app_id_int <= 0:
+                try:
+                    app_id_int = int(code_to_parse)
                 except (ValueError, TypeError):
                     numeric_match = re.search(r'\d+', str(code_to_parse))
                     if numeric_match:
-                        app_id = int(numeric_match.group())
-                    else:
-                        app_id = None
-                        st.toast("❌ Invalid App ID. Please enter a valid numeric App ID.", icon="🚫")
+                        app_id_int = int(numeric_match.group())
+                else:
+                    app_id_int = None
+                    st.toast("❌ Invalid App ID. Please enter a valid numeric App ID.", icon="🚫")
+                app_id = app_id_int
+            else:
+                app_id = app_id_int
+            
+            # Ensure app_id is an integer before comparison
+            if app_id and not isinstance(app_id, int):
+                try:
+                    app_id = int(app_id)
+                except (ValueError, TypeError):
+                    app_id = None
             
             if not app_id or app_id <= 0:
                 st.toast("❌ App ID is required. Please select an app or enter a valid App ID.", icon="🚫")

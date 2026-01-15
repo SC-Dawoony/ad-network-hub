@@ -36,8 +36,8 @@ def render_app_code_selector(current_network: str, network_manager):
             logger.warning(f"[{current_network}] Failed to load apps from API: {str(e)}")
             api_apps = []
     
-    # For IronSource, BigOAds, AdMob, and Pangle, add manual "조회" button to fetch apps from API
-    if current_network in ["ironsource", "bigoads", "admob", "pangle"]:
+    # For IronSource, BigOAds, AdMob, Pangle, and Fyber, add manual "조회" button to fetch apps from API
+    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber"]:
         # Check if user wants to fetch apps from API
         fetch_apps_key = f"{current_network}_fetch_apps_from_api"
         api_apps_key = f"{current_network}_api_apps"
@@ -86,8 +86,8 @@ def render_app_code_selector(current_network: str, network_manager):
         api_apps = st.session_state[api_apps_key]
     
     # Merge cached apps with API apps
-    # For IronSource, BigOAds, AdMob, and Pangle, prioritize cached apps (from Create App response)
-    if current_network in ["ironsource", "bigoads", "admob", "pangle"]:
+    # For IronSource, BigOAds, AdMob, Pangle, and Fyber, prioritize cached apps (from Create App response)
+    if current_network in ["ironsource", "bigoads", "admob", "pangle", "fyber"]:
         # Use cached apps first (from Create App response)
         apps = cached_apps.copy() if cached_apps else []
         # Add API apps that are not in cache
@@ -117,6 +117,13 @@ def render_app_code_selector(current_network: str, network_manager):
                 for api_app in api_apps:
                     api_site_id = api_app.get("siteId") or api_app.get("appCode")
                     if api_site_id and api_site_id not in cached_site_ids:
+                        apps.append(api_app)
+            elif current_network == "fyber":
+                # For Fyber, use appId as identifier
+                cached_app_ids = {app.get("appId") or app.get("appCode") or app.get("id") for app in apps if app.get("appId") or app.get("appCode") or app.get("id")}
+                for api_app in api_apps:
+                    api_app_id = api_app.get("appId") or api_app.get("appCode") or api_app.get("id")
+                    if api_app_id and api_app_id not in cached_app_ids:
                         apps.append(api_app)
     elif current_network in ["mintegral", "inmobi"] and api_apps:
         # For other networks, prioritize API apps (they are more recent)
@@ -743,15 +750,21 @@ def render_app_code_selector(current_network: str, network_manager):
                             if not app_info_to_use.get("pkgName") and app.get("pkgName"):
                                 app_info_to_use["pkgName"] = app.get("pkgName", "")
                             break
-            # For Fyber, ensure bundle/bundleId is available from app_info_map
+            # For Fyber, ensure bundle/bundleId and platform are available from app_info_map
             if current_network == "fyber":
-                if not app_info_to_use.get("bundleId") and not app_info_to_use.get("bundle"):
+                if not app_info_to_use.get("bundleId") and not app_info_to_use.get("bundle") or not app_info_to_use.get("platform"):
                     # Try to get from apps list
                     for app in apps:
                         app_identifier = app.get("appId") or app.get("appCode") or app.get("id")
                         if str(app_identifier) == str(selected_app_code):
-                            app_info_to_use["bundleId"] = app.get("bundle") or app.get("bundleId", "")
-                            app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
+                            if not app_info_to_use.get("bundleId") and not app_info_to_use.get("bundle"):
+                                app_info_to_use["bundleId"] = app.get("bundle") or app.get("bundleId", "")
+                                app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
+                            if not app_info_to_use.get("platform"):
+                                platform_from_app = app.get("platform", "")
+                                normalized_platform = normalize_platform_str(platform_from_app, current_network)
+                                app_info_to_use["platform"] = normalized_platform
+                                app_info_to_use["platformStr"] = normalized_platform
                             break
         else:
             # For manual entry or API apps, create minimal app info
@@ -811,12 +824,17 @@ def render_app_code_selector(current_network: str, network_manager):
                             app_info_to_use["pkgName"] = app.get("pkgName", "")
                             app_info_to_use["name"] = app.get("name", app_name)
                         
-                        # For Fyber, get bundle and bundleId from API response
+                        # For Fyber, get bundle, bundleId, and platform from API response
                         if current_network == "fyber":
                             app_info_to_use["bundleId"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["bundle"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["pkgName"] = app.get("bundle") or app.get("bundleId", "")
                             app_info_to_use["name"] = app.get("name", app_name)
+                            # Set platform from app's platform field
+                            platform_from_app = app.get("platform", "")
+                            normalized_platform = normalize_platform_str(platform_from_app, current_network)
+                            app_info_to_use["platform"] = normalized_platform
+                            app_info_to_use["platformStr"] = normalized_platform
                         
                         # For AdMob, get appId and appStoreId from API response
                         if current_network == "admob":

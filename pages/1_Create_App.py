@@ -69,7 +69,6 @@ st.divider()
 available_networks = get_network_display_names()
 if len(available_networks) > 1:
     # Sort networks: AppLovin first, Unity second, then others
-    # Exclude AdMob from Create App page
     network_items = list(available_networks.items())
     applovin_item = None
     unity_item = None
@@ -79,7 +78,7 @@ if len(available_networks) > 1:
             applovin_item = (key, display)
         elif key == "unity":
             unity_item = (key, display)
-        elif key != "admob":  # Exclude AdMob only
+        else:
             other_items.append((key, display))
     
     # Reorder: AppLovin first, Unity second, then others
