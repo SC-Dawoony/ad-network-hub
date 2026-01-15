@@ -1336,15 +1336,15 @@ def _process_vungle_create_app_results(current_network: str, network_display: st
     with result_col1:
         st.write(f"**Network:** {network_display}")
         st.write(f"**App Name:** {app_name}")
-        st.write("**Vungle App ID:**")
+        # Display platform and app ID clearly
         if android_vungle_app_id:
-            st.write(f"  - **Android:** {android_vungle_app_id}")
+            st.write(f"**Android:** {android_vungle_app_id}")
         if ios_vungle_app_id:
-            st.write(f"  - **iOS:** {ios_vungle_app_id}")
+            st.write(f"**iOS:** {ios_vungle_app_id}")
         if not android_vungle_app_id and not ios_vungle_app_id:
-            st.write(f"  N/A")
+            st.write(f"**App ID:** N/A")
     with result_col2:
-        # Display platforms
+        # Display platforms summary
         platforms = []
         if android_vungle_app_id:
             platforms.append("Android")

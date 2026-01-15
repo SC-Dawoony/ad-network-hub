@@ -3465,10 +3465,29 @@ class MockNetworkManager:
         
         # Get all placements for this app
         placements = self._get_vungle_placements()
-        app_placements = [
-            p for p in placements 
-            if p.get("application") == vungle_app_id or p.get("applicationId") == vungle_app_id
-        ]
+        app_placements = []
+        for p in placements:
+            # Parse application object (can be string, dict, or id)
+            application = p.get("application", {})
+            if isinstance(application, str):
+                # If application is a string, try to parse as JSON or compare directly
+                try:
+                    import json
+                    application = json.loads(application)
+                except (json.JSONDecodeError, TypeError):
+                    # If not JSON, treat as direct ID comparison
+                    if application == vungle_app_id:
+                        app_placements.append(p)
+                    continue
+            
+            # Extract application id from application object
+            if isinstance(application, dict):
+                application_id = application.get("id") or application.get("vungleAppId")
+                if str(application_id) == str(vungle_app_id):
+                    app_placements.append(p)
+            elif application == vungle_app_id:
+                # Direct comparison if application is already the ID
+                app_placements.append(p)
         
         # If default_placement_id is provided, prioritize it
         if default_placement_id:
@@ -3541,14 +3560,19 @@ class MockNetworkManager:
             }
         
         # Deactivate existing placements for this app first
-        vungle_app_id = payload.get("application", "").strip()
-        # Get defaultPlacement from payload if provided (from Create App response)
+        # NOTE: Commented out for individual placement creation button
+        # For bulk creation, deactivation should be done manually via "Deactivate Existing Placements" section
+        # vungle_app_id = payload.get("application", "").strip()
+        # # Get defaultPlacement from payload if provided (from Create App response)
+        # default_placement_id = payload.pop("defaultPlacement", None)
+        # if vungle_app_id:
+        #     logger.info(f"[Vungle] Deactivating existing placements for app {vungle_app_id}")
+        #     if default_placement_id:
+        #         logger.info(f"[Vungle] Using defaultPlacement ID: {default_placement_id}")
+        #     self._deactivate_vungle_placements(vungle_app_id, default_placement_id)
+        
+        # Get defaultPlacement from payload if provided (from Create App response) - keep for potential future use
         default_placement_id = payload.pop("defaultPlacement", None)
-        if vungle_app_id:
-            logger.info(f"[Vungle] Deactivating existing placements for app {vungle_app_id}")
-            if default_placement_id:
-                logger.info(f"[Vungle] Using defaultPlacement ID: {default_placement_id}")
-            self._deactivate_vungle_placements(vungle_app_id, default_placement_id)
         
         base_url = "https://publisher-api.vungle.com/api/v1"
         placements_url = f"{base_url}/placements"

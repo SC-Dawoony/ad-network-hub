@@ -2078,11 +2078,8 @@ def render_create_unit_common_ui(
                             if not android_store_id:
                                 android_store_id = vungle_android_app_info.get("pkgName", "")
                             
-                            # Extract last part after "." and convert to lowercase for placement name
-                            if "." in android_store_id:
-                                last_part = android_store_id.split(".")[-1].lower()
-                            else:
-                                last_part = android_store_id.lower()
+                            # Get app name for placement name generation
+                            app_name_for_bulk = vungle_android_app_info.get("name", "")
                             
                             create_payloads = []
                             
@@ -2090,14 +2087,23 @@ def render_create_unit_common_ui(
                             for slot_key in ["RV", "IS", "BN"]:
                                 slot_config = slot_configs.get(slot_key, {})
                                 
-                                # Generate placement name for Android
-                                os_str = "aos"
-                                placement_name = f"{last_part}_{os_str}_vungle_placement"
+                                # Generate placement name using unified function (same as other networks)
+                                # Format: {last_part}_{os}_vungle_{adformat}_bidding
+                                placement_name = _generate_slot_name(android_store_id, "android", slot_key.lower(), "vungle", network_manager=network_manager, app_name=app_name_for_bulk)
+                                if not placement_name:
+                                    # Fallback if generate_slot_name returns empty
+                                    if "." in android_store_id:
+                                        last_part = android_store_id.split(".")[-1].lower()
+                                    else:
+                                        last_part = android_store_id.lower()
+                                    adformat = slot_key.lower()
+                                    placement_name = f"{last_part}_aos_vungle_{adformat}_bidding"
                                 
                                 payload = {
                                     "application": str(android_vungle_app_id).strip(),
                                     "name": placement_name,
                                     "type": slot_config["type"],
+                                    "status": "active",
                                     "allowEndCards": True,
                                     "isHBParticipation": True
                                 }
@@ -2111,14 +2117,23 @@ def render_create_unit_common_ui(
                             for slot_key in ["RV", "IS", "BN"]:
                                 slot_config = slot_configs.get(slot_key, {})
                                 
-                                # Generate placement name for iOS (using Android store.id)
-                                os_str = "ios"
-                                placement_name = f"{last_part}_{os_str}_vungle_placement"
+                                # Generate placement name for iOS using unified function (using Android store.id)
+                                # Format: {last_part}_{os}_vungle_{adformat}_bidding
+                                placement_name = _generate_slot_name(android_store_id, "ios", slot_key.lower(), "vungle", network_manager=network_manager, app_name=app_name_for_bulk)
+                                if not placement_name:
+                                    # Fallback if generate_slot_name returns empty
+                                    if "." in android_store_id:
+                                        last_part = android_store_id.split(".")[-1].lower()
+                                    else:
+                                        last_part = android_store_id.lower()
+                                    adformat = slot_key.lower()
+                                    placement_name = f"{last_part}_ios_vungle_{adformat}_bidding"
                                 
                                 payload = {
                                     "application": str(ios_vungle_app_id).strip(),
                                     "name": placement_name,
                                     "type": slot_config["type"],
+                                    "status": "active",
                                     "allowEndCards": True,
                                     "isHBParticipation": True
                                 }
@@ -4080,19 +4095,23 @@ def _render_vungle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
     )
     
     if should_regenerate and selected_app_code and store_id:
-        # Generate placement name using Store ID from API response (store.id)
-        # Extract last part after "." and convert to lowercase
-        if "." in store_id:
-            last_part = store_id.split(".")[-1].lower()
+        # Generate placement name using unified generate_slot_name function (same as other networks)
+        # Format: {last_part}_{os}_vungle_{adformat}_bidding
+        default_name = _generate_slot_name(store_id, platform_str, slot_key.lower(), "vungle", network_manager=network_manager, app_name=app_name_for_slot)
+        if default_name:
+            st.session_state[placement_name_key] = default_name
+            logger.info(f"[Vungle] Generated placement name: store_id={store_id}, platform={platform_str}, slot_key={slot_key}, name={default_name}")
         else:
-            last_part = store_id.lower()
-        
-        os_str = "aos" if platform_str == "android" else "ios"
-        
-        # Format: {last_part}_{os_str}_vungle_placement
-        default_name = f"{last_part}_{os_str}_vungle_placement"
-        st.session_state[placement_name_key] = default_name
-        logger.info(f"[Vungle] Generated placement name: store_id={store_id}, last_part={last_part}, platform={platform_str}, name={default_name}")
+            # Fallback if generate_slot_name returns empty
+            if "." in store_id:
+                last_part = store_id.split(".")[-1].lower()
+            else:
+                last_part = store_id.lower()
+            os_str = "aos" if platform_str == "android" else "ios"
+            adformat = slot_key.lower()
+            default_name = f"{last_part}_{os_str}_vungle_{adformat}_bidding"
+            st.session_state[placement_name_key] = default_name
+            logger.warning(f"[Vungle] generate_slot_name returned empty, using fallback: {default_name}")
     
     # Placement name input (all slots use "Placement Name" label)
     placement_name = st.text_input(
@@ -4108,6 +4127,7 @@ def _render_vungle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
     settings_html = '<div style="min-height: 120px; margin-bottom: 10px;">'
     settings_html += f'<ul style="margin: 0; padding-left: 20px;">'
     settings_html += f'<li>Type: {slot_config["type"].title()}</li>'
+    settings_html += f'<li>Status: Active</li>'
     settings_html += f'<li>Allow End Cards: True</li>'
     settings_html += f'<li>HB Participation: True</li>'
     settings_html += '</ul></div>'
@@ -4141,6 +4161,7 @@ def _render_vungle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
                 "application": str(vungle_app_id).strip(),
                 "name": placement_name.strip(),
                 "type": slot_config["type"],
+                "status": "active",
                 "allowEndCards": True,
                 "isHBParticipation": True
             }
@@ -4152,7 +4173,7 @@ def _render_vungle_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
             import json as json_module
             logger.info(f"[Vungle] Creating placement - vungleAppId: {vungle_app_id}, payload: {json_module.dumps(payload)}")
             
-            with st.spinner(f"Creating {slot_config['name']} placement (deactivating existing placements first)..."):
+            with st.spinner(f"Creating {slot_config['name']} placement..."):
                 try:
                     response = network_manager.create_unit(current_network, payload)
                     

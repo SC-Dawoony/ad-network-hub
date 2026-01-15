@@ -279,7 +279,7 @@ class InMobiConfig(NetworkConfig):
             store_url = form_data.get("androidStoreUrl", "").strip()
         else:
             # Fallback: use storeUrl if provided (for backward compatibility)
-        store_url = form_data.get("storeUrl", "").strip()
+            store_url = form_data.get("storeUrl", "").strip()
             if not store_url:
                 # Try to get from platform-specific fields
                 store_url = form_data.get("iosStoreUrl", "").strip() or form_data.get("androidStoreUrl", "").strip()

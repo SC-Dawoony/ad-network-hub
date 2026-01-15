@@ -65,10 +65,30 @@ def render_vungle_deactivate_placements(current_network: str):
                 placements = network_manager._get_vungle_placements()
                 
                 # Filter placements for this app
-                app_placements = [
-                    p for p in placements 
-                    if p.get("application") == vungle_app_id or p.get("applicationId") == vungle_app_id
-                ]
+                # Match by application.id from placement result with VungleAppId from Create App
+                app_placements = []
+                for p in placements:
+                    # Parse application object (can be string, dict, or id)
+                    application = p.get("application", {})
+                    if isinstance(application, str):
+                        # If application is a string, try to parse as JSON or compare directly
+                        try:
+                            import json
+                            application = json.loads(application)
+                        except (json.JSONDecodeError, TypeError):
+                            # If not JSON, treat as direct ID comparison
+                            if application == vungle_app_id:
+                                app_placements.append(p)
+                            continue
+                    
+                    # Extract application id from application object
+                    if isinstance(application, dict):
+                        application_id = application.get("id") or application.get("vungleAppId")
+                        if str(application_id) == str(vungle_app_id):
+                            app_placements.append(p)
+                    elif application == vungle_app_id:
+                        # Direct comparison if application is already the ID
+                        app_placements.append(p)
                 
                 # Filter out already inactive placements
                 active_placements = [
