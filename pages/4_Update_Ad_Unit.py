@@ -440,6 +440,24 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                                 st.session_state.selected_ad_networks.remove(network)
                                             st.rerun()
                     
+                    # Show appmatchname input when all networks are selected
+                    if not is_processing and len(st.session_state.selected_ad_networks) == len(AD_NETWORKS):
+                        st.markdown("---")
+                        st.markdown("**Ad Unit Name 설정 (모든 네트워크 선택 시)**")
+                        
+                        # Initialize appmatchname in session state
+                        if "appmatchname" not in st.session_state:
+                            st.session_state.appmatchname = ""
+                        
+                        appmatchname = st.text_input(
+                            "App Match Name",
+                            value=st.session_state.appmatchname,
+                            help="Ad Unit Name에 사용할 수 있는 App Match Name을 입력하세요 (모든 네트워크가 선택되었을 때만 표시됩니다)",
+                            key="appmatchname_input"
+                        )
+                        st.session_state.appmatchname = appmatchname
+                        st.markdown("---")
+                    
                     # Add button - only show when not processing
                     if st.session_state.selected_ad_networks and not is_processing:
                         if st.button(f"➕ 선택한 {len(selected_rows_dict)}개 Ad Units + {len(st.session_state.selected_ad_networks)}개 네트워크 추가", type="primary", use_container_width=True):
@@ -473,6 +491,13 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 applovin_unit = row_data["applovin_unit"]
                                 actual_network = network_mapping.get(selected_network)
                                 
+                                # Determine package_name to use: appmatchname if all networks selected and provided, otherwise use original package_name
+                                package_name_to_use = applovin_unit.get("package_name", "")
+                                if (len(st.session_state.selected_ad_networks) == len(AD_NETWORKS) and 
+                                    st.session_state.get("appmatchname") and 
+                                    st.session_state.appmatchname.strip()):
+                                    package_name_to_use = st.session_state.appmatchname.strip()
+                                
                                 # Skip if network is not supported for auto-fetch
                                 if not actual_network:
                                     return {
@@ -480,7 +505,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         "name": applovin_unit["name"],
                                         "platform": applovin_unit["platform"],
                                         "ad_format": applovin_unit["ad_format"],
-                                        "package_name": applovin_unit["package_name"],
+                                        "package_name": package_name_to_use,
                                         "ad_network": selected_network,
                                         "ad_network_app_id": "",
                                         "ad_network_app_key": "",
@@ -494,9 +519,18 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     }, {"status": "skipped", "network": selected_network}
                                 
                                 # Try to find matching app (platform must match)
+                                # If all networks are selected and appmatchname is provided, use it instead of package_name
+                                unit_for_matching = applovin_unit.copy()
+                                if (len(st.session_state.selected_ad_networks) == len(AD_NETWORKS) and 
+                                    st.session_state.get("appmatchname") and 
+                                    st.session_state.appmatchname.strip()):
+                                    # Replace package_name with appmatchname for matching
+                                    unit_for_matching["package_name"] = st.session_state.appmatchname.strip()
+                                    logger.info(f"[AppMatchName] Using appmatchname '{st.session_state.appmatchname.strip()}' instead of package_name '{applovin_unit.get('package_name', '')}' for network matching")
+                                
                                 matched_app = match_applovin_unit_to_network(
                                     actual_network,
-                                    applovin_unit
+                                    unit_for_matching
                                 )
                                 
                                 if matched_app:
@@ -903,7 +937,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         "name": applovin_unit["name"],
                                         "platform": applovin_unit["platform"],
                                         "ad_format": applovin_unit["ad_format"],
-                                        "package_name": applovin_unit["package_name"],
+                                        "package_name": package_name_to_use,
                                         "ad_network": selected_network,
                                         "ad_network_app_id": ad_network_app_id,
                                         "ad_network_app_key": ad_network_app_key,
@@ -960,7 +994,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                         "name": applovin_unit["name"],
                                         "platform": applovin_unit["platform"],
                                         "ad_format": applovin_unit["ad_format"],
-                                        "package_name": applovin_unit["package_name"],
+                                        "package_name": package_name_to_use,
                                         "ad_network": selected_network,
                                         "ad_network_app_id": ad_network_app_id,
                                         "ad_network_app_key": ad_network_app_key,
