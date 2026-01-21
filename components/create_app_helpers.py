@@ -205,12 +205,13 @@ def get_bigoads_pkg_name_display(pkg_name: str, bundle_id: str, network_manager,
     return search_key.lower()
 
 
-def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None) -> str:
+def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None, app_match_name: str = None) -> str:
     """Generate unified slot name for all networks
     
     Format: {package_name_last_part}_{os}_{network}_{adtype}_bidding
     
     Rules:
+    - app_match_name: If provided (from session), use this instead of package name
     - package_name: Use BigOAds pkgNameDisplay if available, otherwise use current network's pkg_name/bundle_id
     - For iOS apps with iTunes ID (id123456), find Android version by app name and use its package name
     - Extract last part after "." (e.g., com.example.app -> app)
@@ -219,6 +220,33 @@ def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network
     - adtype: "rv", "is", "bn" (unified for all networks)
     - Always append "_bidding"
     """
+    # Check if app_match_name is provided (from session)
+    # If provided, use it directly instead of package name
+    if app_match_name and app_match_name.strip():
+        last_part = app_match_name.strip().lower()
+        
+        # Normalize platform_str first, then map to os: Android -> aos, iOS -> ios
+        normalized_platform = normalize_platform_str(platform_str, network)
+        os = "aos" if normalized_platform == "android" else "ios"
+        
+        # Map slot_type to adtype (unified: rv, is, bn)
+        slot_type_lower = slot_type.lower()
+        adtype_map = {
+            "rv": "rv",
+            "rewarded": "rv",
+            "is": "is",
+            "interstitial": "is",
+            "bn": "bn",
+            "banner": "bn"
+        }
+        adtype = adtype_map.get(slot_type_lower, slot_type_lower)
+        
+        # Network name in lowercase
+        network_lower = network.lower()
+        
+        # Generate unified format: {app_match_name}_{os}_{network}_{adtype}_bidding
+        return f"{last_part}_{os}_{network_lower}_{adtype}_bidding"
+    
     # Get package name (prefer BigOAds pkgNameDisplay)
     # If pkg_name is empty, use bundle_id as fallback
     source_pkg_name = pkg_name if pkg_name else (bundle_id if bundle_id else "")
@@ -301,8 +329,11 @@ def create_default_slot(network: str, app_info: dict, slot_type: str, network_ma
     bundle_id = app_info.get("bundleId", "")
     app_name = app_info.get("name", "")
     
+    # Get app_match_name from session (if set, will be used instead of package name)
+    app_match_name = SessionManager.get_app_match_name()
+    
     # Generate slot name using unified function (will automatically use BigOAds pkgNameDisplay if available)
-    slot_name = generate_slot_name(pkg_name, platform_str, slot_type, network, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name)
+    slot_name = generate_slot_name(pkg_name, platform_str, slot_type, network, bundle_id=bundle_id, network_manager=network_manager, app_name=app_name, app_match_name=app_match_name)
     
     # Validate slot_name
     if not slot_name or (isinstance(slot_name, str) and not slot_name.strip()):

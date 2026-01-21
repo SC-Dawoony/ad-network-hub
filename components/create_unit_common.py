@@ -6,11 +6,35 @@ from utils.session_manager import SessionManager
 from utils.network_manager import handle_api_response
 from components.create_app_helpers import (
     normalize_platform_str as _normalize_platform_str,
-    generate_slot_name as _generate_slot_name,
+    generate_slot_name as _generate_slot_name_original,
     create_default_slot as _create_default_slot
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None) -> str:
+    """Wrapper for generate_slot_name that automatically includes app_match_name from session
+    
+    This wrapper fetches app_match_name from SessionManager and passes it to the original
+    generate_slot_name function. If app_match_name is set, it will be used instead of
+    the Android package name for ad unit name generation.
+    """
+    # Get app_match_name from session
+    app_match_name = SessionManager.get_app_match_name()
+    
+    # Call original function with app_match_name
+    return _generate_slot_name_original(
+        pkg_name=pkg_name,
+        platform_str=platform_str,
+        slot_type=slot_type,
+        network=network,
+        store_url=store_url,
+        bundle_id=bundle_id,
+        network_manager=network_manager,
+        app_name=app_name,
+        app_match_name=app_match_name
+    )
 
 
 def render_create_unit_common_ui(
@@ -3350,7 +3374,7 @@ def _render_mintegral_slot_ui(slot_key, slot_config, selected_app_code, app_info
     if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_mintegral_{slot_key}"):
         if not placement_name:
             st.toast("❌ Placement Name is required", icon="🚫")
-        elif not app_id or app_id <= 0:
+        elif not app_id or (isinstance(app_id, (int, float)) and app_id <= 0) or (isinstance(app_id, str) and (not app_id.strip() or app_id.strip() == "0")):
             st.error(f"❌ App ID is required and must be greater than 0. Current value: {app_id}")
             st.write(f"**Debug Info:**")
             st.write(f"- app_info_to_use: {app_info_to_use}")
@@ -3517,7 +3541,7 @@ def _render_inmobi_slot_ui(slot_key, slot_config, selected_app_code, app_info_to
     if st.button(f"✅ Create {slot_key} Placement", use_container_width=True, key=f"create_inmobi_{slot_key}"):
         if not selected_app_code:
             st.toast("❌ Please select an App Code", icon="🚫")
-        elif not app_id or app_id <= 0:
+        elif not app_id or (isinstance(app_id, (int, float)) and app_id <= 0) or (isinstance(app_id, str) and (not app_id.strip() or app_id.strip() == "0")):
             st.toast("❌ App ID is required. Please select an App Code.", icon="🚫")
         elif not placement_name:
             st.toast("❌ Placement Name is required", icon="🚫")

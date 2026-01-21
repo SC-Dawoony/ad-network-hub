@@ -87,14 +87,20 @@ def render_unity_create_unit_ui(current_network: str):
         Returns:
             Placement name (e.g., "app aos unity rv bidding") - with spaces
         """
-        # Get last part after last "."
-        if "." in store_id:
-            last_part = store_id.split(".")[-1]
+        # Check if app_match_name is set in session - use it instead of store_id
+        app_match_name = SessionManager.get_app_match_name()
+        if app_match_name and app_match_name.strip():
+            last_part = app_match_name.strip().lower()
         else:
-            last_part = store_id
+            # Get last part after last "."
+            if "." in store_id:
+                last_part = store_id.split(".")[-1]
+            else:
+                last_part = store_id
+            last_part = last_part.lower()
         
         # Format: {last_part} {os} unity {ad_format} bidding (with spaces, all lowercase)
-        placement_name = f"{last_part.lower()} {os} unity {ad_format} bidding"
+        placement_name = f"{last_part} {os} unity {ad_format} bidding"
         return placement_name
     
     # Unity ad unit configurations

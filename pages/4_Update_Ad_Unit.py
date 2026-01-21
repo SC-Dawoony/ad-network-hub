@@ -440,10 +440,10 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                                 st.session_state.selected_ad_networks.remove(network)
                                             st.rerun()
                     
-                    # Show appmatchname input when all networks are selected
-                    if not is_processing and len(st.session_state.selected_ad_networks) == len(AD_NETWORKS):
+                    # Show appmatchname input (always available, regardless of network selection)
+                    if not is_processing:
                         st.markdown("---")
-                        st.markdown("**Ad Unit Name 설정 (모든 네트워크 선택 시)**")
+                        st.markdown("**App Match Name 설정**")
                         
                         # Initialize appmatchname in session state
                         if "appmatchname" not in st.session_state:
@@ -452,7 +452,7 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                         appmatchname = st.text_input(
                             "App Match Name",
                             value=st.session_state.appmatchname,
-                            help="Ad Unit Name에 사용할 수 있는 App Match Name을 입력하세요 (모든 네트워크가 선택되었을 때만 표시됩니다)",
+                            help="데이터 테이블의 package_name 컬럼에 표시될 값을 입력하세요. 비워두면 원래 package_name이 사용됩니다.",
                             key="appmatchname_input"
                         )
                         st.session_state.appmatchname = appmatchname
@@ -491,10 +491,9 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                 applovin_unit = row_data["applovin_unit"]
                                 actual_network = network_mapping.get(selected_network)
                                 
-                                # Determine package_name to use: appmatchname if all networks selected and provided, otherwise use original package_name
+                                # Determine package_name to use: appmatchname if provided, otherwise use original package_name
                                 package_name_to_use = applovin_unit.get("package_name", "")
-                                if (len(st.session_state.selected_ad_networks) == len(AD_NETWORKS) and 
-                                    st.session_state.get("appmatchname") and 
+                                if (st.session_state.get("appmatchname") and 
                                     st.session_state.appmatchname.strip()):
                                     package_name_to_use = st.session_state.appmatchname.strip()
                                 
@@ -519,18 +518,11 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     }, {"status": "skipped", "network": selected_network}
                                 
                                 # Try to find matching app (platform must match)
-                                # If all networks are selected and appmatchname is provided, use it instead of package_name
-                                unit_for_matching = applovin_unit.copy()
-                                if (len(st.session_state.selected_ad_networks) == len(AD_NETWORKS) and 
-                                    st.session_state.get("appmatchname") and 
-                                    st.session_state.appmatchname.strip()):
-                                    # Replace package_name with appmatchname for matching
-                                    unit_for_matching["package_name"] = st.session_state.appmatchname.strip()
-                                    logger.info(f"[AppMatchName] Using appmatchname '{st.session_state.appmatchname.strip()}' instead of package_name '{applovin_unit.get('package_name', '')}' for network matching")
-                                
+                                # IMPORTANT: Always use original package_name for app matching, NOT appmatchname
+                                # appmatchname is only used for placement name generation, not for finding apps in networks
                                 matched_app = match_applovin_unit_to_network(
                                     actual_network,
-                                    unit_for_matching
+                                    applovin_unit  # Use original applovin_unit with real package_name for matching
                                 )
                                 
                                 if matched_app:

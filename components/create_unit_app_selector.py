@@ -4,7 +4,23 @@ import logging
 import json
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
-from components.create_app_helpers import normalize_platform_str, generate_slot_name
+from components.create_app_helpers import normalize_platform_str, generate_slot_name as _generate_slot_name_original
+
+
+def generate_slot_name(pkg_name: str, platform_str: str, slot_type: str, network: str = "bigoads", store_url: str = None, bundle_id: str = None, network_manager=None, app_name: str = None) -> str:
+    """Wrapper for generate_slot_name that automatically includes app_match_name from session"""
+    app_match_name = SessionManager.get_app_match_name()
+    return _generate_slot_name_original(
+        pkg_name=pkg_name,
+        platform_str=platform_str,
+        slot_type=slot_type,
+        network=network,
+        store_url=store_url,
+        bundle_id=bundle_id,
+        network_manager=network_manager,
+        app_name=app_name,
+        app_match_name=app_match_name
+    )
 
 logger = logging.getLogger(__name__)
 

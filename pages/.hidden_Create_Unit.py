@@ -8,12 +8,20 @@ from network_configs import get_network_config, get_network_display_names
 
 
 def _generate_slot_name(pkg_name: str, platform_str: str, slot_type: str) -> str:
-    """Generate slot name: pkgName_last_part_platform_bigoads_type_bidding"""
-    # Get last part after "."
-    if "." in pkg_name:
-        last_part = pkg_name.split(".")[-1]
+    """Generate slot name: pkgName_last_part_platform_bigoads_type_bidding
+    
+    If app_match_name is set in session, use it instead of pkg_name.
+    """
+    # Check if app_match_name is set in session
+    app_match_name = SessionManager.get_app_match_name()
+    if app_match_name and app_match_name.strip():
+        last_part = app_match_name.strip().lower()
     else:
-        last_part = pkg_name
+        # Get last part after "."
+        if "." in pkg_name:
+            last_part = pkg_name.split(".")[-1]
+        else:
+            last_part = pkg_name
     
     return f"{last_part}_{platform_str}_bigoads_{slot_type}_bidding"
 

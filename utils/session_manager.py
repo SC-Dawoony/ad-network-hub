@@ -30,6 +30,9 @@ class SessionManager:
         
         if 'error_log' not in st.session_state:
             st.session_state.error_log = []
+        
+        if 'app_match_name' not in st.session_state:
+            st.session_state.app_match_name = ""
     
     @staticmethod
     def switch_network(network_name: str):
@@ -121,4 +124,22 @@ class SessionManager:
             'timestamp': datetime.now().isoformat(),
             'error': error
         })
+    
+    @staticmethod
+    def set_app_match_name(name: str):
+        """Set the app match name for ad unit name generation
+        
+        This value will be used instead of Android package name
+        when generating ad unit names (placement names).
+        """
+        st.session_state.app_match_name = name.strip() if name else ""
+    
+    @staticmethod
+    def get_app_match_name() -> str:
+        """Get the app match name for ad unit name generation
+        
+        Returns:
+            The app match name if set, otherwise empty string
+        """
+        return st.session_state.get('app_match_name', "")
 

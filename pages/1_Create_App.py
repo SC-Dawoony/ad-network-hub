@@ -110,6 +110,20 @@ if len(available_networks) > 1:
                 st.rerun()
             break
 
+# App Match Name input for ad unit name generation
+# This value will be used instead of Android package name when generating placement names
+app_match_name_input = st.text_input(
+    "App Match Name (Optional)",
+    value=SessionManager.get_app_match_name(),
+    placeholder="e.g., mygame, myapp",
+    help="Enter a custom name to use instead of Android package name for ad unit name generation. "
+         "Example: If you enter 'mygame', ad unit names will be like 'mygame_aos_bigoads_rv_bidding' instead of using package name."
+)
+
+# Save to session if changed
+if app_match_name_input != SessionManager.get_app_match_name():
+    SessionManager.set_app_match_name(app_match_name_input)
+
 st.divider()
 
 # ============================================================================
