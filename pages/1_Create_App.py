@@ -78,6 +78,9 @@ if len(available_networks) > 1:
             applovin_item = (key, display)
         elif key == "unity":
             unity_item = (key, display)
+        elif key == "admob":
+            # Skip AdMob - temporarily disabled
+            continue
         else:
             other_items.append((key, display))
     
