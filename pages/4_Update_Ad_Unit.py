@@ -104,6 +104,24 @@ AD_NETWORKS = [
     "PUBMATIC_BIDDING"
 ]
 
+# Network display name mapping
+network_display_map = {
+    "ADMOB_BIDDING": "AdMob Bidding",
+    "BIGO_BIDDING": "BigoAds Bidding",
+    "CHARTBOOST_BIDDING": "Chartboost Bidding",
+    "FACEBOOK_NETWORK": "Facebook Network",
+    "FYBER_BIDDING": "Fyber Bidding",
+    "INMOBI_BIDDING": "InMobi Bidding",
+    "IRONSOURCE_BIDDING": "IronSource Bidding",
+    "MINTEGRAL_BIDDING": "Mintegral Bidding",
+    "MOLOCO_BIDDING": "Moloco Bidding",
+    "TIKTOK_BIDDING": "TikTok Bidding",
+    "UNITY_BIDDING": "Unity Bidding",
+    "VUNGLE_BIDDING": "Vungle Bidding",
+    "YANDEX_BIDDING": "Yandex Bidding",
+    "PUBMATIC_BIDDING": "Pubmatic Bidding"
+}
+
 # Check API Key
 api_key = get_applovin_api_key()
 if not api_key:
@@ -410,35 +428,76 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                 if len(selected_rows_dict) > 0:
                     st.markdown(f"**선택된 Ad Units: {len(selected_rows_dict)}개**")
                     
-                    # Initialize selected networks in session state (default: all networks)
-                    if "selected_ad_networks" not in st.session_state:
-                        st.session_state.selected_ad_networks = AD_NETWORKS.copy()
-                    
                     # Track if processing is in progress to prevent UI layout issues
                     processing_key = "_ad_units_processing"
                     is_processing = st.session_state.get(processing_key, False)
                     
-                    # Show selected networks with remove buttons (compact format) - only when not processing
-                    if st.session_state.selected_ad_networks and not is_processing:
-                        st.markdown("**선택된 네트워크:**")
-                        sorted_networks = sorted(st.session_state.selected_ad_networks.copy())  # Use copy to avoid modification during iteration
+                    # Network selection section - only when not processing
+                    if not is_processing:
+                        st.markdown("**네트워크 선택:**")
                         
-                        # Display in a compact grid (4 columns)
-                        num_cols = 4
-                        for i in range(0, len(sorted_networks), num_cols):
-                            cols = st.columns(num_cols)
-                            for j, network in enumerate(sorted_networks[i:i+num_cols]):
-                                with cols[j]:
-                                    # Compact display with inline remove button
-                                    col_name, col_btn = st.columns([3, 1])
-                                    with col_name:
-                                        st.markdown(f'<span style="font-size: 0.85em;">{network}</span>', unsafe_allow_html=True)
-                                    with col_btn:
-                                        remove_key = f"remove_network_{network}"
-                                        if st.button("🗑️", key=remove_key, help=f"{network} 제거", use_container_width=True):
-                                            if network in st.session_state.selected_ad_networks:
-                                                st.session_state.selected_ad_networks.remove(network)
-                                            st.rerun()
+                        # 1. Initialize selected networks in session state (default: empty)
+                        if "selected_ad_networks" not in st.session_state:
+                            st.session_state.selected_ad_networks = []
+                        
+                        # Initialize checkbox version counter (incremented on button clicks to force refresh)
+                        if "network_checkbox_version" not in st.session_state:
+                            st.session_state.network_checkbox_version = 0
+                        
+                        # 2. Select All / Deselect All buttons
+                        button_cols = st.columns([1, 1, 4])
+                        with button_cols[0]:
+                            if st.button("✅ 모두 선택", key="select_all_ad_networks", use_container_width=True):
+                                st.session_state.selected_ad_networks = AD_NETWORKS.copy()
+                                # Increment version to force checkbox refresh with new keys
+                                st.session_state.network_checkbox_version += 1
+                                st.rerun()
+                        
+                        with button_cols[1]:
+                            if st.button("❌ 선택 해제", key="deselect_all_ad_networks", use_container_width=True):
+                                st.session_state.selected_ad_networks = []
+                                # Increment version to force checkbox refresh with new keys
+                                st.session_state.network_checkbox_version += 1
+                                st.rerun()
+                        
+                        # 3. Network selection with checkboxes (3 columns)
+                        selected_networks = []
+                        network_cols = st.columns(3)
+                        
+                        for idx, applovin_network in enumerate(AD_NETWORKS):
+                            with network_cols[idx % 3]:
+                                display_label = network_display_map.get(applovin_network, applovin_network)
+                                
+                                # Get checkbox value from selected_ad_networks (source of truth)
+                                is_selected = applovin_network in st.session_state.selected_ad_networks
+                                
+                                # Use versioned key so button clicks create new widgets
+                                checkbox_key = f"ad_network_checkbox_{applovin_network}_v{st.session_state.network_checkbox_version}"
+                                
+                                # Always use is_selected as initial value
+                                # When version changes (button clicked), new widget is created with correct value
+                                is_checked = st.checkbox(
+                                    display_label,
+                                    key=checkbox_key,
+                                    value=is_selected
+                                )
+                                
+                                # Update selected_networks list based on checkbox state
+                                if is_checked:
+                                    if applovin_network not in selected_networks:
+                                        selected_networks.append(applovin_network)
+                                elif applovin_network in selected_networks:
+                                    selected_networks.remove(applovin_network)
+                        
+                        # 4. Update session state (only selected_ad_networks, not individual checkbox states)
+                        st.session_state.selected_ad_networks = selected_networks
+                        
+                        # Feedback
+                        if not selected_networks:
+                            st.info("💡 네트워크를 선택해주세요.")
+                        else:
+                            selected_display_names = [network_display_map.get(n, n) for n in selected_networks]
+                            st.success(f"✅ {len(selected_networks)}개 네트워크 선택됨: {', '.join(selected_display_names)}")
                     
                     # Show appmatchname input (always available, regardless of network selection)
                     if not is_processing:
