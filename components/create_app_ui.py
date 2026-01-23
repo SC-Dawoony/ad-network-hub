@@ -6,6 +6,12 @@ from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
 from utils.network_manager import get_network_manager, handle_api_response, _mask_sensitive_data
 from utils.validators import validate_app_name, validate_package_name, validate_url
+from utils.app_store_helper import (
+    map_android_category_to_bigoads,
+    map_android_category_to_ironsource_taxonomy,
+    map_android_category_to_tiktok_category,
+    map_android_category_to_fyber_android_category
+)
 from network_configs import get_network_config
 
 logger = logging.getLogger(__name__)
@@ -30,8 +36,132 @@ def render_create_app_ui(current_network: str, network_display: str, config):
     with st.form("create_app_form"):
         st.markdown("**App Information**")
         
-        # For Pangle, pre-fill user_id and role_id from .env and show all required fields
+        # Pre-fill data from store info if available
         existing_data = {}
+        
+        # Get store info from session state
+        store_info_android = st.session_state.get("store_info_android")
+        store_info_ios = st.session_state.get("store_info_ios")
+        
+        # Map store info to network-specific fields
+        if store_info_android:
+            android_package = store_info_android.get("package_name", "")
+            android_name = store_info_android.get("name", "")
+            
+            # Network-specific field mapping
+            if current_network == "bigoads":
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                existing_data["androidPkgName"] = android_package
+                existing_data["name"] = android_name
+                android_category = store_info_android.get("category", "")
+                if android_category:
+                    existing_data["category"] = map_android_category_to_bigoads(android_category)
+            elif current_network == "inmobi":
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                if android_name:
+                    existing_data["appName"] = android_name
+            elif current_network == "pangle":
+                existing_data["androidDownloadUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                if android_name:
+                    existing_data["app_name"] = android_name
+                android_category = store_info_android.get("category", "")
+                if android_category:
+                    existing_data["app_category_code"] = map_android_category_to_tiktok_category(android_category)
+            elif current_network == "unity":
+                existing_data["google_storeId"] = android_package
+                existing_data["google_storeUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                existing_data["name"] = android_name
+            elif current_network == "fyber":
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                existing_data["androidBundle"] = android_package
+                if android_name:
+                    existing_data["name"] = android_name
+                android_category = store_info_android.get("category", "")
+                if android_category:
+                    fyber_category = map_android_category_to_fyber_android_category(android_category)
+                    existing_data["androidCategory1"] = fyber_category
+                    logger.info(f"Fyber: Mapped Android category '{android_category}' to '{fyber_category}', existing_data keys: {list(existing_data.keys())}")
+            elif current_network == "mintegral":
+                existing_data["packageName"] = android_package
+                if android_name:
+                    existing_data["appName"] = android_name
+            elif current_network == "vungle":
+                existing_data["packageName"] = android_package
+                if android_name:
+                    existing_data["name"] = android_name
+            elif current_network == "ironsource":
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
+                if android_name:
+                    existing_data["appName"] = android_name
+                android_category = store_info_android.get("category", "")
+                if android_category:
+                    taxonomy_value = map_android_category_to_ironsource_taxonomy(android_category)
+                    existing_data["taxonomy"] = taxonomy_value
+                    logger.debug(f"IronSource: Mapped Android category '{android_category}' to taxonomy '{taxonomy_value}'")
+            elif current_network == "admob":
+                existing_data["androidAppStoreId"] = android_package
+                if android_name:
+                    existing_data["appName"] = android_name
+        
+        if store_info_ios:
+            ios_bundle_id = store_info_ios.get("bundle_id", "")
+            ios_app_id = store_info_ios.get("app_id", "")
+            ios_name = store_info_ios.get("name", "")
+            ios_store_url = f"https://apps.apple.com/app/id{ios_app_id}" if ios_app_id else ""
+            
+            # Network-specific field mapping
+            if current_network == "bigoads":
+                if ios_store_url:
+                    existing_data["iosStoreUrl"] = ios_store_url
+                existing_data["iosPkgName"] = ios_bundle_id
+                if not existing_data.get("name") and ios_name:
+                    existing_data["name"] = ios_name
+            elif current_network == "inmobi":
+                if ios_store_url:
+                    existing_data["iosStoreUrl"] = ios_store_url
+                if not existing_data.get("appName") and ios_name:
+                    existing_data["appName"] = ios_name
+            elif current_network == "pangle":
+                if ios_store_url:
+                    existing_data["iosDownloadUrl"] = ios_store_url
+                if not existing_data.get("app_name") and ios_name:
+                    existing_data["app_name"] = ios_name
+            elif current_network == "unity":
+                existing_data["apple_storeId"] = ios_app_id
+                if ios_store_url:
+                    existing_data["apple_storeUrl"] = ios_store_url
+                if not existing_data.get("name") and ios_name:
+                    existing_data["name"] = ios_name
+            elif current_network == "fyber":
+                if ios_store_url:
+                    existing_data["iosStoreUrl"] = ios_store_url
+                if ios_bundle_id:
+                    existing_data["iosBundle"] = ios_bundle_id
+                if not existing_data.get("name") and ios_name:
+                    existing_data["name"] = ios_name
+            elif current_network == "mintegral":
+                existing_data["bundleId"] = ios_bundle_id
+                if not existing_data.get("appName") and ios_name:
+                    existing_data["appName"] = ios_name
+            elif current_network == "vungle":
+                existing_data["bundleId"] = ios_bundle_id
+                if not existing_data.get("name") and ios_name:
+                    existing_data["name"] = ios_name
+            elif current_network == "ironsource":
+                if ios_store_url:
+                    existing_data["iosStoreUrl"] = ios_store_url
+                # App Name: prefer Android, fallback to iOS if Android not available
+                if not existing_data.get("appName") and ios_name:
+                    existing_data["appName"] = ios_name
+                # Taxonomy is already set from Android category if available
+                # If only iOS, we could try to map iOS category, but Android is more reliable
+            elif current_network == "admob":
+                if ios_app_id:
+                    existing_data["iosAppStoreId"] = ios_app_id
+                if not existing_data.get("appName") and ios_name:
+                    existing_data["appName"] = ios_name
+        
+        # For Pangle, pre-fill user_id and role_id from .env and show all required fields
         if current_network == "pangle":
             import os
             from dotenv import load_dotenv
@@ -63,8 +193,29 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             st.info("**Auto-generated (on submit):** Timestamp, Nonce, Sign (from security_key + timestamp + nonce)")
             st.divider()
         
+        # Show info if data was pre-filled from store info
+        if existing_data and (store_info_android or store_info_ios):
+            pre_filled_fields = [k for k in existing_data.keys() if k not in ["user_id", "role_id"]]
+            if pre_filled_fields:
+                st.info(f"💡 {len(pre_filled_fields)}개 필드가 Store URL에서 조회된 정보로 자동 채워졌습니다.")
+                # Debug: Show pre-filled values for IronSource and Fyber (use INFO level for visibility)
+                if current_network == "ironsource":
+                    logger.info(f"IronSource existing_data: {existing_data}")
+                elif current_network == "fyber":
+                    logger.info(f"Fyber existing_data: {existing_data}")
+        else:
+            # Log when existing_data is empty or store_info is missing
+            if current_network == "fyber":
+                logger.info(f"Fyber: existing_data is empty or store_info missing. existing_data={existing_data}, store_info_android={bool(store_info_android)}, store_info_ios={bool(store_info_ios)}")
+        
         # Render form without sections for all networks
         form_data = DynamicFormRenderer.render_form(config, "app", existing_data=existing_data)
+        
+        # Debug: Log form_data after rendering for IronSource and Fyber (use INFO level for visibility)
+        if current_network == "ironsource":
+            logger.info(f"IronSource form_data after render: {form_data}")
+        elif current_network == "fyber":
+            logger.info(f"Fyber form_data after render: {form_data}")
         
         # For Pangle, ensure user_id and role_id are in form_data (they're read-only but needed for API)
         if current_network == "pangle":

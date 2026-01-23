@@ -154,20 +154,23 @@ class DynamicFormRenderer:
             # Use current form_data value if exists, otherwise use default
             current_value = form_data.get(field.name, field.default)
             default_index = 0
+            value_found = False
             if current_value is not None:
                 # Find index of current value in updated options
                 for idx, (opt_label, opt_value) in enumerate(options):
                     if opt_value == current_value:
                         default_index = idx
+                        value_found = True
                         break
                 # If current value not found in new options (platform changed), reset to default
-                if default_index == 0 and current_value not in [opt[1] for opt in options]:
+                if not value_found and current_value not in [opt[1] for opt in options]:
                     current_value = None
             elif field.default is not None:
                 # Fallback to default if no current value
                 for idx, (opt_label, opt_value) in enumerate(options):
                     if opt_value == field.default:
                         default_index = idx
+                        value_found = True
                         break
             
             selected_label = st.selectbox(
@@ -275,6 +278,10 @@ class DynamicFormRenderer:
             if android_category_field and ios_category_field:
                 col1, col2 = st.columns(2)
                 with col1:
+                    # Debug: Log before rendering androidCategory1 (use INFO level for visibility)
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Fyber: Rendering androidCategory1, form_data value: {form_data.get('androidCategory1')}")
                     rendered_value = DynamicFormRenderer.render_field(android_category_field, form_data, form_type, config=config)
                     if rendered_value is not None:
                         form_data[android_category_field.name] = rendered_value

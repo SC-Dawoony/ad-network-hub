@@ -20,6 +20,7 @@ from components.create_app_helpers import (
     generate_slot_name,
     create_default_slot
 )
+from utils.app_store_helper import get_ios_app_details, get_android_app_details, PLAY_STORE_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +114,227 @@ if len(available_networks) > 1:
                 st.rerun()
             break
 
-# App Match Name input for ad unit name generation
-# This value will be used instead of Android package name when generating placement names
+st.divider()
+
+# ============================================================================
+# STORE URL INPUT AND APP INFO FETCH SECTION
+# ============================================================================
+# Initialize session state for store info
+if "store_info_ios" not in st.session_state:
+    st.session_state.store_info_ios = None
+if "store_info_android" not in st.session_state:
+    st.session_state.store_info_android = None
+if "app_match_identifier" not in st.session_state:
+    st.session_state.app_match_identifier = None
+
+# Step 1: Store URL Input
+st.markdown("### 1️⃣ Store URL 입력")
+col_android, col_ios = st.columns(2)
+
+with col_android:
+    android_url = st.text_input(
+        "🤖 Google Play Store URL",
+        placeholder="https://play.google.com/store/apps/details?id=...",
+        key="new_android_url",
+        help="Android 앱의 Google Play Store URL을 입력하세요",
+        disabled=not PLAY_STORE_AVAILABLE
+    )
+    if not PLAY_STORE_AVAILABLE:
+        st.caption("⚠️ google-play-scraper 라이브러리가 설치되지 않았습니다. 'pip install google-play-scraper'로 설치해주세요.")
+
+with col_ios:
+    ios_url = st.text_input(
+        "🍎 App Store URL",
+        placeholder="https://apps.apple.com/us/app/...",
+        key="new_ios_url",
+        help="iOS 앱의 App Store URL을 입력하세요"
+    )
+
+# Fetch button
+fetch_info_button = st.button("🔍 앱 정보 조회", type="primary", use_container_width=True)
+
+# Fetch app store info
+if fetch_info_button:
+    ios_info = None
+    android_info = None
+    
+    if ios_url:
+        with st.spinner("iOS 앱 정보를 가져오는 중..."):
+            try:
+                ios_info = get_ios_app_details(ios_url)
+                if ios_info:
+                    st.session_state.store_info_ios = ios_info
+                    st.success(f"✅ iOS 앱 정보 조회 성공: {ios_info.get('name', 'N/A')}")
+                else:
+                    st.error("❌ iOS 앱 정보를 찾을 수 없습니다.")
+            except Exception as e:
+                st.error(f"❌ iOS 앱 정보 조회 실패: {str(e)}")
+    
+    if android_url:
+        with st.spinner("Android 앱 정보를 가져오는 중..."):
+            try:
+                android_info = get_android_app_details(android_url)
+                if android_info:
+                    st.session_state.store_info_android = android_info
+                    st.success(f"✅ Android 앱 정보 조회 성공: {android_info.get('name', 'N/A')}")
+                else:
+                    st.error("❌ Android 앱 정보를 찾을 수 없습니다.")
+            except Exception as e:
+                st.error(f"❌ Android 앱 정보 조회 실패: {str(e)}")
+    
+    if not ios_url and not android_url:
+        st.warning("⚠️ 최소 하나의 Store URL을 입력해주세요.")
+
+# Display fetched info
+if st.session_state.store_info_ios or st.session_state.store_info_android:
+    st.markdown("### 📋 조회된 앱 정보")
+    
+    info_cols = st.columns(2)
+    
+    with info_cols[0]:
+        if st.session_state.store_info_android:
+            info = st.session_state.store_info_android
+            st.markdown("**🤖 Android**")
+            st.write(f"**이름:** {info.get('name', 'N/A')}")
+            st.write(f"**Package Name:** `{info.get('package_name', 'N/A')}`")
+            st.write(f"**개발자:** {info.get('developer', 'N/A')}")
+            st.write(f"**카테고리:** {info.get('category', 'N/A')}")
+            if info.get('icon_url'):
+                st.image(info.get('icon_url'), width=100)
+    
+    with info_cols[1]:
+        if st.session_state.store_info_ios:
+            info = st.session_state.store_info_ios
+            st.markdown("**🍎 iOS**")
+            st.write(f"**이름:** {info.get('name', 'N/A')}")
+            st.write(f"**Bundle ID:** `{info.get('bundle_id', 'N/A')}`")
+            st.write(f"**App ID:** {info.get('app_id', 'N/A')}")
+            st.write(f"**개발자:** {info.get('developer', 'N/A')}")
+            st.write(f"**카테고리:** {info.get('category', 'N/A')}")
+            if info.get('icon_url'):
+                st.image(info.get('icon_url'), width=100)
+
+# App match name selection (if Android and iOS have different identifiers)
+android_package = None
+ios_bundle_id = None
+
+if st.session_state.store_info_android:
+    android_package = st.session_state.store_info_android.get('package_name', '')
+if st.session_state.store_info_ios:
+    ios_bundle_id = st.session_state.store_info_ios.get('bundle_id', '')
+
+# Show App match name selection if both exist and are different
+if android_package and ios_bundle_id and android_package != ios_bundle_id:
+    st.divider()
+    st.markdown("### 🔀 App Match Name 선택")
+    
+    # Initialize selection in session state if not exists
+    if st.session_state.app_match_identifier is None:
+        # Default: use Android Package Name (last part), convert to lowercase
+        android_package_last = android_package.split('.')[-1] if '.' in android_package else android_package
+        st.session_state.app_match_identifier = {
+            "source": "android_package",
+            "value": android_package_last.lower()
+        }
+        # Also update SessionManager's app_match_name
+        SessionManager.set_app_match_name(android_package_last.lower())
+    
+    # Show current selection status
+    selected_value = st.session_state.app_match_identifier.get("value", "")
+    if selected_value:
+        st.info(f"**선택된 값:** `{selected_value}` (이 값이 Android와 iOS Ad Unit 이름 생성에 사용됩니다)")
+    
+    # Define dialog function
+    @st.dialog("🔀 App Match Name 선택")
+    def identifier_selection_dialog():
+        st.markdown("### 🔀 App Match Name")
+        st.info("💡 Android Package Name과 iOS Bundle ID가 다릅니다. Ad Unit 이름 생성 시 어떤 값을 사용할지 선택하거나 직접 입력하세요.")
+        
+        # Extract last part of Android Package Name and iOS Bundle ID
+        android_package_last = android_package.split('.')[-1] if '.' in android_package else android_package
+        ios_bundle_id_last = ios_bundle_id.split('.')[-1] if '.' in ios_bundle_id else ios_bundle_id
+        
+        # Selection options (display original case, but store lowercase)
+        selection_options = [
+            f"Android Package Name: `{android_package_last}`",
+            f"iOS Bundle ID: `{ios_bundle_id_last}`",
+            "직접 입력"
+        ]
+        
+        # Get current selection
+        current_selection = st.session_state.app_match_identifier.get("source", "android_package")
+        if current_selection == "android_package":
+            current_index = 0
+        elif current_selection == "ios_bundle_id":
+            current_index = 1
+        else:
+            current_index = 2
+        
+        selected_option = st.radio(
+            "선택하세요:",
+            options=selection_options,
+            index=current_index,
+            key="app_match_identifier_radio_dialog"
+        )
+        
+        # Update session state based on selection (convert to lowercase)
+        if selected_option.startswith("Android Package Name"):
+            selected_value = android_package_last.lower()
+            st.session_state.app_match_identifier = {
+                "source": "android_package",
+                "value": selected_value
+            }
+            SessionManager.set_app_match_name(selected_value)
+        elif selected_option.startswith("iOS Bundle ID"):
+            selected_value = ios_bundle_id_last.lower()
+            st.session_state.app_match_identifier = {
+                "source": "ios_bundle_id",
+                "value": selected_value
+            }
+            SessionManager.set_app_match_name(selected_value)
+        else:  # 직접 입력
+            custom_value = st.text_input(
+                "직접 입력:",
+                value=st.session_state.app_match_identifier.get("value", ""),
+                key="app_match_identifier_custom_dialog",
+                help="Ad Unit 이름 생성에 사용할 식별자를 직접 입력하세요 (소문자로 저장됩니다)"
+            )
+            if custom_value:
+                selected_value = custom_value.lower()
+                st.session_state.app_match_identifier = {
+                    "source": "custom",
+                    "value": selected_value
+                }
+                SessionManager.set_app_match_name(selected_value)
+        
+        # Show preview
+        selected_value = st.session_state.app_match_identifier.get("value", "")
+        if selected_value:
+            st.success(f"✅ 선택된 값: `{selected_value}` (이 값이 Android와 iOS Ad Unit 이름 생성에 사용됩니다)")
+        
+        # Close dialog buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ 확인", key="confirm_identifier_dialog", use_container_width=True, type="primary"):
+                st.rerun()
+        with col2:
+            if st.button("❌ 취소", key="cancel_identifier_dialog", use_container_width=True):
+                st.rerun()
+    
+    # Button to open dialog
+    if st.button("🔀 App Match Name 선택", key="open_identifier_dialog", use_container_width=True):
+        identifier_selection_dialog()
+elif android_package or ios_bundle_id:
+    # If only one platform or both are the same, auto-set app_match_name
+    if android_package:
+        android_package_last = android_package.split('.')[-1] if '.' in android_package else android_package
+        SessionManager.set_app_match_name(android_package_last.lower())
+    elif ios_bundle_id:
+        ios_bundle_id_last = ios_bundle_id.split('.')[-1] if '.' in ios_bundle_id else ios_bundle_id
+        SessionManager.set_app_match_name(ios_bundle_id_last.lower())
+
+# App Match Name input for ad unit name generation (manual override)
+st.divider()
 app_match_name_input = st.text_input(
     "App Match Name (Optional)",
     value=SessionManager.get_app_match_name(),
