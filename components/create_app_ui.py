@@ -10,7 +10,8 @@ from utils.app_store_helper import (
     map_android_category_to_bigoads,
     map_android_category_to_ironsource_taxonomy,
     map_android_category_to_tiktok_category,
-    map_android_category_to_fyber_android_category
+    map_android_category_to_fyber_android_category,
+    map_android_category_to_vungle_category
 )
 from network_configs import get_network_config
 
@@ -86,9 +87,15 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                 if android_name:
                     existing_data["appName"] = android_name
             elif current_network == "vungle":
-                existing_data["packageName"] = android_package
+                existing_data["androidStoreId"] = android_package
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
                 if android_name:
-                    existing_data["name"] = android_name
+                    existing_data["app_name"] = android_name
+                android_category = store_info_android.get("category", "")
+                if android_category:
+                    vungle_category = map_android_category_to_vungle_category(android_category)
+                    existing_data["category"] = vungle_category
+                    logger.info(f"Vungle: Mapped Android category '{android_category}' to '{vungle_category}', existing_data keys: {list(existing_data.keys())}")
             elif current_network == "ironsource":
                 existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
                 if android_name:
@@ -144,9 +151,13 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                 if not existing_data.get("appName") and ios_name:
                     existing_data["appName"] = ios_name
             elif current_network == "vungle":
-                existing_data["bundleId"] = ios_bundle_id
-                if not existing_data.get("name") and ios_name:
-                    existing_data["name"] = ios_name
+                if ios_app_id:
+                    existing_data["iosStoreId"] = ios_app_id
+                if ios_store_url:
+                    existing_data["iosStoreUrl"] = ios_store_url
+                if not existing_data.get("app_name") and ios_name:
+                    existing_data["app_name"] = ios_name
+                # Category is already set from Android category if available
             elif current_network == "ironsource":
                 if ios_store_url:
                     existing_data["iosStoreUrl"] = ios_store_url
@@ -198,24 +209,44 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             pre_filled_fields = [k for k in existing_data.keys() if k not in ["user_id", "role_id"]]
             if pre_filled_fields:
                 st.info(f"💡 {len(pre_filled_fields)}개 필드가 Store URL에서 조회된 정보로 자동 채워졌습니다.")
-                # Debug: Show pre-filled values for IronSource and Fyber (use INFO level for visibility)
+                # Debug: Show pre-filled values for IronSource, Fyber, and Vungle (use INFO level for visibility)
                 if current_network == "ironsource":
                     logger.info(f"IronSource existing_data: {existing_data}")
                 elif current_network == "fyber":
                     logger.info(f"Fyber existing_data: {existing_data}")
+                elif current_network == "vungle":
+                    logger.info(f"Vungle existing_data: {existing_data}")
         else:
             # Log when existing_data is empty or store_info is missing
             if current_network == "fyber":
                 logger.info(f"Fyber: existing_data is empty or store_info missing. existing_data={existing_data}, store_info_android={bool(store_info_android)}, store_info_ios={bool(store_info_ios)}")
+            elif current_network == "vungle":
+                logger.info(f"Vungle: existing_data is empty or store_info missing. existing_data={existing_data}, store_info_android={bool(store_info_android)}, store_info_ios={bool(store_info_ios)}")
+        
+        # Clear Streamlit widget keys from session_state if existing_data is provided
+        # This ensures that widgets use the new values from existing_data instead of cached values
+        if existing_data and (store_info_android or store_info_ios):
+            # Get all field names from config
+            fields = config.get_app_creation_fields()
+            for field in fields:
+                # Clear widget key from session_state to force re-initialization
+                widget_key = f"app_{field.name}"
+                if widget_key in st.session_state:
+                    # Only clear if we have a new value in existing_data
+                    if field.name in existing_data:
+                        del st.session_state[widget_key]
+                        logger.info(f"Cleared widget key '{widget_key}' to force re-initialization with value: {existing_data[field.name]}")
         
         # Render form without sections for all networks
         form_data = DynamicFormRenderer.render_form(config, "app", existing_data=existing_data)
         
-        # Debug: Log form_data after rendering for IronSource and Fyber (use INFO level for visibility)
+        # Debug: Log form_data after rendering for IronSource, Fyber, and Vungle (use INFO level for visibility)
         if current_network == "ironsource":
             logger.info(f"IronSource form_data after render: {form_data}")
         elif current_network == "fyber":
             logger.info(f"Fyber form_data after render: {form_data}")
+        elif current_network == "vungle":
+            logger.info(f"Vungle form_data after render: {form_data}")
         
         # For Pangle, ensure user_id and role_id are in form_data (they're read-only but needed for API)
         if current_network == "pangle":

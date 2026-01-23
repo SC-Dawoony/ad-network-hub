@@ -428,3 +428,59 @@ def map_android_category_to_fyber_android_category(android_category: str) -> str
     
     logger.info(f"Android category '{android_category}' -> Fyber Android category 'Games - Casual' (no match)")
     return "Games - Casual"
+
+
+# Vungle (Liftoff) Category mapping
+# Map Android/Play Store genre to Vungle Category (exact string match required)
+_ANDROID_TO_VUNGLE_CATEGORY_MAP = [
+    # Games - specific first
+    (["battle royale"], "Battle Royale"),
+    (["action"], "Action"),
+    (["adventure", "adventures"], "Adventure"),
+    (["arcade"], "Arcade"),
+    (["board"], "Board"),
+    (["card", "cards"], "Card"),
+    (["casino", "gambling"], "Casino"),
+    (["casual"], "Casual"),
+    (["educational", "education"], "Educational"),
+    (["family"], "Family"),
+    (["music", "rhythm"], "Music"),
+    (["puzzle", "puzzles"], "Puzzle"),
+    (["racing", "race"], "Racing"),
+    (["role playing", "rpg", "roleplay"], "Role Playing"),
+    (["simulation", "simulator", "sim"], "Simulation"),
+    (["sports", "sport"], "Sports"),
+    (["strategy", "strategic"], "Strategy"),
+    (["trivia"], "Trivia"),
+    (["word", "words"], "Word"),
+]
+
+
+def map_android_category_to_vungle_category(android_category: str) -> str:
+    """Map Android/Play Store genre to Vungle Category.
+    
+    Play Store genre is often like "Game;Action", "Action", "Casual", "Arcade", etc.
+    Returns best matching Vungle Category (exact string), or "Other" as default.
+    
+    Returns:
+        Vungle Category (e.g., "Action", "Casual", "Role Playing", "Other")
+    """
+    if not android_category or not isinstance(android_category, str):
+        return "Other"
+    
+    # Normalize: lowercase, split by ";" (e.g. "Game;Action" -> ["game", "action"])
+    parts = [p.strip().lower() for p in android_category.split(";") if p.strip()]
+    if not parts:
+        return "Other"
+    
+    # If first part is "game", prefer second part for matching
+    search_text = " ".join(parts[1:] if parts[0] == "game" and len(parts) > 1 else parts)
+    
+    for keywords, vungle_category in _ANDROID_TO_VUNGLE_CATEGORY_MAP:
+        for kw in keywords:
+            if kw in search_text:
+                logger.info(f"Android category '{android_category}' -> Vungle category '{vungle_category}'")
+                return vungle_category
+    
+    logger.info(f"Android category '{android_category}' -> Vungle category 'Other' (no match)")
+    return "Other"
