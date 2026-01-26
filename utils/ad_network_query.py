@@ -1732,15 +1732,26 @@ def get_vungle_units(app_id: Optional[str] = None) -> List[Dict]:
         app_id: Optional vungleAppId to filter by (if None, returns all placements)
     
     Returns:
-        List of placement dicts
+        List of placement dicts with status "active" only
     """
     try:
         placements = get_vungle_placements()
         
+        # Filter by status "active" first
+        active_placements = []
+        for placement in placements:
+            status = placement.get("status", "").lower()
+            if status == "active":
+                active_placements.append(placement)
+            else:
+                logger.debug(f"[Vungle] Skipping placement '{placement.get('name', 'N/A')}' with status '{status}' (not active)")
+        
+        logger.info(f"[Vungle] Filtered {len(active_placements)} active placements from {len(placements)} total placements")
+        
         if app_id:
             # Filter by vungleAppId from application object
             filtered = []
-            for placement in placements:
+            for placement in active_placements:
                 # Parse application object (can be string or dict)
                 application = placement.get("application", {})
                 if isinstance(application, str):
@@ -1756,10 +1767,10 @@ def get_vungle_units(app_id: Optional[str] = None) -> List[Dict]:
                 if str(vungle_app_id) == str(app_id):
                     filtered.append(placement)
             
-            logger.info(f"[Vungle] Filtered {len(filtered)} placements for app_id={app_id}")
+            logger.info(f"[Vungle] Filtered {len(filtered)} active placements for app_id={app_id}")
             return filtered
         
-        return placements
+        return active_placements
     except Exception as e:
         logger.error(f"[Vungle] Error getting units: {str(e)}")
         import traceback
