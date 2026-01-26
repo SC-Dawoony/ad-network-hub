@@ -338,10 +338,8 @@ class PangleConfig(NetworkConfig):
             payload.update({
                 "render_type": form_data.get("render_type", 1),  # Default: 1 (template render)
                 "orientation": form_data.get("orientation", 1),  # Default: 1 (vertical)
+                "accept_material_type": form_data.get("accept_material_type", 3),  # Default: 3
             })
-            # accept_material_type is optional (default: 2)
-            if form_data.get("accept_material_type"):
-                payload["accept_material_type"] = form_data.get("accept_material_type")
         
         return payload
 
