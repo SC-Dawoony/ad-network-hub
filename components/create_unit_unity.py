@@ -170,60 +170,60 @@ def render_unity_create_unit_ui(current_network: str):
                 st.markdown(f"  - **Placement Type**: `bidding`")
             
             # Create All 3 Ad Units button
-            if st.button(f"✅ Create All 3 Ad Units", use_container_width=True, type="primary", key=f"create_unity_all_{store_name}"):
-                # Build payload for all 3 ad units
-                payload = []
-                for slot_key, slot_config in unity_slot_configs.items():
-                    unit_name = f"AOS {slot_key} Bidding" if store_name == "google" else f"iOS {slot_key} Bidding"
+            # if st.button(f"✅ Create All 3 Ad Units", use_container_width=True, type="primary", key=f"create_unity_all_{store_name}"):
+            #     # Build payload for all 3 ad units
+            #     payload = []
+            #     for slot_key, slot_config in unity_slot_configs.items():
+            #         unit_name = f"AOS {slot_key} Bidding" if store_name == "google" else f"iOS {slot_key} Bidding"
                     
-                    # Map adFormat to short format for placement name
-                    ad_format_map = {
-                        "rewarded": "rv",
-                        "interstitial": "is",
-                        "banner": "bn"
-                    }
-                    ad_format_lower = ad_format_map.get(slot_config["adFormat"], slot_config["adFormat"][:2])
+            #         # Map adFormat to short format for placement name
+            #         ad_format_map = {
+            #             "rewarded": "rv",
+            #             "interstitial": "is",
+            #             "banner": "bn"
+            #         }
+            #         ad_format_lower = ad_format_map.get(slot_config["adFormat"], slot_config["adFormat"][:2])
                     
-                    # Generate placement name (same format as Create Placements)
-                    if store_id_for_units:
-                        placement_name = _generate_unity_placement_name_for_unit(store_id_for_units, os_str, ad_format_lower)
-                    else:
-                        placement_name = f"unknown {os_str} unity {ad_format_lower} bidding"
+            #         # Generate placement name (same format as Create Placements)
+            #         if store_id_for_units:
+            #             placement_name = _generate_unity_placement_name_for_unit(store_id_for_units, os_str, ad_format_lower)
+            #         else:
+            #             placement_name = f"unknown {os_str} unity {ad_format_lower} bidding"
                     
-                    # Build ad unit payload with addPlacements
-                    ad_unit_payload = {
-                        "name": unit_name,
-                        "adFormat": slot_config["adFormat"],
-                        "addPlacements": [{
-                            "name": placement_name,
-                            "placementType": "bidding"
-                        }]
-                    }
-                    payload.append(ad_unit_payload)
+            #         # Build ad unit payload with addPlacements
+            #         ad_unit_payload = {
+            #             "name": unit_name,
+            #             "adFormat": slot_config["adFormat"],
+            #             "addPlacements": [{
+            #                 "name": placement_name,
+            #                 "placementType": "bidding"
+            #             }]
+            #         }
+            #         payload.append(ad_unit_payload)
                 
-                # Make API call
-                with st.spinner(f"Creating 3 ad units for {store_display}..."):
-                    try:
-                        network_manager = get_network_manager()
-                        response = network_manager._create_unity_ad_units(project_id, store_name, payload)
+            #     # Make API call
+            #     with st.spinner(f"Creating 3 ad units for {store_display}..."):
+            #         try:
+            #             network_manager = get_network_manager()
+            #             response = network_manager._create_unity_ad_units(project_id, store_name, payload)
                         
-                        # Store response in session_state for persistence
-                        response_key = f"unity_create_unit_{store_name}_response"
-                        st.session_state[response_key] = response
+            #             # Store response in session_state for persistence
+            #             response_key = f"unity_create_unit_{store_name}_response"
+            #             st.session_state[response_key] = response
                         
-                        result = handle_api_response(response)
+            #             result = handle_api_response(response)
                         
-                        if result and response.get("status") == 0:
-                            # Check if msg contains "Success" (case-insensitive)
-                            msg = response.get("msg", "").lower()
-                            if "success" in msg:
-                                st.success(f"✅ Ad Units created successfully: {', '.join(ad_unit_names)}")
-                                st.balloons()
-                            else:
-                                st.success(f"✅ Ad Units created: {', '.join(ad_unit_names)}")
-                            st.rerun()
-                        # handle_api_response already displays error messages
-                    except Exception as e:
-                        st.error(f"❌ Error creating ad units: {str(e)}")
-                        SessionManager.log_error(current_network, str(e))
+            #             if result and response.get("status") == 0:
+            #                 # Check if msg contains "Success" (case-insensitive)
+            #                 msg = response.get("msg", "").lower()
+            #                 if "success" in msg:
+            #                     st.success(f"✅ Ad Units created successfully: {', '.join(ad_unit_names)}")
+            #                     st.balloons()
+            #                 else:
+            #                     st.success(f"✅ Ad Units created: {', '.join(ad_unit_names)}")
+            #                 st.rerun()
+            #             # handle_api_response already displays error messages
+            #         except Exception as e:
+            #             st.error(f"❌ Error creating ad units: {str(e)}")
+            #             SessionManager.log_error(current_network, str(e))
 

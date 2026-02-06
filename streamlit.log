@@ -1,0 +1,18 @@
+2026-02-06 12:26:58.797 WARNING streamlit.web.cli: Setting the log level using the --log_level flag is unsupported.
+Use the --logger.level flag (after your streamlit command) instead.
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8503
+  Network URL: http://10.0.1.150:8503
+
+  For better performance, install the Watchdog module:
+
+  $ xcode-select --install
+  $ pip install watchdog
+            
+2026-02-06 12:27:00.249 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.

@@ -147,7 +147,7 @@ def render_create_unit_common_ui(
             # Clear results after displaying (optional - remove if you want to keep them)
             # st.session_state[batch_results_key] = None
         
-        if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
+        if st.button("✨ Create All 3 Slots (RV + IS + BN)", disabled=True, use_container_width=True, type="primary"):
             # Validate app_info_to_use before creating slots
             if not app_info_to_use:
                 st.error("❌ App information is required. Please select an app first.")
@@ -653,7 +653,7 @@ def render_create_unit_common_ui(
                 
                 # Use unique key with app_code to avoid duplicate key errors
                 button_key_android = f"create_android_ad_units_{selected_app_code}_{app_name}"
-                if st.button("✨ Create All 3 Ad Units (Android: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_android):
+                if st.button("✨ Create All 3 Ad Units (Android: RV, IS, BN)", disabled=True, use_container_width=True, type="primary", key=button_key_android):
                     with st.spinner("🚀 Creating Android ad units..."):
                         try:
                             create_payloads = []
@@ -849,7 +849,7 @@ def render_create_unit_common_ui(
                 
                 # Use unique key with app_code to avoid duplicate key errors
                 button_key_ios = f"create_ios_ad_units_{selected_app_code}_{app_name}"
-                if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", use_container_width=True, type="primary", key=button_key_ios):
+                if st.button("✨ Create All 3 Ad Units (iOS: RV, IS, BN)", disabled=True, use_container_width=True, type="primary", key=button_key_ios):
                     with st.spinner("🚀 Creating iOS ad units..."):
                         try:
                             create_payloads = []
@@ -955,7 +955,7 @@ def render_create_unit_common_ui(
                             break
             
             # Create All 3 Placements button
-            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_inmobi_placements"):
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", disabled=True, use_container_width=True, type="primary", key="create_all_inmobi_placements"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
                 else:
@@ -1093,7 +1093,7 @@ def render_create_unit_common_ui(
                             break
             
             # Create All 3 Ad Units button
-            if st.button("✨ Create All 3 Ad Units (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_admob_ad_units"):
+            if st.button("✨ Create All 3 Ad Units (RV + IS + BN)", disabled=True, use_container_width=True, type="primary", key="create_all_admob_ad_units"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
                 elif not app_id and not app_store_id:
@@ -1259,7 +1259,7 @@ def render_create_unit_common_ui(
                             break
             
             # Create All 3 Placements button
-            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_fyber_placements"):
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", disabled=True, use_container_width=True, type="primary", key="create_all_fyber_placements"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
                 elif not app_id:
@@ -1702,7 +1702,7 @@ def render_create_unit_common_ui(
                             logger.exception("Error creating Pangle placements")
             
             # Create All 3 Placements button (for single platform or when iOS app not found)
-            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="secondary", key="create_all_3_pangle_placements"):
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", disabled=True, use_container_width=True, type="secondary", key="create_all_3_pangle_placements"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
                 else:
@@ -1918,7 +1918,7 @@ def render_create_unit_common_ui(
                             logger.warning(f"[Mintegral] Failed to fetch all apps from API: {str(e)}")
             
             # Create All 3 Placements button
-            if st.button("✨ Create All 3 Placements (RV + IS + BN)", use_container_width=True, type="primary", key="create_all_mintegral_placements"):
+            if st.button("✨ Create All 3 Placements (RV + IS + BN)", disabled=True, use_container_width=True, type="primary", key="create_all_mintegral_placements"):
                 if not selected_app_code:
                     st.toast("❌ Please select an App Code", icon="🚫")
                 else:

@@ -37,173 +37,173 @@ def render_applovin_create_unit_ui():
     st.info("💡 **Note:** Ad Units will be created for both Android and iOS platforms automatically.")
     
     # Create All Ad Units button
-    if st.button("✨ Create All 6 Ad Units (Android + iOS: RV, IS, BN)", use_container_width=True, type="primary", key="create_all_applovin_units"):
-        if not package_name:
-            st.error("❌ Package Name is required")
-        else:
-            # Prepare all ad units to create
-            ad_units_to_create = []
-            platforms = [
-                ("android", "Android", "AOS"),
-                ("ios", "iOS", "iOS")
-            ]
-            slot_configs_applovin = {
-                "RV": {"name": "Rewarded Video", "ad_format": "REWARD"},
-                "IS": {"name": "Interstitial", "ad_format": "INTER"},
-                "BN": {"name": "Banner", "ad_format": "BANNER"}
-            }
+    # if st.button("✨ Create All 6 Ad Units (Android + iOS: RV, IS, BN)", use_container_width=True, type="primary", key="create_all_applovin_units"):
+    #     if not package_name:
+    #         st.error("❌ Package Name is required")
+    #     else:
+    #         # Prepare all ad units to create
+    #         ad_units_to_create = []
+    #         platforms = [
+    #             ("android", "Android", "AOS"),
+    #             ("ios", "iOS", "iOS")
+    #         ]
+    #         slot_configs_applovin = {
+    #             "RV": {"name": "Rewarded Video", "ad_format": "REWARD"},
+    #             "IS": {"name": "Interstitial", "ad_format": "INTER"},
+    #             "BN": {"name": "Banner", "ad_format": "BANNER"}
+    #         }
             
-            for platform, platform_display, os_str in platforms:
-                for slot_key, slot_config in slot_configs_applovin.items():
-                    slot_name_key = f"applovin_slot_{platform}_{slot_key}_name"
-                    slot_name = st.session_state.get(slot_name_key, "")
+    #         for platform, platform_display, os_str in platforms:
+    #             for slot_key, slot_config in slot_configs_applovin.items():
+    #                 slot_name_key = f"applovin_slot_{platform}_{slot_key}_name"
+    #                 slot_name = st.session_state.get(slot_name_key, "")
                     
-                    if not slot_name:
-                        # Generate name if not set
-                        if app_name:
-                            adformat_map = {"RV": "RV", "IS": "IS", "BN": "BN"}
-                            adformat = adformat_map.get(slot_key, slot_key)
-                            slot_name = f"{app_name} {os_str} {adformat}"
-                        elif package_name:
-                            pkg_last_part = package_name.split(".")[-1] if "." in package_name else package_name
-                            os_lower = "aos" if platform == "android" else "ios"
-                            adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                            adtype = adtype_map.get(slot_key, slot_key.lower())
-                            slot_name = f"{pkg_last_part}_{os_lower}_applovin_{adtype}_bidding"
-                        else:
-                            slot_name = f"{slot_key.lower()}_{platform}_ad_unit"
+    #                 if not slot_name:
+    #                     # Generate name if not set
+    #                     if app_name:
+    #                         adformat_map = {"RV": "RV", "IS": "IS", "BN": "BN"}
+    #                         adformat = adformat_map.get(slot_key, slot_key)
+    #                         slot_name = f"{app_name} {os_str} {adformat}"
+    #                     elif package_name:
+    #                         pkg_last_part = package_name.split(".")[-1] if "." in package_name else package_name
+    #                         os_lower = "aos" if platform == "android" else "ios"
+    #                         adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
+    #                         adtype = adtype_map.get(slot_key, slot_key.lower())
+    #                         slot_name = f"{pkg_last_part}_{os_lower}_applovin_{adtype}_bidding"
+    #                     else:
+    #                         slot_name = f"{slot_key.lower()}_{platform}_ad_unit"
                     
-                    ad_units_to_create.append({
-                        "platform": platform,
-                        "platform_display": platform_display,
-                        "slot_key": slot_key,
-                        "slot_name": slot_name,
-                        "slot_config": slot_config
-                    })
+    #                 ad_units_to_create.append({
+    #                     "platform": platform,
+    #                     "platform_display": platform_display,
+    #                     "slot_key": slot_key,
+    #                     "slot_name": slot_name,
+    #                     "slot_config": slot_config
+    #                 })
             
-            # Create all ad units sequentially
-            import time
-            results = []
-            total = len(ad_units_to_create)
+    #         # Create all ad units sequentially
+    #         import time
+    #         results = []
+    #         total = len(ad_units_to_create)
             
-            # Create progress container
-            progress_container = st.container()
-            with progress_container:
-                st.info(f"🚀 Creating {total} Ad Units...")
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+    #         # Create progress container
+    #         progress_container = st.container()
+    #         with progress_container:
+    #             st.info(f"🚀 Creating {total} Ad Units...")
+    #             progress_bar = st.progress(0)
+    #             status_text = st.empty()
                 
-                network_manager = get_network_manager()
+    #             network_manager = get_network_manager()
                 
-                for idx, unit_info in enumerate(ad_units_to_create, 1):
-                    platform = unit_info["platform"]
-                    platform_display = unit_info["platform_display"]
-                    slot_key = unit_info["slot_key"]
-                    slot_name = unit_info["slot_name"]
-                    slot_config = unit_info["slot_config"]
+    #             for idx, unit_info in enumerate(ad_units_to_create, 1):
+    #                 platform = unit_info["platform"]
+    #                 platform_display = unit_info["platform_display"]
+    #                 slot_key = unit_info["slot_key"]
+    #                 slot_name = unit_info["slot_name"]
+    #                 slot_config = unit_info["slot_config"]
                     
-                    # Update progress
-                    progress = idx / total
-                    progress_bar.progress(progress)
-                    status_text.text(f"📝 [{idx}/{total}] Creating {slot_key} ({platform_display}): {slot_name}")
+    #                 # Update progress
+    #                 progress = idx / total
+    #                 progress_bar.progress(progress)
+    #                 status_text.text(f"📝 [{idx}/{total}] Creating {slot_key} ({platform_display}): {slot_name}")
                     
-                    # Build payload
-                    payload = {
-                        "name": slot_name,
-                        "platform": platform,
-                        "package_name": package_name,
-                        "ad_format": slot_config["ad_format"]
-                    }
+    #                 # Build payload
+    #                 payload = {
+    #                     "name": slot_name,
+    #                     "platform": platform,
+    #                     "package_name": package_name,
+    #                     "ad_format": slot_config["ad_format"]
+    #                 }
                     
-                    # Make API call
-                    try:
-                        response = network_manager.create_unit("applovin", payload)
+    #                 # Make API call
+    #                 try:
+    #                     response = network_manager.create_unit("applovin", payload)
                         
-                        if not response:
-                            results.append({
-                                "platform": platform_display,
-                                "slot_key": slot_key,
-                                "slot_name": slot_name,
-                                "status": "error",
-                                "error": "No response from API"
-                            })
-                        else:
-                            result = handle_api_response(response)
+    #                     if not response:
+    #                         results.append({
+    #                             "platform": platform_display,
+    #                             "slot_key": slot_key,
+    #                             "slot_name": slot_name,
+    #                             "status": "error",
+    #                             "error": "No response from API"
+    #                         })
+    #                     else:
+    #                         result = handle_api_response(response)
                             
-                            if result is not None:
-                                unit_data = {
-                                    "slotCode": result.get("id", result.get("adUnitId", "N/A")),
-                                    "name": slot_name,
-                                    "appCode": package_name,
-                                    "slotType": slot_config["ad_format"],
-                                    "adType": slot_config["ad_format"],
-                                    "auctionType": "N/A"
-                                }
-                                SessionManager.add_created_unit("applovin", unit_data)
+    #                         if result is not None:
+    #                             unit_data = {
+    #                                 "slotCode": result.get("id", result.get("adUnitId", "N/A")),
+    #                                 "name": slot_name,
+    #                                 "appCode": package_name,
+    #                                 "slotType": slot_config["ad_format"],
+    #                                 "adType": slot_config["ad_format"],
+    #                                 "auctionType": "N/A"
+    #                             }
+    #                             SessionManager.add_created_unit("applovin", unit_data)
                                 
-                                results.append({
-                                    "platform": platform_display,
-                                    "slot_key": slot_key,
-                                    "slot_name": slot_name,
-                                    "status": "success",
-                                    "unit_id": result.get("id", result.get("adUnitId", "N/A"))
-                                })
-                            else:
-                                # Extract error message from response if available
-                                error_msg = "Unknown error"
-                                if isinstance(response, dict):
-                                    error_msg = response.get("msg", response.get("error", "Unknown error"))
+    #                             results.append({
+    #                                 "platform": platform_display,
+    #                                 "slot_key": slot_key,
+    #                                 "slot_name": slot_name,
+    #                                 "status": "success",
+    #                                 "unit_id": result.get("id", result.get("adUnitId", "N/A"))
+    #                             })
+    #                         else:
+    #                             # Extract error message from response if available
+    #                             error_msg = "Unknown error"
+    #                             if isinstance(response, dict):
+    #                                 error_msg = response.get("msg", response.get("error", "Unknown error"))
                                 
-                                results.append({
-                                    "platform": platform_display,
-                                    "slot_key": slot_key,
-                                    "slot_name": slot_name,
-                                    "status": "error",
-                                    "error": error_msg
-                                })
-                    except Exception as e:
-                        results.append({
-                            "platform": platform_display,
-                            "slot_key": slot_key,
-                            "slot_name": slot_name,
-                            "status": "error",
-                            "error": str(e)
-                        })
-                        SessionManager.log_error("applovin", str(e))
+    #                             results.append({
+    #                                 "platform": platform_display,
+    #                                 "slot_key": slot_key,
+    #                                 "slot_name": slot_name,
+    #                                 "status": "error",
+    #                                 "error": error_msg
+    #                             })
+    #                 except Exception as e:
+    #                     results.append({
+    #                         "platform": platform_display,
+    #                         "slot_key": slot_key,
+    #                         "slot_name": slot_name,
+    #                         "status": "error",
+    #                         "error": str(e)
+    #                     })
+    #                     SessionManager.log_error("applovin", str(e))
                     
-                    # Add small delay to avoid rate limiting (0.5 seconds between requests)
-                    if idx < total:
-                        time.sleep(0.5)
+    #                 # Add small delay to avoid rate limiting (0.5 seconds between requests)
+    #                 if idx < total:
+    #                     time.sleep(0.5)
                 
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
+    #             # Clear progress indicators
+    #             progress_bar.empty()
+    #             status_text.empty()
             
-            # Display results summary
-            st.divider()
-            st.subheader("📋 Creation Results")
+    #         # Display results summary
+    #         st.divider()
+    #         st.subheader("📋 Creation Results")
             
-            success_count = sum(1 for r in results if r["status"] == "success")
-            error_count = sum(1 for r in results if r["status"] == "error")
+    #         success_count = sum(1 for r in results if r["status"] == "success")
+    #         error_count = sum(1 for r in results if r["status"] == "error")
             
-            if success_count > 0:
-                st.success(f"✅ {success_count} Ad Units created successfully!")
-            if error_count > 0:
-                st.error(f"❌ {error_count} Ad Units failed")
+    #         if success_count > 0:
+    #             st.success(f"✅ {success_count} Ad Units created successfully!")
+    #         if error_count > 0:
+    #             st.error(f"❌ {error_count} Ad Units failed")
             
-            # Display detailed results
-            with st.expander("📊 Detailed Results", expanded=True):
-                for result in results:
-                    if result["status"] == "success":
-                        st.success(f"✅ {result['slot_key']} ({result['platform']}): {result['slot_name']} [ID: {result.get('unit_id', 'N/A')}]")
-                    else:
-                        st.error(f"❌ {result['slot_key']} ({result['platform']}): {result['slot_name']} - {result.get('error', 'Unknown error')}")
+    #         # Display detailed results
+    #         with st.expander("📊 Detailed Results", expanded=True):
+    #             for result in results:
+    #                 if result["status"] == "success":
+    #                     st.success(f"✅ {result['slot_key']} ({result['platform']}): {result['slot_name']} [ID: {result.get('unit_id', 'N/A')}]")
+    #                 else:
+    #                     st.error(f"❌ {result['slot_key']} ({result['platform']}): {result['slot_name']} - {result.get('error', 'Unknown error')}")
             
-            # Show balloons if all succeeded
-            if error_count == 0 and success_count == total:
-                st.balloons()
+    #         # Show balloons if all succeeded
+    #         if error_count == 0 and success_count == total:
+    #             st.balloons()
             
-            st.rerun()
+    #         st.rerun()
     
     st.divider()
     

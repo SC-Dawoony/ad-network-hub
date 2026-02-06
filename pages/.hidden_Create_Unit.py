@@ -224,30 +224,30 @@ if selected_app_code:
                 app_info_to_use["pkgName"] = last_app_info.get("pkgName", "")
         
         # Create All 3 Slots button at the top
-        if app_info_to_use and current_network == "bigoads":
-            if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
-                with st.spinner("Creating all 3 slots..."):
-                    results = []
-                    for slot_type in ["rv", "is", "bn"]:
-                        try:
-                            _create_default_slot(current_network, app_info_to_use, slot_type, network_manager, config)
-                            results.append({"type": slot_type.upper(), "status": "success"})
-                        except Exception as e:
-                            results.append({"type": slot_type.upper(), "status": "error", "error": str(e)})
+        # if app_info_to_use and current_network == "bigoads":
+        #     if st.button("✨ Create All 3 Slots (RV + IS + BN)", use_container_width=True, type="primary"):
+        #         with st.spinner("Creating all 3 slots..."):
+        #             results = []
+        #             for slot_type in ["rv", "is", "bn"]:
+        #                 try:
+        #                     _create_default_slot(current_network, app_info_to_use, slot_type, network_manager, config)
+        #                     results.append({"type": slot_type.upper(), "status": "success"})
+        #                 except Exception as e:
+        #                     results.append({"type": slot_type.upper(), "status": "error", "error": str(e)})
                     
-                    # Show results
-                    st.success("🎉 Finished creating slots!")
-                    st.balloons()
+        #             # Show results
+        #             st.success("🎉 Finished creating slots!")
+        #             st.balloons()
                     
-                    # Display created slots
-                    st.subheader("📋 Created Slots")
-                    for result in results:
-                        if result["status"] == "success":
-                            st.success(f"✅ {result['type']} slot created successfully")
-                        else:
-                            st.error(f"❌ {result['type']} slot failed: {result.get('error', 'Unknown error')}")
+        #             # Display created slots
+        #             st.subheader("📋 Created Slots")
+        #             for result in results:
+        #                 if result["status"] == "success":
+        #                     st.success(f"✅ {result['type']} slot created successfully")
+        #                 else:
+        #                     st.error(f"❌ {result['type']} slot failed: {result.get('error', 'Unknown error')}")
                     
-                    st.rerun()
+        #             st.rerun()
     
     st.divider()
     
