@@ -157,7 +157,7 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                     existing_data["iosStoreUrl"] = ios_store_url
                 if not existing_data.get("app_name") and ios_name:
                     existing_data["app_name"] = ios_name
-                # Category is already set from Android category if available
+                # Note: Category is set from Android but will be excluded for iOS in payload builder
             elif current_network == "ironsource":
                 if ios_store_url:
                     existing_data["iosStoreUrl"] = ios_store_url

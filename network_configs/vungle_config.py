@@ -194,17 +194,23 @@ class VungleConfig(NetworkConfig):
                 store_url = form_data.get("iosStoreUrl", "").strip()
                 platform_str = "ios"
         
+        # Build store object
+        store_obj = {
+            "id": store_id,
+            "isPaid": False,  # Default to free app
+            "isManual": True,  # Default to manual
+            "url": store_url if store_url else "",
+            "thumbnail": ""  # Optional, can be empty
+        }
+
+        # Only add category for Android platform (iOS should not have category)
+        if platform_str == "android" and category:
+            store_obj["category"] = category
+
         payload = {
             "platform": platform_str,
             "name": form_data.get("app_name", "").strip(),
-            "store": {
-                "id": store_id,
-                "category": category if category else "",
-                "isPaid": False,  # Default to free app
-                "isManual": True,  # Default to manual
-                "url": store_url if store_url else "",
-                "thumbnail": ""  # Optional, can be empty
-            },
+            "store": store_obj,
             "isCoppa": form_data.get("isCoppa", False)
         }
         
