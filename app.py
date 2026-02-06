@@ -6,20 +6,7 @@ from typing import Optional
 from pathlib import Path
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
-from utils.auth import AuthManager
 from network_configs import get_available_networks, get_network_display_names, get_network_config
-
-# Page config must be first Streamlit command
-st.set_page_config(
-    page_title="Ad Network Management Hub",
-    page_icon="🌐",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Auth check - redirect to login if not authenticated (production only, ENABLE_AUTH=true)
-if not AuthManager.is_authenticated():
-    st.switch_page("pages/0_Login.py")
 
 
 def switch_to_page(page_filename: str):
@@ -42,20 +29,20 @@ def switch_to_page(page_filename: str):
     # If all attempts fail, show error
     st.error(f"Could not navigate to page: {page_filename}. Please use the sidebar navigation.")
 
+# Page configuration
+st.set_page_config(
+    page_title="Ad Network Management Hub",
+    page_icon="🌐",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Initialize session state
 SessionManager.initialize()
 
 # Sidebar - Network Selection
 with st.sidebar:
     st.title("🌐 Ad Network Hub")
-    # User info and logout (only when auth is enabled)
-    from utils.auth.auth_manager import is_auth_required
-    user = AuthManager.get_user() if is_auth_required() else None
-    if user:
-        st.caption(f"👤 {user.get('email', 'Unknown')}")
-        if st.button("🚪 로그아웃", use_container_width=True):
-            AuthManager.logout()
-            st.rerun()
     st.divider()
     
     # Network selector

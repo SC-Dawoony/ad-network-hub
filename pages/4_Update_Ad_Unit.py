@@ -1,7 +1,6 @@
 """AppLovin Ad Unit Settings Update page"""
 import streamlit as st
 import json
-from utils.auth import AuthManager
 import pandas as pd
 import logging
 from datetime import datetime
@@ -31,10 +30,6 @@ st.set_page_config(
     page_icon="⚙️",
     layout="wide"
 )
-
-# Auth check
-if not AuthManager.is_authenticated():
-    st.switch_page("pages/0_Login.py")
 
 st.title("⚙️ MAX Ad Unit Settings 업데이트")
 st.markdown("AppLovin API를 통해 MAX Ad Unit의 ad_network_settings를 업데이트합니다.")

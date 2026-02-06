@@ -1,7 +1,6 @@
 """View Lists page - Apps and Slots"""
 import streamlit as st
 import pandas as pd
-from utils.auth import AuthManager
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
 from network_configs import get_network_config, get_network_display_names
@@ -12,10 +11,6 @@ st.set_page_config(
     page_icon="📋",
     layout="wide"
 )
-
-# Auth check
-if not AuthManager.is_authenticated():
-    st.switch_page("pages/0_Login.py")
 
 # Initialize session
 SessionManager.initialize()
