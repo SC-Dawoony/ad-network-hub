@@ -15,8 +15,7 @@ code = query_params.get("code")
 if code:
     with st.spinner("로그인 처리 중..."):
         if AuthManager.login_with_code(code):
-            # Clear code from URL and redirect to main app
-            st.query_params.clear()
+            # Navigate to main app (do NOT clear query_params before - it triggers rerun and skips switch_page)
             st.switch_page("app.py")
         else:
             st.error("❌ 로그인에 실패했습니다. 다시 시도해주세요.")
