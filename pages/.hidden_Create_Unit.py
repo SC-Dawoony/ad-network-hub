@@ -1,5 +1,6 @@
 """Create Unit/Slot page"""
 import streamlit as st
+from utils.auth import AuthManager
 from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
 from utils.network_manager import get_network_manager, handle_api_response
@@ -111,7 +112,10 @@ st.set_page_config(
     page_icon="🎯",
     layout="wide"
 )
-# Note: This page can also be accessed from the "Create App & Unit" page
+
+# Auth check
+if not AuthManager.is_authenticated():
+    st.switch_page("pages/0_Login.py")
 
 # Initialize session
 SessionManager.initialize()

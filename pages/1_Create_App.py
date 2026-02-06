@@ -1,6 +1,7 @@
 """Create App/Media and Unit page"""
 import streamlit as st
 import logging
+from utils.auth import AuthManager
 import json
 from utils.session_manager import SessionManager
 from utils.ui_components import DynamicFormRenderer
@@ -38,6 +39,10 @@ st.set_page_config(
     page_icon="📱",
     layout="wide"
 )
+
+# Auth check
+if not AuthManager.is_authenticated():
+    st.switch_page("pages/0_Login.py")
 
 # Initialize session
 SessionManager.initialize()

@@ -1,1 +1,6 @@
 .env
+auth_tokens/
+.streamlit/secrets.toml
+AUTH_SETUP.md
+bigoads_streamlit_design.md
+DEPLOYMENT.md
