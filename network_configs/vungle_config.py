@@ -203,9 +203,14 @@ class VungleConfig(NetworkConfig):
             "thumbnail": ""  # Optional, can be empty
         }
 
-        # Only add category for Android platform (iOS should not have category)
-        if platform_str == "android" and category:
-            store_obj["category"] = category
+        # Set category based on platform
+        if platform_str == "android":
+            # Android: use mapped category from form data
+            if category:
+                store_obj["category"] = category
+        else:
+            # iOS: always use "Games" as category
+            store_obj["category"] = "Games"
 
         payload = {
             "platform": platform_str,
