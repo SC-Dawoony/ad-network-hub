@@ -170,6 +170,23 @@ with st.sidebar:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
+        elif network == "unity":
+            # Check for Unity credentials
+            organization_id = get_env("UNITY_ORGANIZATION_ID")
+            key_id = get_env("UNITY_KEY_ID")
+            secret_key = get_env("UNITY_SECRET_KEY")
+            if organization_id and key_id and secret_key:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
+        elif network == "vungle":
+            # Check for Vungle (Liftoff) credentials
+            jwt_token = get_env("LIFTOFF_JWT_TOKEN") or get_env("VUNGLE_JWT_TOKEN")
+            secret_token = get_env("LIFTOFF_SECRET_TOKEN") or get_env("VUNGLE_SECRET_TOKEN")
+            if jwt_token and secret_token:
+                status = "✅ Active"
+            else:
+                status = "⚠️ Not Set"
         else:
             # For other networks, check credentials
             status = "⚠️ Not Set"
