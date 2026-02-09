@@ -181,9 +181,10 @@ with st.sidebar:
                 status = "⚠️ Not Set"
         elif network == "vungle":
             # Check for Vungle (Liftoff) credentials
+            # Either JWT token or Secret token is sufficient (secret token can get JWT automatically)
             jwt_token = get_env("LIFTOFF_JWT_TOKEN") or get_env("VUNGLE_JWT_TOKEN")
             secret_token = get_env("LIFTOFF_SECRET_TOKEN") or get_env("VUNGLE_SECRET_TOKEN")
-            if jwt_token and secret_token:
+            if jwt_token or secret_token:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
