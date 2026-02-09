@@ -387,8 +387,8 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             else:
                 # Build payload
                 try:
-                    # For IronSource, InMobi, BigOAds, Fyber, and Pangle, handle both iOS and Android platforms (using Store URLs)
-                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber", "pangle"]:
+                    # For IronSource, InMobi, BigOAds, Fyber, Pangle, and Vungle, handle both iOS and Android platforms (using Store URLs)
+                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber", "pangle", "vungle"]:
                         # For Pangle, use Download URL instead of Store URL
                         if current_network == "pangle":
                             ios_store_url = form_data.get("iosDownloadUrl", "").strip()
