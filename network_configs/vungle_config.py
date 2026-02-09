@@ -89,7 +89,7 @@ class VungleConfig(NetworkConfig):
                 field_type="dropdown",
                 required=False,
                 label="Category",
-                options=self._get_store_categories(),
+                options=[("Games", "Games")],
                 default="Games",
                 disabled=True,
                 help_text="App category (fixed to 'Games' for both Android and iOS)"
