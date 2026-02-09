@@ -17,6 +17,7 @@ class Field:
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     placeholder: Optional[str] = None
+    disabled: bool = False
     
     def __post_init__(self):
         if self.label is None:

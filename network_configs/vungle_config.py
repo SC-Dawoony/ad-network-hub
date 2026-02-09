@@ -90,7 +90,9 @@ class VungleConfig(NetworkConfig):
                 required=False,
                 label="Category",
                 options=self._get_store_categories(),
-                help_text="App category (applies to both Android and iOS)"
+                default="Games",
+                disabled=True,
+                help_text="App category (fixed to 'Games' for both Android and iOS)"
             ),
             Field(
                 name="isCoppa",
@@ -203,14 +205,8 @@ class VungleConfig(NetworkConfig):
             "thumbnail": ""  # Optional, can be empty
         }
 
-        # Set category based on platform
-        if platform_str == "android":
-            # Android: use mapped category from form data
-            if category:
-                store_obj["category"] = category
-        else:
-            # iOS: always use "Games" as category
-            store_obj["category"] = "Games"
+        # Set category to "Games" for both platforms
+        store_obj["category"] = "Games"
 
         payload = {
             "platform": platform_str,

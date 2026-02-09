@@ -58,7 +58,8 @@ class DynamicFormRenderer:
                 value=str(current_value) if current_value is not None else "",
                 help=field.help_text,
                 placeholder=field.placeholder,
-                key=field_key
+                key=field_key,
+                disabled=field.disabled
             )
         
         elif field.field_type == "number":
@@ -98,7 +99,8 @@ class DynamicFormRenderer:
                 value=default_val,
                 help=field.help_text,
                 placeholder=field.placeholder,
-                key=field_key
+                key=field_key,
+                disabled=field.disabled
             )
         
         elif field.field_type == "radio":
@@ -128,7 +130,8 @@ class DynamicFormRenderer:
                 options=options,
                 index=selected_index,
                 help=field.help_text,
-                key=field_key
+                key=field_key,
+                disabled=field.disabled
             )
             # Return the value corresponding to the selected label
             for opt_label, opt_value in field.options or []:
@@ -178,7 +181,8 @@ class DynamicFormRenderer:
                 options=option_labels,
                 index=default_index,
                 help=field.help_text,
-                key=field_key
+                key=field_key,
+                disabled=field.disabled
             )
             # Return the value corresponding to the selected label
             for opt_label, opt_value in options:
@@ -206,7 +210,8 @@ class DynamicFormRenderer:
                 options=option_labels,
                 default=default_labels,
                 help=field.help_text,
-                key=field_key
+                key=field_key,
+                disabled=field.disabled
             )
             # Return values corresponding to selected labels
             selected_values = []
