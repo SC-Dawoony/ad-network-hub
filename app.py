@@ -82,7 +82,7 @@ with st.sidebar:
 
     # Hidden: View Lists menu item
     # if st.button("📋 View Lists", use_container_width=True):
-    #     switch_to_page("3_View_Lists.py")
+    #     switch_to_page(".hidden_3_View_Lists.py")
 
     if st.button("⚙️ Update Ad Unit", use_container_width=True):
         switch_to_page("4_Update_Ad_Unit.py")
