@@ -1,30 +1,129 @@
-"""Authentication utilities for Google OAuth login gate"""
+"""Authentication utilities for Google OAuth login gate.
+
+Session persistence strategy:
+- st.session_state: per-user, per-tab (cleared on browser refresh)
+- JWT cookie: per-browser, persists across refreshes (stores refresh_token)
+- NO server-side file: prevents cross-user contamination on shared hosts
+"""
 import streamlit as st
 import os
 import json
+import time
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-_TOKEN_FILE = os.path.join(_PROJECT_ROOT, "admob_token.json")
+_JWT_COOKIE_NAME = "auth_jwt"
+_JWT_EXPIRY_DAYS = 7
 
+
+# ---------------------------------------------------------------------------
+# Environment helpers
+# ---------------------------------------------------------------------------
+
+def _get_env(key: str) -> Optional[str]:
+    """Get env var from Streamlit secrets or os.environ."""
+    try:
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key)
+
+
+def _get_jwt_secret() -> str:
+    """Get JWT signing secret."""
+    secret = _get_env("JWT_SECRET")
+    if secret:
+        return secret
+    # Derive from GOOGLE_CLIENT_SECRET as fallback
+    client_secret = _get_env("GOOGLE_CLIENT_SECRET") or "default-change-me"
+    return f"jwt-{client_secret}"
+
+
+# ---------------------------------------------------------------------------
+# JWT helpers
+# ---------------------------------------------------------------------------
+
+def _create_jwt(user_info: dict, refresh_token: str) -> str:
+    """Create a signed JWT with user info and refresh token."""
+    import jwt
+
+    payload = {
+        "email": user_info.get("email", ""),
+        "name": user_info.get("name", ""),
+        "picture": user_info.get("picture", ""),
+        "rt": refresh_token,
+        "exp": int(time.time()) + (_JWT_EXPIRY_DAYS * 24 * 60 * 60),
+    }
+    return jwt.encode(payload, _get_jwt_secret(), algorithm="HS256")
+
+
+def _verify_jwt(token: str) -> Optional[dict]:
+    """Verify and decode a JWT. Returns payload or None."""
+    import jwt
+
+    try:
+        return jwt.decode(token, _get_jwt_secret(), algorithms=["HS256"])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Browser cookie helpers
+# ---------------------------------------------------------------------------
+
+def _get_cookie(name: str) -> Optional[str]:
+    """Read a cookie from the browser request."""
+    try:
+        return st.context.cookies.get(name)
+    except Exception:
+        return None
+
+
+def _set_cookie_js(name: str, value: str, max_age: int):
+    """Set a browser cookie via JavaScript injection."""
+    import streamlit.components.v1 as components
+
+    components.html(
+        f'<script>document.cookie="{name}={value};path=/;max-age={max_age};SameSite=Lax";</script>',
+        height=0,
+    )
+
+
+def _clear_cookie_js(name: str):
+    """Clear a browser cookie."""
+    _set_cookie_js(name, "", 0)
+
+
+# ---------------------------------------------------------------------------
+# Core auth functions
+# ---------------------------------------------------------------------------
 
 def is_authenticated() -> bool:
     """Check if the current user is authenticated.
 
-    Returns True if session has a valid authenticated flag,
-    or if session can be restored from admob_token.json.
+    1. st.session_state (fast, same tab)
+    2. JWT cookie (persists across page refreshes)
     """
     if st.session_state.get("authenticated"):
         return True
-    return _try_restore_session()
+    return _try_restore_from_cookie()
 
 
-def _try_restore_session() -> bool:
-    """Try to restore session from admob_token.json."""
-    if not os.path.exists(_TOKEN_FILE):
+def _try_restore_from_cookie() -> bool:
+    """Restore auth session from JWT cookie using refresh_token."""
+    token = _get_cookie(_JWT_COOKIE_NAME)
+    if not token:
+        return False
+
+    payload = _verify_jwt(token)
+    if not payload:
+        return False
+
+    refresh_token = payload.get("rt")
+    if not refresh_token:
         return False
 
     try:
@@ -32,27 +131,60 @@ def _try_restore_session() -> bool:
         from google.auth.transport.requests import Request
         from utils.network_apis.admob_api import ADMOB_SCOPES
 
-        creds = Credentials.from_authorized_user_file(_TOKEN_FILE, ADMOB_SCOPES)
+        client_id = _get_env("GOOGLE_CLIENT_ID")
+        client_secret = _get_env("GOOGLE_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            return False
 
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(_TOKEN_FILE, "w") as f:
-                f.write(creds.to_json())
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=ADMOB_SCOPES,
+        )
+        creds.refresh(Request())
 
         if creds.valid:
             st.session_state["authenticated"] = True
             st.session_state["admob_credentials"] = json.loads(creds.to_json())
-            if "user_info" not in st.session_state:
-                _fetch_and_store_user_info(creds)
+            st.session_state["user_info"] = {
+                "email": payload.get("email", ""),
+                "name": payload.get("name", ""),
+                "picture": payload.get("picture", ""),
+            }
             return True
     except Exception as e:
-        logger.warning(f"[Auth] Failed to restore session from token file: {e}")
-        try:
-            os.remove(_TOKEN_FILE)
-        except OSError:
-            pass
+        logger.warning(f"[Auth] Failed to restore from JWT cookie: {e}")
 
     return False
+
+
+def ensure_auth_cookie():
+    """Persist auth to browser cookie. Call after confirming authenticated."""
+    if st.session_state.get("_auth_cookie_set"):
+        return
+
+    # Check if valid cookie already exists
+    existing = _get_cookie(_JWT_COOKIE_NAME)
+    if existing and _verify_jwt(existing):
+        st.session_state["_auth_cookie_set"] = True
+        return
+
+    # Create and set new JWT cookie
+    creds_data = st.session_state.get("admob_credentials")
+    user_info = st.session_state.get("user_info")
+    if not creds_data or not user_info:
+        return
+
+    refresh_token = creds_data.get("refresh_token") if isinstance(creds_data, dict) else None
+    if not refresh_token:
+        return
+
+    token = _create_jwt(user_info, refresh_token)
+    _set_cookie_js(_JWT_COOKIE_NAME, token, _JWT_EXPIRY_DAYS * 24 * 60 * 60)
+    st.session_state["_auth_cookie_set"] = True
 
 
 def _fetch_and_store_user_info(creds) -> None:
@@ -94,8 +226,6 @@ def handle_oauth_callback() -> bool:
         creds = api._exchange_auth_code(st.query_params["code"])
         if creds and creds.valid:
             st.session_state["admob_credentials"] = json.loads(creds.to_json())
-            with open(_TOKEN_FILE, "w") as f:
-                f.write(creds.to_json())
             st.session_state["authenticated"] = True
             _fetch_and_store_user_info(creds)
             st.query_params.clear()
@@ -108,16 +238,13 @@ def handle_oauth_callback() -> bool:
 
 
 def logout() -> None:
-    """Clear all auth-related session state and token file."""
-    for key in ["authenticated", "user_info", "admob_credentials", "admob_oauth_state"]:
+    """Clear all auth-related session state and cookie."""
+    for key in ["authenticated", "user_info", "admob_credentials",
+                "admob_oauth_state", "_auth_cookie_set"]:
         if key in st.session_state:
             del st.session_state[key]
 
-    if os.path.exists(_TOKEN_FILE):
-        try:
-            os.remove(_TOKEN_FILE)
-        except OSError:
-            pass
+    _clear_cookie_js(_JWT_COOKIE_NAME)
 
 
 def require_auth() -> None:

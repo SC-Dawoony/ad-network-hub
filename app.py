@@ -7,7 +7,7 @@ from pathlib import Path
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
 from network_configs import get_available_networks, get_network_display_names, get_network_config
-from utils.auth import is_authenticated, handle_oauth_callback, render_login_page, logout
+from utils.auth import is_authenticated, handle_oauth_callback, render_login_page, logout, ensure_auth_cookie
 
 
 def switch_to_page(page_filename: str):
@@ -51,6 +51,9 @@ if "code" in st.query_params:
 if not is_authenticated():
     render_login_page()
     st.stop()
+
+# Persist auth to browser cookie (JWT) for cross-refresh persistence
+ensure_auth_cookie()
 
 # Sidebar - Network Selection
 with st.sidebar:
