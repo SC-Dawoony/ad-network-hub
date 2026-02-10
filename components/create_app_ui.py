@@ -108,7 +108,7 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             elif current_network == "admob":
                 existing_data["androidAppStoreId"] = android_package
                 if android_name:
-                    existing_data["appName"] = android_name
+                    existing_data["androidAppName"] = android_name
         
         if store_info_ios:
             ios_bundle_id = store_info_ios.get("bundle_id", "")
@@ -169,8 +169,8 @@ def render_create_app_ui(current_network: str, network_display: str, config):
             elif current_network == "admob":
                 if ios_app_id:
                     existing_data["iosAppStoreId"] = ios_app_id
-                if not existing_data.get("appName") and ios_name:
-                    existing_data["appName"] = ios_name
+                if ios_name:
+                    existing_data["iosAppName"] = ios_name
         
         # For Pangle, pre-fill user_id and role_id from .env and show all required fields
         if current_network == "pangle":
@@ -429,37 +429,41 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                                             results.append(("iOS", ios_result, ios_response))
                                             platforms_created.append("iOS")
                     
-                    # For AdMob, handle both iOS and Android platforms (using App Store IDs)
+                    # For AdMob, handle both iOS and Android platforms (using App Name + App Store ID)
                     elif current_network == "admob":
+                        android_app_name = form_data.get("androidAppName", "").strip()
                         android_app_store_id = form_data.get("androidAppStoreId", "").strip()
+                        ios_app_name = form_data.get("iosAppName", "").strip()
                         ios_app_store_id = form_data.get("iosAppStoreId", "").strip()
-                        
-                        if not android_app_store_id and not ios_app_store_id:
-                            st.error("❌ At least one App Store ID (Android or iOS) must be provided")
+                        has_android = android_app_name or android_app_store_id
+                        has_ios = ios_app_name or ios_app_store_id
+
+                        if not has_android and not has_ios:
+                            st.error("❌ At least one platform (Android or iOS) must be provided")
                         else:
                             results = []
                             platforms_created = []
-                            
-                            # Create Android app if App Store ID provided
-                            if android_app_store_id:
+
+                            # Create Android app if Android fields provided
+                            if has_android:
                                 with st.spinner("Creating Android app..."):
                                     android_payload = config.build_app_payload(form_data, platform="Android")
                                     network_manager = get_network_manager()
                                     android_response = network_manager.create_app(current_network, android_payload)
-                                    
+
                                     if android_response:
                                         android_result = handle_api_response(android_response)
                                         if android_result:
                                             results.append(("Android", android_result, android_response))
                                             platforms_created.append("Android")
-                            
-                            # Create iOS app if App Store ID provided
-                            if ios_app_store_id:
+
+                            # Create iOS app if iOS fields provided
+                            if has_ios:
                                 with st.spinner("Creating iOS app..."):
                                     ios_payload = config.build_app_payload(form_data, platform="iOS")
                                     network_manager = get_network_manager()
                                     ios_response = network_manager.create_app(current_network, ios_payload)
-                                    
+
                                     if ios_response:
                                         ios_result = handle_api_response(ios_response)
                                         if ios_result:
@@ -1086,34 +1090,39 @@ def _process_admob_create_app_results(current_network: str, network_display: str
         form_data: Form data submitted by user
         results: List of tuples (platform, result, response) for each platform created
     """
-    app_name = form_data.get("appName", "Unknown")
+    android_app_name = form_data.get("androidAppName", "").strip()
+    ios_app_name = form_data.get("iosAppName", "").strip()
     android_app_store_id = form_data.get("androidAppStoreId", "").strip()
     ios_app_store_id = form_data.get("iosAppStoreId", "").strip()
-    
+    # Use first available name as primary identifier
+    app_name = android_app_name or ios_app_name or "Unknown"
+
     # Store both appIds
     android_app_id = None
     ios_app_id = None
     android_result_data = None
     ios_result_data = None
-    
+
     for platform, result, response in results:
         # AdMob: result.result contains appId (e.g., "ca-app-pub-1234567890123456~1234567890")
         result_data = result.get("result", {}) if isinstance(result.get("result"), dict) else result
         app_id = result_data.get("appId") or result_data.get("name") or result.get("appId") or result.get("name")
-        
+
         if platform == "Android":
             android_app_id = app_id
             android_result_data = result
         elif platform == "iOS":
             ios_app_id = app_id
             ios_result_data = result
-    
+
     # Save combined app data with both appIds
     app_data = {
         "appCode": app_name,  # Use app name as primary identifier
         "appId": android_app_id,  # Android appId (primary)
         "appIdIOS": ios_app_id,  # iOS appId
         "name": app_name,
+        "androidAppName": android_app_name,
+        "iosAppName": ios_app_name,
         "platform": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
         "platformStr": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
         "androidAppStoreId": android_app_store_id,
@@ -1122,14 +1131,14 @@ def _process_admob_create_app_results(current_network: str, network_display: str
         "hasIOS": bool(ios_app_id)
     }
     SessionManager.add_created_app(current_network, app_data)
-    
+
     # Add both apps to cache
     cached_apps = SessionManager.get_cached_apps(current_network)
-    
+
     if android_app_id:
         android_app = {
             "appId": android_app_id,
-            "name": app_name,
+            "name": android_app_name or app_name,
             "platform": "ANDROID",
             "appStoreId": android_app_store_id
         }
@@ -1137,11 +1146,11 @@ def _process_admob_create_app_results(current_network: str, network_display: str
             cached_apps.append(android_app)
         else:
             SessionManager.cache_apps(current_network, [android_app])
-    
+
     if ios_app_id:
         ios_app = {
             "appId": ios_app_id,
-            "name": app_name,
+            "name": ios_app_name or app_name,
             "platform": "IOS",
             "appStoreId": ios_app_store_id
         }
@@ -1152,20 +1161,21 @@ def _process_admob_create_app_results(current_network: str, network_display: str
                 SessionManager.cache_apps(current_network, [ios_app])
             else:
                 cached_apps.append(ios_app)
-    
+
     # Display results
     st.success(f"✅ {network_display} App(s) Created Successfully!")
-    
+
     result_col1, result_col2 = st.columns(2)
-    
+
     with result_col1:
         st.subheader("📱 App Information")
-        st.write(f"**App Name:** {app_name}")
         if android_app_id:
+            st.write(f"**Android App Name:** {android_app_name}")
             st.write(f"**Android App ID:** `{android_app_id}`")
         if ios_app_id:
+            st.write(f"**iOS App Name:** {ios_app_name}")
             st.write(f"**iOS App ID:** `{ios_app_id}`")
-    
+
     with result_col2:
         st.subheader("📊 Creation Summary")
         platforms_created = []
@@ -1178,7 +1188,7 @@ def _process_admob_create_app_results(current_network: str, network_display: str
             st.write(f"**Android App Store ID:** {android_app_store_id}")
         if ios_app_store_id:
             st.write(f"**iOS App Store ID:** {ios_app_store_id}")
-    
+
     # Show detailed results
     if android_result_data or ios_result_data:
         with st.expander("📋 Detailed Results"):

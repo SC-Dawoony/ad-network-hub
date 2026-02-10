@@ -427,7 +427,12 @@ class AdMobAPI(BaseNetworkAPI):
                     # Use manualAppInfo.displayName if available, otherwise linkedAppInfo.displayName
                     manual_info = app.get('manualAppInfo', {})
                     linked_info = app.get('linkedAppInfo', {})
-                    display_name = manual_info.get('displayName') or linked_info.get('displayName') or app.get('name', 'Unknown')
+                    display_name = (
+                        manual_info.get('displayName')
+                        or linked_info.get('displayName')
+                        or linked_info.get('appStoreId')
+                        or app.get('name', 'Unknown')
+                    )
                     formatted_app['name'] = display_name
                     formatted_apps.append(formatted_app)
                 
