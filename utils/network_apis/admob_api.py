@@ -191,10 +191,19 @@ class AdMobAPI(BaseNetworkAPI):
                 # Streamlit이 설치되지 않았거나 실행 중이 아님
                 is_streamlit_running = False
             
-            # Streamlit 환경: 홈페이지에서 먼저 인증 필요
+            # Streamlit 환경: 불량 토큰 정리 후 재인증 안내
             if is_streamlit_running:
+                # 불량 토큰 파일/세션 자동 정리
+                if os.path.exists(token_file):
+                    try:
+                        os.remove(token_file)
+                        logger.info(f"[AdMob] Removed stale token file: {token_file}")
+                    except Exception:
+                        pass
+                if hasattr(st, 'session_state') and session_key in st.session_state:
+                    del st.session_state[session_key]
                 raise ValueError(
-                    "AdMob 인증이 필요합니다. 홈페이지(Connection Status)에서 먼저 Google 로그인을 해주세요."
+                    "AdMob 인증이 필요합니다. 홈페이지에서 Google 로그인을 해주세요."
                 )
             
             # 로컬 환경: OAuth flow 시작
