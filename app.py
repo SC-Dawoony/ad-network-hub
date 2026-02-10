@@ -253,6 +253,32 @@ display_name = display_names.get(current_network, current_network.title())
 
 st.info(f"**Current Network:** {display_name}")
 
+# AdMob Authentication Section
+_admob_token_exists = os.path.exists(os.path.join(os.path.dirname(__file__), 'admob_token.json'))
+_admob_session = st.session_state.get("admob_credentials")
+_admob_has_token = _admob_token_exists or _admob_session or os.getenv("ADMOB_TOKEN_JSON")
+_google_cid = os.getenv("GOOGLE_CLIENT_ID")
+_google_csec = os.getenv("GOOGLE_CLIENT_SECRET")
+
+if _google_cid and _google_csec:
+    with st.expander("🔐 AdMob Authentication", expanded=not _admob_has_token):
+        if _admob_has_token:
+            st.success("AdMob 인증 완료")
+            if st.button("재인증 (스코프 변경 시)"):
+                # Clear existing credentials
+                if os.path.exists(os.path.join(os.path.dirname(__file__), 'admob_token.json')):
+                    os.remove(os.path.join(os.path.dirname(__file__), 'admob_token.json'))
+                if "admob_credentials" in st.session_state:
+                    del st.session_state["admob_credentials"]
+                st.rerun()
+        else:
+            st.warning("AdMob을 사용하려면 Google 계정으로 인증이 필요합니다.")
+            from utils.network_apis.admob_api import AdMobAPI
+            _admob_login_api = AdMobAPI()
+            _auth_url = _admob_login_api._get_auth_url()
+            if _auth_url:
+                st.link_button("Google 계정으로 로그인", _auth_url, use_container_width=True)
+
 # Network statistics
 st.subheader("📊 Network Statistics")
 
