@@ -7,7 +7,7 @@ import glob
 import requests
 import streamlit as st
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import InstalledAppFlow, Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from .base_network_api import BaseNetworkAPI, _get_env_var
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # OAuth scopes
 ADMOB_SCOPES = [
+    'https://www.googleapis.com/auth/admob.readonly',
     'https://www.googleapis.com/auth/admob.monetization',
     'https://www.googleapis.com/auth/admob.googlebidding.readwrite'
 ]
@@ -190,35 +191,21 @@ class AdMobAPI(BaseNetworkAPI):
                 # Streamlit이 설치되지 않았거나 실행 중이 아님
                 is_streamlit_running = False
             
-            # Streamlit 환경에서는 경고 메시지 표시
+            # Streamlit 환경: 홈페이지에서 먼저 인증 필요
             if is_streamlit_running:
-                st.error("⚠️ AdMob 인증이 필요합니다. 아래 안내를 따라주세요.")
-                st.info("""
-                **로컬 환경에서 인증하는 방법:**
-                1. 로컬에서 스크립트를 실행하여 OAuth 인증을 완료하세요
-                2. 생성된 `admob_token.json` 파일의 내용을 복사하세요
-                3. Streamlit Secrets에 `ADMOB_TOKEN_JSON` 키로 저장하세요
-                
-                **또는 Streamlit Secrets에 직접 저장:**
-                - `client_secrets.json` 내용을 `ADMOB_CLIENT_SECRETS`에 저장
-                - `admob_token.json` 내용을 `ADMOB_TOKEN_JSON`에 저장
-                """)
-                
                 raise ValueError(
-                    "AdMob 인증이 필요합니다.\n\n"
-                    "**방법 1 (로컬 인증):**\n"
-                    "1. 로컬에서 `python regenerate_admob_token.py` 실행\n"
-                    "2. 생성된 `admob_token.json` 파일 내용을 Streamlit Secrets의 `ADMOB_TOKEN_JSON`에 저장\n\n"
-                    "**방법 2 (수동 저장):**\n"
-                    "Streamlit Secrets에 `ADMOB_TOKEN_JSON` 키로 토큰 JSON을 저장하세요."
+                    "AdMob 인증이 필요합니다. 홈페이지(Connection Status)에서 먼저 Google 로그인을 해주세요."
                 )
             
             # 로컬 환경: OAuth flow 시작
             client_secrets_file = self._find_client_secrets_file()
             if not client_secrets_file:
                 raise ValueError(
-                    "Client secrets file not found. Please add client_secrets.json or client_secret.json to project root.\n"
-                    "You can download it from Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID"
+                    "AdMob OAuth client configuration not found. Options:\n"
+                    "1. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env file\n"
+                    "2. Add client_secrets.json to the project root\n"
+                    "   (Download from Google Cloud Console > APIs & Services > Credentials)\n"
+                    "3. Run 'python regenerate_admob_token.py' to generate admob_token.json"
                 )
             
             logger.info(f"[AdMob] Starting OAuth flow with {client_secrets_file}")
@@ -243,6 +230,56 @@ class AdMobAPI(BaseNetworkAPI):
         self._credentials = creds
         return creds
     
+    def _build_web_client_config(self):
+        """Build OAuth client config for web-based flow"""
+        client_id = _get_env_var("GOOGLE_CLIENT_ID")
+        client_secret = _get_env_var("GOOGLE_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            return None, None
+        redirect_uri = _get_env_var("GOOGLE_REDIRECT_URI") or "http://localhost:8501"
+        client_config = {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri]
+            }
+        }
+        return client_config, redirect_uri
+
+    def _get_auth_url(self):
+        """Generate OAuth authorization URL for Streamlit environment"""
+        client_config, redirect_uri = self._build_web_client_config()
+        if not client_config:
+            return None
+        try:
+            flow = Flow.from_client_config(
+                client_config, ADMOB_SCOPES, redirect_uri=redirect_uri
+            )
+            auth_url, state = flow.authorization_url(
+                access_type='offline',
+                prompt='consent'
+            )
+            st.session_state['admob_oauth_state'] = state
+            return auth_url
+        except Exception as e:
+            logger.error(f"[AdMob] Failed to generate auth URL: {e}")
+            return None
+
+    def _exchange_auth_code(self, code: str):
+        """Exchange OAuth authorization code for credentials"""
+        client_config, redirect_uri = self._build_web_client_config()
+        if not client_config:
+            raise ValueError("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not configured")
+        flow = Flow.from_client_config(
+            client_config, ADMOB_SCOPES, redirect_uri=redirect_uri
+        )
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        logger.info("[AdMob] Successfully exchanged auth code for credentials")
+        return creds
+
     def _find_client_secrets_file(self):
         """Find client secrets file
         
@@ -268,7 +305,30 @@ class AdMobAPI(BaseNetworkAPI):
             except Exception as e:
                 logger.debug(f"[AdMob] Failed to get client secrets from Streamlit secrets: {e}")
         
-        # 2. 파일 시스템에서 찾기
+        # 2. Construct from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars
+        client_id = _get_env_var("GOOGLE_CLIENT_ID")
+        client_secret = _get_env_var("GOOGLE_CLIENT_SECRET")
+
+        if client_id and client_secret:
+            client_config = {
+                "installed": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": ["http://localhost"]
+                }
+            }
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', delete=False
+            )
+            json.dump(client_config, temp_file)
+            temp_file.close()
+            logger.info("[AdMob] Constructed client secrets from GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars")
+            return temp_file.name
+
+        # 3. 파일 시스템에서 찾기
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         possible_files = [
             os.path.join(base_dir, 'client_secrets.json'),
@@ -478,47 +538,70 @@ class AdMobAPI(BaseNetworkAPI):
     
     def create_app(self, payload: Dict) -> Dict:
         """Create app via AdMob API
-        
+
         API: POST https://admob.googleapis.com/v1beta/{parent=accounts/*}/apps
+        Note: v1 API does not support app creation, must use v1beta REST API
         """
         try:
             creds = self._get_credentials()
-            service = build('admob', 'v1', credentials=creds)
             account_id = self._get_account_id()
-            
+
+            # Ensure token is valid
+            if not creds.valid:
+                if creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+
+            access_token = creds.token
+            api_url = f"https://admob.googleapis.com/v1beta/{account_id}/apps"
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
             logger.info(f"[AdMob] Creating app in account: {account_id}")
+            logger.info(f"[AdMob] Request URL: {api_url}")
             logger.info(f"[AdMob] Request payload: {json.dumps(payload, indent=2)}")
-            
-            response = service.accounts().apps().create(
-                parent=account_id,
-                body=payload
-            ).execute()
-            
-            logger.info(f"[AdMob] App created successfully: {json.dumps(response, indent=2)}")
-            
+
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+
+            response_data = response.json()
+            logger.info(f"[AdMob] App created successfully: {json.dumps(response_data, indent=2)}")
+
             return {
                 "status": 0,
                 "code": 0,
                 "msg": "Success",
-                "result": response
+                "result": response_data
+            }
+        except requests.exceptions.HTTPError as e:
+            error_msg = str(e)
+            logger.error(f"[AdMob] Create app HTTP error: {error_msg}")
+
+            error_details = {}
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_details = e.response.json()
+                    logger.error(f"[AdMob] Error response: {json.dumps(error_details, indent=2)}")
+                except:
+                    error_details = {"text": e.response.text}
+
+            return {
+                "status": 1,
+                "code": "HTTP_ERROR",
+                "msg": error_msg,
+                "result": error_details if error_details else None
             }
         except Exception as e:
             error_msg = str(e)
             logger.error(f"[AdMob] Create app error: {error_msg}")
-            
-            # Parse error details if available
-            error_details = {}
-            if hasattr(e, 'content'):
-                try:
-                    error_details = json.loads(e.content)
-                except:
-                    pass
-            
+
             return {
                 "status": 1,
                 "code": "ERROR",
                 "msg": error_msg,
-                "result": error_details if error_details else None
+                "result": None
             }
     
     def create_unit(self, payload: Dict, app_key: Optional[str] = None) -> Dict:

@@ -162,18 +162,20 @@ class AdMobConfig(NetworkConfig):
                         manual_app_id = form_data.get("iosManualAppId", "").strip()
         
         payload = {
-            "appName": form_data.get("appName"),
             "platform": platform_str,
         }
-        
-        # appStoreId is optional but recommended
+
+        # linkedAppInfo: app linked to Play Store / App Store
         if app_store_id:
-            payload["appStoreId"] = app_store_id
-        
-        # manualAppId is optional
-        if manual_app_id:
-            payload["manualAppId"] = manual_app_id
-        
+            payload["linkedAppInfo"] = {
+                "appStoreId": app_store_id
+            }
+        # manualAppInfo: app not linked to a store
+        else:
+            payload["manualAppInfo"] = {
+                "displayName": form_data.get("appName", "")
+            }
+
         return payload
     
     def build_unit_payload(self, form_data: Dict) -> Dict:

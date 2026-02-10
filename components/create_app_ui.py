@@ -1136,7 +1136,7 @@ def _process_admob_create_app_results(current_network: str, network_display: str
         if cached_apps:
             cached_apps.append(android_app)
         else:
-            SessionManager.set_cached_apps(current_network, [android_app])
+            SessionManager.cache_apps(current_network, [android_app])
     
     if ios_app_id:
         ios_app = {
@@ -1149,7 +1149,7 @@ def _process_admob_create_app_results(current_network: str, network_display: str
             cached_apps.append(ios_app)
         else:
             if not cached_apps:
-                SessionManager.set_cached_apps(current_network, [ios_app])
+                SessionManager.cache_apps(current_network, [ios_app])
             else:
                 cached_apps.append(ios_app)
     

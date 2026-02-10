@@ -40,6 +40,25 @@ st.set_page_config(
 # Initialize session state
 SessionManager.initialize()
 
+# Handle OAuth callback (Google redirects here with ?code=XXX)
+if "code" in st.query_params:
+    from utils.network_apis.admob_api import AdMobAPI
+    import json
+    _api = AdMobAPI()
+    try:
+        _creds = _api._exchange_auth_code(st.query_params["code"])
+        if _creds and _creds.valid:
+            st.session_state["admob_credentials"] = json.loads(_creds.to_json())
+            token_file = os.path.join(os.path.dirname(__file__), 'admob_token.json')
+            with open(token_file, 'w') as f:
+                f.write(_creds.to_json())
+            st.query_params.clear()
+            st.toast("AdMob 인증 완료!")
+            st.rerun()
+    except Exception as e:
+        st.query_params.clear()
+        st.error(f"AdMob OAuth 인증 실패: {e}")
+
 # Sidebar - Network Selection
 with st.sidebar:
     st.title("🌐 Ad Network Hub")
@@ -188,15 +207,40 @@ with st.sidebar:
                 status = "✅ Active"
             else:
                 status = "⚠️ Not Set"
+        elif network == "admob":
+            # Check for AdMob credentials (OAuth-based, multiple sources)
+            admob_token_json = get_env("ADMOB_TOKEN_JSON")
+            admob_account_id = get_env("ADMOB_ACCOUNT_ID")
+            admob_token_file = os.path.exists(
+                os.path.join(os.path.dirname(__file__), 'admob_token.json')
+            )
+            admob_session_creds = st.session_state.get("admob_credentials")
+            google_client_id = get_env("GOOGLE_CLIENT_ID")
+            google_client_secret = get_env("GOOGLE_CLIENT_SECRET")
+
+            if (admob_token_json or admob_token_file or admob_session_creds) and admob_account_id:
+                status = "✅ Active"
+            elif admob_account_id and google_client_id and google_client_secret:
+                status = "🔑 Login Required"
+            else:
+                status = "⚠️ Not Set"
         else:
             # For other networks, check credentials
             status = "⚠️ Not Set"
-        
+
         col1, col2 = st.columns([2, 1])
         with col1:
             st.write(f"**{display_name}**")
         with col2:
             st.write(status)
+
+        # AdMob: show login button when OAuth Ready
+        if network == "admob" and status == "🔑 Login Required":
+            from utils.network_apis.admob_api import AdMobAPI
+            _admob_api = AdMobAPI()
+            auth_url = _admob_api._get_auth_url()
+            if auth_url:
+                st.link_button("🔐 Google 로그인", auth_url, use_container_width=True)
 
 # Main content
 st.title("🌐 Ad Network Management Hub")
