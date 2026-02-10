@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 ADMOB_SCOPES = [
     'https://www.googleapis.com/auth/admob.readonly',
     'https://www.googleapis.com/auth/admob.monetization',
-    'https://www.googleapis.com/auth/admob.googlebidding.readwrite'
+    'https://www.googleapis.com/auth/admob.googlebidding.readwrite',
+    'openid',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
 ]
 
 
@@ -278,6 +281,9 @@ class AdMobAPI(BaseNetworkAPI):
 
     def _exchange_auth_code(self, code: str):
         """Exchange OAuth authorization code for credentials"""
+        import os
+        # Allow scope changes (Google may reorder or modify returned scopes)
+        os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
         client_config, redirect_uri = self._build_web_client_config()
         if not client_config:
             raise ValueError("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not configured")

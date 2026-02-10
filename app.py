@@ -7,6 +7,7 @@ from pathlib import Path
 from utils.session_manager import SessionManager
 from utils.network_manager import get_network_manager
 from network_configs import get_available_networks, get_network_display_names, get_network_config
+from utils.auth import is_authenticated, handle_oauth_callback, render_login_page, logout
 
 
 def switch_to_page(page_filename: str):
@@ -42,26 +43,27 @@ SessionManager.initialize()
 
 # Handle OAuth callback (Google redirects here with ?code=XXX)
 if "code" in st.query_params:
-    from utils.network_apis.admob_api import AdMobAPI
-    import json
-    _api = AdMobAPI()
-    try:
-        _creds = _api._exchange_auth_code(st.query_params["code"])
-        if _creds and _creds.valid:
-            st.session_state["admob_credentials"] = json.loads(_creds.to_json())
-            token_file = os.path.join(os.path.dirname(__file__), 'admob_token.json')
-            with open(token_file, 'w') as f:
-                f.write(_creds.to_json())
-            st.query_params.clear()
-            st.toast("AdMob 인증 완료!")
-            st.rerun()
-    except Exception as e:
-        st.query_params.clear()
-        st.error(f"AdMob OAuth 인증 실패: {e}")
+    if handle_oauth_callback():
+        st.toast("Login successful!")
+        st.rerun()
+
+# Login gate - must authenticate before accessing any content
+if not is_authenticated():
+    render_login_page()
+    st.stop()
 
 # Sidebar - Network Selection
 with st.sidebar:
     st.title("🌐 Ad Network Hub")
+
+    # User info and logout
+    user_info = st.session_state.get("user_info", {})
+    if user_info.get("email"):
+        st.caption(f"{user_info['email']}")
+    if st.button("🔓 Logout", use_container_width=True):
+        logout()
+        st.rerun()
+
     st.divider()
     
     # Network selector
@@ -234,13 +236,6 @@ with st.sidebar:
         with col2:
             st.write(status)
 
-        # AdMob: show login button when OAuth Ready
-        if network == "admob" and status == "🔑 Login Required":
-            from utils.network_apis.admob_api import AdMobAPI
-            _admob_api = AdMobAPI()
-            auth_url = _admob_api._get_auth_url()
-            if auth_url:
-                st.link_button("🔐 Google 로그인", auth_url, use_container_width=True)
 
 # Main content
 st.title("🌐 Ad Network Management Hub")
@@ -252,38 +247,6 @@ config = get_network_config(current_network)
 display_name = display_names.get(current_network, current_network.title())
 
 st.info(f"**Current Network:** {display_name}")
-
-# AdMob Authentication Section
-_google_cid = os.getenv("GOOGLE_CLIENT_ID")
-_google_csec = os.getenv("GOOGLE_CLIENT_SECRET")
-
-if _google_cid and _google_csec:
-    # Actually validate credentials, not just file existence
-    _admob_valid = False
-    try:
-        from utils.network_apis.admob_api import AdMobAPI
-        _admob_check_api = AdMobAPI()
-        _admob_creds = _admob_check_api._get_credentials()
-        _admob_valid = _admob_creds is not None and _admob_creds.valid
-    except Exception:
-        _admob_valid = False
-
-    with st.expander("🔐 AdMob Authentication", expanded=not _admob_valid):
-        if _admob_valid:
-            st.success("AdMob 인증 완료")
-            if st.button("재인증 (스코프 변경 시)"):
-                _token_path = os.path.join(os.path.dirname(__file__), 'admob_token.json')
-                if os.path.exists(_token_path):
-                    os.remove(_token_path)
-                if "admob_credentials" in st.session_state:
-                    del st.session_state["admob_credentials"]
-                st.rerun()
-        else:
-            st.warning("AdMob을 사용하려면 Google 계정으로 인증이 필요합니다.")
-            _admob_login_api = AdMobAPI()
-            _auth_url = _admob_login_api._get_auth_url()
-            if _auth_url:
-                st.link_button("Google 계정으로 로그인", _auth_url, use_container_width=True)
 
 # Network statistics
 st.subheader("📊 Network Statistics")

@@ -31,6 +31,12 @@ st.set_page_config(
     layout="wide"
 )
 
+# Auth guard
+from utils.session_manager import SessionManager
+SessionManager.initialize()
+from utils.auth import require_auth
+require_auth()
+
 st.title("⚙️ MAX Ad Unit Settings 업데이트")
 st.markdown("AppLovin API를 통해 MAX Ad Unit의 ad_network_settings를 업데이트합니다.")
 

@@ -42,6 +42,10 @@ st.set_page_config(
 # Initialize session
 SessionManager.initialize()
 
+# Auth guard
+from utils.auth import require_auth
+require_auth()
+
 # Get current network
 current_network = SessionManager.get_current_network()
 config = get_network_config(current_network)
