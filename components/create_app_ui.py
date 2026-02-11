@@ -83,9 +83,10 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                     existing_data["androidCategory1"] = fyber_category
                     logger.info(f"Fyber: Mapped Android category '{android_category}' to '{fyber_category}', existing_data keys: {list(existing_data.keys())}")
             elif current_network == "mintegral":
-                existing_data["packageName"] = android_package
+                existing_data["androidPackage"] = android_package
+                existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}" if android_package else ""
                 if android_name:
-                    existing_data["appName"] = android_name
+                    existing_data["app_name"] = android_name
             elif current_network == "vungle":
                 existing_data["androidStoreId"] = android_package
                 existing_data["androidStoreUrl"] = f"https://play.google.com/store/apps/details?id={android_package}"
@@ -147,9 +148,10 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                 if not existing_data.get("name") and ios_name:
                     existing_data["name"] = ios_name
             elif current_network == "mintegral":
-                existing_data["bundleId"] = ios_bundle_id
-                if not existing_data.get("appName") and ios_name:
-                    existing_data["appName"] = ios_name
+                existing_data["iosPackage"] = ios_bundle_id
+                existing_data["iosStoreUrl"] = f"https://apps.apple.com/app/id{ios_app_id}" if ios_app_id else ""
+                if not existing_data.get("app_name") and ios_name:
+                    existing_data["app_name"] = ios_name
             elif current_network == "vungle":
                 if ios_app_id:
                     existing_data["iosStoreId"] = ios_app_id
@@ -388,7 +390,7 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                 # Build payload
                 try:
                     # For IronSource, InMobi, BigOAds, Fyber, Pangle, and Vungle, handle both iOS and Android platforms (using Store URLs)
-                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber", "pangle", "vungle"]:
+                    if current_network in ["ironsource", "inmobi", "bigoads", "fyber", "pangle", "vungle", "mintegral"]:
                         # For Pangle, use Download URL instead of Store URL
                         if current_network == "pangle":
                             ios_store_url = form_data.get("iosDownloadUrl", "").strip()
@@ -502,6 +504,10 @@ def render_create_app_ui(current_network: str, network_display: str, config):
                                     )
                                 elif current_network == "vungle":
                                     _process_vungle_create_app_results(
+                                        current_network, network_display, form_data, results
+                                    )
+                                elif current_network == "mintegral":
+                                    _process_mintegral_create_app_results(
                                         current_network, network_display, form_data, results
                                     )
                     else:
@@ -1557,4 +1563,113 @@ def _process_vungle_create_app_results(current_network: str, network_display: st
             st.write(f"  N/A")
         if ios_download_url:
             st.write(f"**iOS Download URL:** {ios_download_url[:50]}...")
+
+
+def _process_mintegral_create_app_results(current_network: str, network_display: str, form_data: dict, results: List[Tuple[str, dict, dict]]):
+    """Process Mintegral create app results for multiple platforms
+
+    Args:
+        current_network: Current network identifier
+        network_display: Display name for the network
+        form_data: Form data submitted by user
+        results: List of tuples (platform, result, response) for each platform created
+    """
+    app_name = form_data.get("app_name", "Unknown")
+    android_store_url = form_data.get("androidStoreUrl", "").strip()
+    ios_store_url = form_data.get("iosStoreUrl", "").strip()
+
+    # Store both app_ids
+    android_app_id = None
+    ios_app_id = None
+
+    for platform, result, response in results:
+        # Mintegral: response has {"status": 0, "code": 0, "msg": "Success", "result": {"app_id": 441875, ...}}
+        result_data = result.get("result", {}) if isinstance(result.get("result"), dict) else {}
+        app_id = result_data.get("app_id") or result_data.get("id") or result_data.get("appId")
+        if not app_id:
+            data = result.get("data", {}) if isinstance(result.get("data"), dict) else result
+            app_id = data.get("app_id") or data.get("id") or data.get("appId")
+        if not app_id:
+            app_id = result.get("app_id") or result.get("id")
+
+        if platform == "Android":
+            android_app_id = app_id
+        elif platform == "iOS":
+            ios_app_id = app_id
+
+    # Save combined app data
+    app_data = {
+        "appCode": app_name,
+        "app_id": android_app_id,
+        "app_id_ios": ios_app_id,
+        "name": app_name,
+        "platform": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
+        "platformStr": "both" if android_app_id and ios_app_id else ("android" if android_app_id else "ios"),
+        "androidStoreUrl": android_store_url,
+        "iosStoreUrl": ios_store_url,
+        "hasAndroid": bool(android_app_id),
+        "hasIOS": bool(ios_app_id)
+    }
+    SessionManager.add_created_app(current_network, app_data)
+
+    # Add both apps to cache
+    cached_apps = SessionManager.get_cached_apps(current_network)
+
+    if android_app_id:
+        android_app = {
+            "appCode": str(android_app_id),
+            "app_id": android_app_id,
+            "name": app_name,
+            "platform": "Android",
+            "status": "Active",
+            "storeUrl": android_store_url,
+            "package": form_data.get("androidPackage", "")
+        }
+        if not any(app.get("app_id") == android_app_id for app in cached_apps):
+            cached_apps.append(android_app)
+
+    if ios_app_id:
+        ios_app = {
+            "appCode": str(ios_app_id),
+            "app_id": ios_app_id,
+            "name": app_name,
+            "platform": "iOS",
+            "status": "Active",
+            "storeUrl": ios_store_url,
+            "package": form_data.get("iosPackage", "")
+        }
+        if not any(app.get("app_id") == ios_app_id for app in cached_apps):
+            cached_apps.append(ios_app)
+
+    SessionManager.cache_apps(current_network, cached_apps)
+
+    # Show success message
+    platforms_str = " and ".join([p for p, _, _ in results])
+    st.success(f"🎉 App created successfully for {platforms_str}!")
+    st.balloons()
+
+    # Show result details
+    st.subheader("📝 Result")
+    result_col1, result_col2 = st.columns(2)
+    with result_col1:
+        st.write(f"**Network:** {network_display}")
+        st.write(f"**App Name:** {app_name}")
+        st.write("**App ID:**")
+        if android_app_id:
+            st.write(f"  - **Android:** {android_app_id}")
+        if ios_app_id:
+            st.write(f"  - **iOS:** {ios_app_id}")
+        if not android_app_id and not ios_app_id:
+            st.write(f"  N/A")
+    with result_col2:
+        platforms = []
+        if android_app_id:
+            platforms.append("Android")
+        if ios_app_id:
+            platforms.append("iOS")
+        st.write(f"**Platform:** {', '.join(platforms) if platforms else 'N/A'}")
+        if android_store_url:
+            st.write(f"**Android Store URL:** {android_store_url[:50]}...")
+        if ios_store_url:
+            st.write(f"**iOS Store URL:** {ios_store_url[:50]}...")
 

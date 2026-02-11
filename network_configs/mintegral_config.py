@@ -47,7 +47,7 @@ class MintegralConfig(NetworkConfig):
         ]
     
     def get_app_creation_fields(self) -> List[Field]:
-        """Get fields for app creation - ordered as per API requirements"""
+        """Get fields for app creation - dual-platform (Android/iOS) support"""
         return [
             # Required fields (with * indicator)
             Field(
@@ -58,22 +58,38 @@ class MintegralConfig(NetworkConfig):
                 placeholder="Enter app name (must be unique)",
                 help_text="Media name intended to be unique among all media names in the same publisher account"
             ),
+            # Per-OS package names (auto-filled from store info)
             Field(
-                name="os",
-                field_type="radio",
-                required=True,
-                label="Operating System*",
-                options=self._get_os_options(),
-                default="android",
-                help_text="Operating system"
+                name="androidPackage",
+                field_type="text",
+                required=False,
+                label="Android Package Name",
+                placeholder="com.example.app",
+                help_text="Android package name (e.g., com.talkingtom)"
             ),
             Field(
-                name="package",
+                name="androidStoreUrl",
                 field_type="text",
-                required=True,
-                label="Package Name*",
-                placeholder="com.example.app (Android) or id1364356863 (iOS)",
-                help_text="Media's respective package name intended to be unique. iOS sample: id1364356863, Android sample: com.talkingtom"
+                required=False,
+                label="Android Store URL",
+                placeholder="https://play.google.com/store/apps/details?id=...",
+                help_text="Google Play Store URL"
+            ),
+            Field(
+                name="iosPackage",
+                field_type="text",
+                required=False,
+                label="iOS Package Name",
+                placeholder="id1364356863",
+                help_text="iOS package name (e.g., id1364356863)"
+            ),
+            Field(
+                name="iosStoreUrl",
+                field_type="text",
+                required=False,
+                label="iOS Store URL",
+                placeholder="https://apps.apple.com/app/id...",
+                help_text="App Store URL"
             ),
             Field(
                 name="is_live_in_store",
@@ -83,15 +99,6 @@ class MintegralConfig(NetworkConfig):
                 options=[("No", 0), ("Yes", 1)],
                 default=1,
                 help_text="Whether live in app store(s). If Yes, store_url is required."
-            ),
-            ConditionalField(
-                name="store_url",
-                field_type="text",
-                required=True,
-                label="Store URL*",
-                placeholder="https://play.google.com/store/apps/details?id=... or https://apps.apple.com/...",
-                help_text="App store link (required if live in app store)",
-                condition=lambda data: data.get("is_live_in_store") == 1
             ),
             Field(
                 name="coppa",
@@ -255,31 +262,32 @@ class MintegralConfig(NetworkConfig):
         return base_fields + conditional_fields
     
     def validate_app_data(self, data: Dict) -> Tuple[bool, str]:
-        """Validate app creation data"""
-        required_fields = ["app_name", "os", "package", "is_live_in_store", "coppa"]
-        
-        for field in required_fields:
-            if field not in data or data[field] is None or data[field] == "":
-                return False, f"Field '{field}' is required"
-        
-        # Validate is_live_in_store = 1 requires store_url
+        """Validate app creation data (dual-platform)"""
+        # app_name is always required
+        if not data.get("app_name"):
+            return False, "Field 'app_name' is required"
+
+        # At least one platform package must be provided
+        android_pkg = data.get("androidPackage", "").strip() if data.get("androidPackage") else ""
+        ios_pkg = data.get("iosPackage", "").strip() if data.get("iosPackage") else ""
+        if not android_pkg and not ios_pkg:
+            return False, "At least one package name (Android or iOS) is required"
+
+        # If is_live_in_store = 1, validate store URLs for provided platforms
         if data.get("is_live_in_store") == 1:
-            if not data.get("store_url") or data["store_url"] == "":
-                return False, "Store URL is required when 'Live in App Store' is Yes"
-        
-        # Validate os value
-        valid_os = ["android", "ios"]
-        if data.get("os") not in valid_os:
-            return False, f"OS must be one of: {', '.join(valid_os)}"
-        
+            if android_pkg and not data.get("androidStoreUrl", "").strip():
+                return False, "Android Store URL is required when 'Live in App Store' is Yes"
+            if ios_pkg and not data.get("iosStoreUrl", "").strip():
+                return False, "iOS Store URL is required when 'Live in App Store' is Yes"
+
         # Validate coppa value
         if data.get("coppa") not in [0, 1]:
             return False, "COPPA must be 0 (No) or 1 (Yes)"
-        
+
         # Validate is_live_in_store value
         if data.get("is_live_in_store") not in [0, 1]:
             return False, "Live in App Store must be 0 (No) or 1 (Yes)"
-        
+
         return True, ""
     
     def validate_unit_data(self, data: Dict) -> Tuple[bool, str]:
@@ -287,23 +295,39 @@ class MintegralConfig(NetworkConfig):
         # TODO: Implement when Create Unit is needed
         return True, ""
     
-    def build_app_payload(self, form_data: Dict) -> Dict:
-        """Build API payload for app creation - only send specified fields"""
-        # Required fields
-        # os must be uppercase: "ANDROID" or "IOS"
-        os_value = form_data.get("os", "").upper() if form_data.get("os") else ""
-        
+    def build_app_payload(self, form_data: Dict, platform: Optional[str] = None) -> Dict:
+        """Build API payload for app creation - dual-platform support
+
+        Args:
+            form_data: Form data from UI
+            platform: "Android" or "iOS" (for dual-platform creation)
+        """
+        # Determine OS, package, and store_url based on platform parameter
+        if platform == "Android":
+            os_value = "ANDROID"
+            package = form_data.get("androidPackage", "").strip()
+            store_url = form_data.get("androidStoreUrl", "").strip()
+        elif platform == "iOS":
+            os_value = "IOS"
+            package = form_data.get("iosPackage", "").strip()
+            store_url = form_data.get("iosStoreUrl", "").strip()
+        else:
+            # Legacy fallback
+            os_value = form_data.get("os", "").upper() if form_data.get("os") else ""
+            package = form_data.get("package", "").strip() if form_data.get("package") else ""
+            store_url = form_data.get("store_url", "").strip() if form_data.get("store_url") else ""
+
         payload = {
             "app_name": form_data.get("app_name"),
             "os": os_value,
-            "package": form_data.get("package"),
+            "package": package,
             "is_live_in_store": form_data.get("is_live_in_store", 1),
             "coppa": form_data.get("coppa", 0),
         }
-        
+
         # Add store_url if is_live_in_store = 1
-        if form_data.get("is_live_in_store") == 1 and form_data.get("store_url"):
-            payload["store_url"] = form_data.get("store_url")
+        if form_data.get("is_live_in_store") == 1 and store_url:
+            payload["store_url"] = store_url
         
         # Optional fields (only if provided)
         if form_data.get("campaign_black_rule") is not None:
