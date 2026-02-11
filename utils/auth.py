@@ -129,20 +129,20 @@ def _try_restore_from_cookie() -> bool:
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request
+        from utils.network_apis.admob_api import ADMOB_SCOPES
 
         client_id = _get_env("GOOGLE_CLIENT_ID")
         client_secret = _get_env("GOOGLE_CLIENT_SECRET")
         if not client_id or not client_secret:
             return False
 
-        # Don't pass scopes - refresh token already has them baked in.
-        # Passing openid/userinfo scopes here triggers legacy API errors.
         creds = Credentials(
             token=None,
             refresh_token=refresh_token,
             token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret,
+            scopes=ADMOB_SCOPES,
         )
         creds.refresh(Request())
 
