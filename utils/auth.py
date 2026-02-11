@@ -243,10 +243,12 @@ def ensure_auth_cookie():
     creds_data = st.session_state.get("admob_credentials")
     user_info = st.session_state.get("user_info")
     if not creds_data or not user_info:
+        logger.warning(f"[Auth] ensure_auth_cookie: missing data - creds_data={bool(creds_data)}, user_info={bool(user_info)}")
         return
 
     refresh_token = creds_data.get("refresh_token") if isinstance(creds_data, dict) else None
     if not refresh_token:
+        logger.warning(f"[Auth] ensure_auth_cookie: no refresh_token in creds_data (keys={list(creds_data.keys()) if isinstance(creds_data, dict) else type(creds_data).__name__})")
         return
 
     token = _create_jwt(user_info, refresh_token)
