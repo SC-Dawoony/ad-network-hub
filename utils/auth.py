@@ -116,14 +116,21 @@ def _try_restore_from_cookie() -> bool:
     """Restore auth session from JWT cookie using refresh_token."""
     token = _get_cookie(_JWT_COOKIE_NAME)
     if not token:
+        logger.warning("[Auth] Cookie restore: no auth_jwt cookie found in st.context.cookies")
         return False
+
+    logger.info(f"[Auth] Cookie restore: found auth_jwt cookie (len={len(token)})")
 
     payload = _verify_jwt(token)
     if not payload:
+        logger.warning("[Auth] Cookie restore: JWT verification failed (expired or secret mismatch)")
         return False
+
+    logger.info(f"[Auth] Cookie restore: JWT verified for {payload.get('email')}")
 
     refresh_token = payload.get("rt")
     if not refresh_token:
+        logger.warning("[Auth] Cookie restore: no refresh_token in JWT payload")
         return False
 
     try:
@@ -134,6 +141,7 @@ def _try_restore_from_cookie() -> bool:
         client_id = _get_env("GOOGLE_CLIENT_ID")
         client_secret = _get_env("GOOGLE_CLIENT_SECRET")
         if not client_id or not client_secret:
+            logger.warning(f"[Auth] Cookie restore: missing env vars - GOOGLE_CLIENT_ID={bool(client_id)}, GOOGLE_CLIENT_SECRET={bool(client_secret)}")
             return False
 
         creds = Credentials(
@@ -154,9 +162,12 @@ def _try_restore_from_cookie() -> bool:
                 "name": payload.get("name", ""),
                 "picture": payload.get("picture", ""),
             }
+            logger.info(f"[Auth] Cookie restore: session restored for {payload.get('email')}")
             return True
+        else:
+            logger.warning("[Auth] Cookie restore: credentials refreshed but not valid")
     except Exception as e:
-        logger.warning(f"[Auth] Failed to restore from JWT cookie: {e}")
+        logger.warning(f"[Auth] Cookie restore failed: {type(e).__name__}: {e}")
 
     return False
 
