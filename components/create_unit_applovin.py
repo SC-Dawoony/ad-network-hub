@@ -141,6 +141,24 @@ def render_applovin_create_unit_ui():
                     settings_html += '</ul></div>'
                     st.markdown(settings_html, unsafe_allow_html=True)
 
+                    # Banner refresh interval (BN only)
+                    banner_refresh = None
+                    if slot_key == "BN":
+                        refresh_options = [0, 10, 15, 20, 30, 45, 60, 300]
+                        refresh_labels = {
+                            0: "0 (MAX 기본값)",
+                            10: "10초", 15: "15초", 20: "20초",
+                            30: "30초", 45: "45초", 60: "60초",
+                            300: "300초 (5분)"
+                        }
+                        banner_refresh = st.selectbox(
+                            "Banner Refresh Interval",
+                            options=refresh_options,
+                            format_func=lambda x: refresh_labels.get(x, f"{x}초"),
+                            index=4,  # 기본값: 30초
+                            key=f"applovin_banner_refresh_{platform}_{slot_key}"
+                        )
+
                     # Create button for AppLovin
                     if st.button(f"✅ Create {slot_key} ({platform_display})", use_container_width=True, key=f"create_applovin_{platform}_{slot_key}"):
                         # Validate inputs
@@ -168,8 +186,21 @@ def render_applovin_create_unit_ui():
                                         result = handle_api_response(response)
 
                                         if result is not None:
+                                            ad_unit_id = result.get("id", result.get("adUnitId"))
+
+                                            # Banner refresh settings (BN only)
+                                            if slot_key == "BN" and ad_unit_id and banner_refresh is not None:
+                                                from utils.applovin_manager import update_banner_refresh_settings, get_applovin_api_key
+                                                api_key = get_applovin_api_key()
+                                                if api_key:
+                                                    success, refresh_result = update_banner_refresh_settings(api_key, ad_unit_id, banner_refresh)
+                                                    if success:
+                                                        st.success(f"✅ Banner refresh interval: {banner_refresh}초 설정 완료")
+                                                    else:
+                                                        st.warning(f"⚠️ Banner refresh 설정 실패: {refresh_result}")
+
                                             unit_data = {
-                                                "slotCode": result.get("id", result.get("adUnitId", "N/A")),
+                                                "slotCode": ad_unit_id or "N/A",
                                                 "name": slot_name,
                                                 "appCode": pkg_name,
                                                 "slotType": slot_config["ad_format"],

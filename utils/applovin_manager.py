@@ -328,6 +328,64 @@ def update_ad_unit_settings(
         return False, {"status": "error", "error": str(e)}
 
 
+def update_banner_refresh_settings(
+    api_key: str,
+    ad_unit_id: str,
+    interval: int
+) -> Tuple[bool, Dict]:
+    """Update banner refresh settings for an ad unit.
+
+    API: POST https://o.applovin.com/mediation/v1/ad_unit/{ad_unit_id}?fields=banner_refresh_settings
+
+    Args:
+        api_key: AppLovin API Key
+        ad_unit_id: Ad Unit ID
+        interval: Refresh interval in seconds (0, 10, 15, 20, 30, 45, 60, 300)
+
+    Returns:
+        Tuple of (success: bool, response_data: Dict)
+    """
+    url = f"https://o.applovin.com/mediation/v1/ad_unit/{ad_unit_id}?fields=banner_refresh_settings"
+    headers = {
+        "Accept": "application/json",
+        "Api-Key": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "banner_refresh_settings": {
+            "interval": interval
+        }
+    }
+
+    try:
+        logger.info(f"[AppLovin] Banner Refresh API Request: POST {url}")
+        logger.info(f"[AppLovin] Banner Refresh Payload: {json.dumps(payload, indent=2)}")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        logger.info(f"[AppLovin] Banner Refresh Response Status: {response.status_code}")
+
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                logger.info(f"[AppLovin] Banner Refresh Response: {json.dumps(result, indent=2)}")
+                return True, {"status": "success", "data": result}
+            except json.JSONDecodeError:
+                return True, {"status": "success", "data": {"message": "Updated successfully"}}
+        else:
+            try:
+                error_data = response.json()
+                logger.error(f"[AppLovin] Banner Refresh Error: {json.dumps(error_data, indent=2)}")
+                return False, {"status": "error", "status_code": response.status_code, "data": error_data}
+            except json.JSONDecodeError:
+                logger.error(f"[AppLovin] Banner Refresh Error Text: {response.text}")
+                return False, {"status": "error", "status_code": response.status_code, "data": {"message": response.text}}
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[AppLovin] Banner Refresh Request Error: {str(e)}")
+        return False, {"status": "error", "error": str(e)}
+
+
 def update_multiple_ad_units(
     api_key: str,
     ad_units_by_segment: Dict
