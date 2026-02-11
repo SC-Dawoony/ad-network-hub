@@ -107,7 +107,8 @@ AD_NETWORKS = [
     "UNITY_BIDDING",
     "VUNGLE_BIDDING",
     "YANDEX_BIDDING",
-    "PUBMATIC_BIDDING"
+    "PUBMATIC_BIDDING",
+    "BIDMACHINE_BIDDING"
 ]
 
 # Network display name mapping
@@ -125,7 +126,8 @@ network_display_map = {
     "UNITY_BIDDING": "Unity Bidding",
     "VUNGLE_BIDDING": "Vungle Bidding",
     "YANDEX_BIDDING": "Yandex Bidding",
-    "PUBMATIC_BIDDING": "Pubmatic Bidding"
+    "PUBMATIC_BIDDING": "Pubmatic Bidding",
+    "BIDMACHINE_BIDDING": "BidMachine Bidding"
 }
 
 # Check API Key
@@ -562,6 +564,29 @@ with st.expander("📡 AppLovin Ad Units 조회 및 검색", expanded=False):
                                     st.session_state.appmatchname.strip()):
                                     package_name_to_use = st.session_state.appmatchname.strip()
                                 
+                                # BidMachine: always use fixed ad_unit_id = 815
+                                if selected_network == "BIDMACHINE_BIDDING":
+                                    return {
+                                        "id": applovin_unit["id"],
+                                        "name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"],
+                                        "package_name": package_name_to_use,
+                                        "ad_network": selected_network,
+                                        "ad_network_app_id": "",
+                                        "ad_network_app_key": "",
+                                        "ad_unit_id": "815",
+                                        "countries_type": "",
+                                        "countries": "",
+                                        "cpm": 0.0,
+                                        "segment_name": "",
+                                        "segment_id": "",
+                                        "disabled": "FALSE"
+                                    }, {"status": "success", "network": selected_network,
+                                        "app_name": applovin_unit["name"],
+                                        "platform": applovin_unit["platform"],
+                                        "ad_format": applovin_unit["ad_format"]}
+
                                 # Skip if network is not supported for auto-fetch
                                 if not actual_network:
                                     return {
