@@ -1687,22 +1687,30 @@ class MockNetworkManager:
                 logger.error(f"[InMobi] Response Text: {response.text}")
                 result = {"code": response.status_code, "msg": response.text}
             
-            # For 400 errors, log detailed error information
-            if response.status_code == 400:
-                logger.error(f"[InMobi] Bad Request (400) - Full Response: {response.text}")
-                print(f"[InMobi] ❌ Bad Request (400)", file=sys.stderr)
-                print(f"[InMobi] Response: {response.text}", file=sys.stderr)
-                # Try to extract more details from error response
+            # For non-success responses, return error with actual response body
+            if response.status_code >= 400:
+                logger.error(f"[InMobi] HTTP {response.status_code} - Response: {response.text}")
+                error_msg = f"{response.status_code} {response.reason}"
                 try:
                     error_detail = response.json()
-                    if isinstance(error_detail, dict):
-                        error_msg = error_detail.get("message") or error_detail.get("error") or error_detail.get("msg") or str(error_detail)
-                        logger.error(f"[InMobi] Error Details: {error_msg}")
-                        print(f"[InMobi] Error Details: {error_msg}", file=sys.stderr)
-                except:
-                    pass
-            
-            response.raise_for_status()
+                    detail_msg = (
+                        error_detail.get("message")
+                        or error_detail.get("error")
+                        or error_detail.get("msg")
+                        or error_detail.get("errorMessage")
+                    )
+                    if detail_msg:
+                        error_msg = f"{error_msg} - {detail_msg}"
+                    else:
+                        error_msg = f"{error_msg} - {json.dumps(error_detail)}"
+                except Exception:
+                    if response.text:
+                        error_msg = f"{error_msg} - {response.text[:500]}"
+                return {
+                    "status": 1,
+                    "code": "API_ERROR",
+                    "msg": error_msg
+                }
             
             # InMobi API 응답 형식에 맞게 정규화
             # 응답 형식은 API 문서를 참조하여 수정 필요

@@ -1,9 +1,10 @@
 """Authentication utilities for Google OAuth login gate.
 
-Session persistence strategy:
-- st.session_state: per-user, per-tab (cleared on browser refresh)
-- JWT cookie: per-browser, persists across refreshes (stores refresh_token)
-- NO server-side file: prevents cross-user contamination on shared hosts
+Session persistence strategy (tried in order):
+1. st.session_state: per-user, per-tab (cleared on browser refresh)
+2. JWT cookie: per-browser, persists across refreshes (stores refresh_token)
+3. admob_token.json: server-side file fallback (for environments where
+   st.context.cookies cannot read iframe-set cookies)
 """
 import streamlit as st
 import os
@@ -77,19 +78,27 @@ def _verify_jwt(token: str) -> Optional[dict]:
 def _get_cookie(name: str) -> Optional[str]:
     """Read a cookie from the browser request."""
     try:
-        return st.context.cookies.get(name)
-    except Exception:
+        cookies = st.context.cookies
+        logger.info(f"[Auth] Available cookies: {list(cookies.keys()) if hasattr(cookies, 'keys') else 'N/A'}")
+        return cookies.get(name)
+    except Exception as e:
+        logger.warning(f"[Auth] Error reading cookies: {e}")
         return None
 
 
 def _set_cookie_js(name: str, value: str, max_age: int):
-    """Set a browser cookie via JavaScript injection."""
+    """Set a browser cookie via JavaScript injection.
+
+    Uses parent.document.cookie to escape iframe sandbox created by
+    components.html(), falling back to document.cookie.
+    """
     import streamlit.components.v1 as components
 
-    components.html(
-        f'<script>document.cookie="{name}={value};path=/;max-age={max_age};SameSite=Lax";</script>',
-        height=0,
+    js = (
+        f"try{{parent.document.cookie=\"{name}={value};path=/;max-age={max_age};SameSite=Lax\";}}"
+        f"catch(e){{document.cookie=\"{name}={value};path=/;max-age={max_age};SameSite=Lax\";}}"
     )
+    components.html(f"<script>{js}</script>", height=0)
 
 
 def _clear_cookie_js(name: str):
@@ -101,15 +110,62 @@ def _clear_cookie_js(name: str):
 # Core auth functions
 # ---------------------------------------------------------------------------
 
+def _get_token_file_path() -> str:
+    """Return the path to the local token file."""
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(base_dir, "admob_token.json")
+
+
+def _try_restore_from_token_file() -> bool:
+    """Fallback: restore auth session from admob_token.json."""
+    token_file = _get_token_file_path()
+    if not os.path.exists(token_file):
+        return False
+
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from utils.network_apis.admob_api import ADMOB_SCOPES
+
+        creds = Credentials.from_authorized_user_file(token_file, ADMOB_SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+
+        if creds.valid:
+            st.session_state["authenticated"] = True
+            st.session_state["admob_credentials"] = json.loads(creds.to_json())
+            _fetch_and_store_user_info(creds)
+            logger.info(f"[Auth] Session restored from {token_file}")
+            return True
+    except Exception as e:
+        logger.warning(f"[Auth] Token file restore failed: {type(e).__name__}: {e}")
+
+    return False
+
+
+def _save_token_file(creds_data: dict) -> None:
+    """Save credentials to admob_token.json for cross-refresh persistence."""
+    token_file = _get_token_file_path()
+    try:
+        with open(token_file, "w") as f:
+            json.dump(creds_data, f)
+        logger.info(f"[Auth] Saved credentials to {token_file}")
+    except Exception as e:
+        logger.warning(f"[Auth] Failed to save token file: {e}")
+
+
 def is_authenticated() -> bool:
     """Check if the current user is authenticated.
 
     1. st.session_state (fast, same tab)
     2. JWT cookie (persists across page refreshes)
+    3. admob_token.json file (fallback)
     """
     if st.session_state.get("authenticated"):
         return True
-    return _try_restore_from_cookie()
+    if _try_restore_from_cookie():
+        return True
+    return _try_restore_from_token_file()
 
 
 def _try_restore_from_cookie() -> bool:
@@ -195,6 +251,7 @@ def ensure_auth_cookie():
 
     token = _create_jwt(user_info, refresh_token)
     _set_cookie_js(_JWT_COOKIE_NAME, token, _JWT_EXPIRY_DAYS * 24 * 60 * 60)
+    _save_token_file(creds_data)
     st.session_state["_auth_cookie_set"] = True
 
 
@@ -249,13 +306,18 @@ def handle_oauth_callback() -> bool:
 
 
 def logout() -> None:
-    """Clear all auth-related session state and cookie."""
+    """Clear all auth-related session state, cookie, and token file."""
     for key in ["authenticated", "user_info", "admob_credentials",
                 "admob_oauth_state", "_auth_cookie_set"]:
         if key in st.session_state:
             del st.session_state[key]
 
     _clear_cookie_js(_JWT_COOKIE_NAME)
+
+    token_file = _get_token_file_path()
+    if os.path.exists(token_file):
+        os.remove(token_file)
+        logger.info(f"[Auth] Removed {token_file}")
 
 
 def require_auth() -> None:
