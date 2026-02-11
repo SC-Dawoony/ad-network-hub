@@ -15,12 +15,16 @@ def render_applovin_create_unit_ui():
 
     st.divider()
 
-    # Common input fields (outside form, shared by all ad formats)
+    # Ad Unit Information - per platform from store info
     st.markdown("**Ad Unit Information**")
 
-    # Pre-fill from store info if available (only when widget is empty/unset)
     store_android = st.session_state.get("store_info_android")
     store_ios = st.session_state.get("store_info_ios")
+
+    android_app_name = store_android.get("name", "") if store_android else ""
+    android_package_name = store_android.get("package_name", "") if store_android else ""
+    ios_app_name = store_ios.get("name", "") if store_ios else ""
+    ios_bundle_id = store_ios.get("bundle_id", "") if store_ios else ""
 
     # Show per-platform store info
     if store_android or store_ios:
@@ -28,55 +32,35 @@ def render_applovin_create_unit_ui():
         with info_cols[0]:
             st.markdown("**🤖 Android**")
             if store_android:
-                st.write(f"App Name: **{store_android.get('name', '')}**")
-                st.write(f"Package Name: `{store_android.get('package_name', '')}`")
+                st.write(f"App Name: **{android_app_name}**")
+                st.write(f"Package Name: `{android_package_name}`")
             else:
                 st.caption("앱 정보 없음")
         with info_cols[1]:
             st.markdown("**🍎 iOS**")
             if store_ios:
-                st.write(f"App Name: **{store_ios.get('name', '')}**")
-                st.write(f"Bundle ID: `{store_ios.get('bundle_id', '')}`")
+                st.write(f"App Name: **{ios_app_name}**")
+                st.write(f"Bundle ID: `{ios_bundle_id}`")
             else:
                 st.caption("앱 정보 없음")
     else:
         st.warning("⚠️ 위에서 '앱 정보 조회'를 먼저 실행해주세요.")
 
-    default_app_name = ""
-    default_package_name = ""
-    if store_android:
-        default_app_name = store_android.get("name", "")
-        default_package_name = store_android.get("package_name", "")
-    elif store_ios:
-        default_app_name = store_ios.get("name", "")
-        default_package_name = store_ios.get("bundle_id", "")
-
+    # App Name for ad unit name generation (pre-fill from store info)
+    default_app_name = android_app_name or ios_app_name
     # Extract name before colon (e.g., "My Supermarket: Shop Rush" → "My Supermarket")
     if default_app_name and ":" in default_app_name:
         default_app_name = default_app_name.split(":")[0].strip()
 
     if default_app_name and not st.session_state.get("applovin_app_name"):
         st.session_state["applovin_app_name"] = default_app_name
-    if default_package_name and not st.session_state.get("applovin_package_name"):
-        st.session_state["applovin_package_name"] = default_package_name
 
-    # App Name input (optional, used for Ad Unit Name generation)
     app_name = st.text_input(
         "App Name",
         placeholder="Glamour Boutique",
         help="App name (optional, used for Ad Unit Name generation)",
         key="applovin_app_name"
     )
-
-    # Package name input
-    package_name = st.text_input(
-        "Package Name*",
-        placeholder="com.test.app",
-        help="Package name (Android) or Bundle ID (iOS). Ad Units will be created for both Android and iOS.",
-        key="applovin_package_name"
-    )
-
-    st.info("💡 **Note:** Ad Units will be created for both Android and iOS platforms automatically.")
 
     st.divider()
 
@@ -96,14 +80,19 @@ def render_applovin_create_unit_ui():
         }
     }
 
-    # Create sections for Android and iOS
+    # Create sections for Android and iOS (use store info package_name per platform)
     platforms = [
-        ("android", "Android", "AOS"),
-        ("ios", "iOS", "iOS")
+        ("android", "Android", "AOS", android_package_name),
+        ("ios", "iOS", "iOS", ios_bundle_id)
     ]
 
-    for platform, platform_display, os_str in platforms:
+    for platform, platform_display, os_str, pkg_name in platforms:
         st.subheader(f"📱 {platform_display}")
+
+        if not pkg_name:
+            st.caption(f"{platform_display} 앱 정보가 없어 Ad Unit을 생성할 수 없습니다.")
+            st.divider()
+            continue
 
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
@@ -123,9 +112,9 @@ def render_applovin_create_unit_ui():
                         adformat = adformat_map.get(slot_key, slot_key)
                         default_name = f"{app_name} {os_str} {adformat}"
                         st.session_state[slot_name_key] = default_name
-                    elif package_name:
-                        # Fallback to package name format if app_name is not provided
-                        pkg_last_part = package_name.split(".")[-1] if "." in package_name else package_name
+                    elif pkg_name:
+                        # Fallback to package name format
+                        pkg_last_part = pkg_name.split(".")[-1] if "." in pkg_name else pkg_name
                         os_lower = "aos" if platform == "android" else "ios"
                         adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
                         adtype = adtype_map.get(slot_key, slot_key.lower())
@@ -148,7 +137,7 @@ def render_applovin_create_unit_ui():
                     settings_html += '<ul style="margin: 0; padding-left: 20px;">'
                     settings_html += f'<li>Ad Format: {slot_config["ad_format"]}</li>'
                     settings_html += f'<li>Platform: {platform_display}</li>'
-                    settings_html += f'<li>Package Name: {package_name if package_name else "Not set"}</li>'
+                    settings_html += f'<li>Package Name: {pkg_name}</li>'
                     settings_html += '</ul></div>'
                     st.markdown(settings_html, unsafe_allow_html=True)
 
@@ -157,14 +146,12 @@ def render_applovin_create_unit_ui():
                         # Validate inputs
                         if not slot_name:
                             st.toast("❌ Ad Unit Name is required", icon="🚫")
-                        elif not package_name:
-                            st.toast("❌ Package Name is required", icon="🚫")
                         else:
                             # Build payload
                             payload = {
                                 "name": slot_name,
                                 "platform": platform,
-                                "package_name": package_name,
+                                "package_name": pkg_name,
                                 "ad_format": slot_config["ad_format"]
                             }
 
@@ -184,7 +171,7 @@ def render_applovin_create_unit_ui():
                                             unit_data = {
                                                 "slotCode": result.get("id", result.get("adUnitId", "N/A")),
                                                 "name": slot_name,
-                                                "appCode": package_name,
+                                                "appCode": pkg_name,
                                                 "slotType": slot_config["ad_format"],
                                                 "adType": slot_config["ad_format"],
                                                 "auctionType": "N/A"
