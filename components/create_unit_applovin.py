@@ -17,7 +17,25 @@ def render_applovin_create_unit_ui():
     
     # Common input fields (outside form, shared by all ad formats)
     st.markdown("**Ad Unit Information**")
-    
+
+    # Pre-fill from store info if available (only when widget is empty/unset)
+    store_android = st.session_state.get("store_info_android")
+    store_ios = st.session_state.get("store_info_ios")
+
+    default_app_name = ""
+    default_package_name = ""
+    if store_android:
+        default_app_name = store_android.get("name", "")
+        default_package_name = store_android.get("package_name", "")
+    elif store_ios:
+        default_app_name = store_ios.get("name", "")
+        default_package_name = store_ios.get("bundle_id", "")
+
+    if default_app_name and not st.session_state.get("applovin_app_name"):
+        st.session_state["applovin_app_name"] = default_app_name
+    if default_package_name and not st.session_state.get("applovin_package_name"):
+        st.session_state["applovin_package_name"] = default_package_name
+
     # App Name input (optional, used for Ad Unit Name generation)
     app_name = st.text_input(
         "App Name",
@@ -25,7 +43,7 @@ def render_applovin_create_unit_ui():
         help="App name (optional, used for Ad Unit Name generation)",
         key="applovin_app_name"
     )
-    
+
     # Package name input
     package_name = st.text_input(
         "Package Name*",

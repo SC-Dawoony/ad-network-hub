@@ -127,6 +127,10 @@ if "store_info_android" not in st.session_state:
     st.session_state.store_info_android = None
 if "app_match_identifier" not in st.session_state:
     st.session_state.app_match_identifier = None
+if "applovin_existing_ad_units_android" not in st.session_state:
+    st.session_state.applovin_existing_ad_units_android = []
+if "applovin_existing_ad_units_ios" not in st.session_state:
+    st.session_state.applovin_existing_ad_units_ios = []
 
 # Step 1: Store URL Input
 st.markdown("### 1️⃣ Store URL 입력")
@@ -183,6 +187,62 @@ if fetch_info_button:
             except Exception as e:
                 st.error(f"❌ Android 앱 정보 조회 실패: {str(e)}")
     
+    # Fetch AppLovin existing ad units when network is AppLovin
+    if current_network == "applovin" and (ios_info or android_info or
+            st.session_state.store_info_ios or st.session_state.store_info_android):
+        with st.spinner("AppLovin Ad Unit 정보를 가져오는 중..."):
+            try:
+                from utils.applovin_manager import get_ad_units, get_applovin_api_key
+                api_key = get_applovin_api_key()
+                if api_key:
+                    success, result = get_ad_units(api_key)
+                    if success:
+                        all_units = result.get("data", [])
+                        if isinstance(all_units, dict):
+                            all_units = all_units.get("ad_units", all_units.get("data", []))
+
+                        # Get package names to filter by
+                        android_pkg = None
+                        ios_bid = None
+                        if android_info:
+                            android_pkg = android_info.get("package_name", "")
+                        elif st.session_state.store_info_android:
+                            android_pkg = st.session_state.store_info_android.get("package_name", "")
+                        if ios_info:
+                            ios_bid = ios_info.get("bundle_id", "")
+                        elif st.session_state.store_info_ios:
+                            ios_bid = st.session_state.store_info_ios.get("bundle_id", "")
+
+                        # Filter by package_name per platform
+                        android_units = []
+                        ios_units = []
+                        for unit in (all_units if isinstance(all_units, list) else []):
+                            unit_pkg = unit.get("package_name", "")
+                            unit_platform = unit.get("platform", "").lower()
+                            if unit_platform == "android" and android_pkg and unit_pkg == android_pkg:
+                                android_units.append(unit)
+                            elif unit_platform == "ios" and ios_bid and unit_pkg == ios_bid:
+                                ios_units.append(unit)
+
+                        st.session_state.applovin_existing_ad_units_android = android_units
+                        st.session_state.applovin_existing_ad_units_ios = ios_units
+
+                        total = len(android_units) + len(ios_units)
+                        if total > 0:
+                            st.success(f"✅ AppLovin 기존 Ad Unit {total}개 조회 (Android: {len(android_units)}, iOS: {len(ios_units)})")
+                        else:
+                            st.info("ℹ️ 해당 앱의 AppLovin Ad Unit이 없습니다.")
+                    else:
+                        st.warning("⚠️ AppLovin Ad Unit 조회 실패")
+                        st.session_state.applovin_existing_ad_units_android = []
+                        st.session_state.applovin_existing_ad_units_ios = []
+                else:
+                    st.warning("⚠️ APPLOVIN_API_KEY가 설정되지 않았습니다.")
+            except Exception as e:
+                st.warning(f"⚠️ AppLovin Ad Unit 조회 중 오류: {e}")
+                st.session_state.applovin_existing_ad_units_android = []
+                st.session_state.applovin_existing_ad_units_ios = []
+
     if not ios_url and not android_url:
         st.warning("⚠️ 최소 하나의 Store URL을 입력해주세요.")
 
@@ -214,6 +274,37 @@ if st.session_state.store_info_ios or st.session_state.store_info_android:
             st.write(f"**카테고리:** {info.get('category', 'N/A')}")
             if info.get('icon_url'):
                 st.image(info.get('icon_url'), width=100)
+
+    # Display existing AppLovin ad units (only for AppLovin network)
+    if current_network == "applovin" and (
+        st.session_state.get("applovin_existing_ad_units_android") or
+        st.session_state.get("applovin_existing_ad_units_ios")
+    ):
+        st.markdown("### 📋 기존 AppLovin Ad Units")
+
+        ad_cols = st.columns(2)
+
+        with ad_cols[0]:
+            android_units = st.session_state.get("applovin_existing_ad_units_android", [])
+            st.markdown("**🤖 Android**")
+            if android_units:
+                for unit in sorted(android_units, key=lambda x: x.get("ad_format", "")):
+                    ad_format = unit.get("ad_format", "N/A")
+                    fmt_icon = {"REWARD": "🟢", "INTER": "🔵", "BANNER": "🟡"}.get(ad_format, "⚪")
+                    st.markdown(f"{fmt_icon} **{ad_format}** | `{unit.get('id', 'N/A')}` | {unit.get('name', 'N/A')}")
+            else:
+                st.caption("기존 Ad Unit 없음")
+
+        with ad_cols[1]:
+            ios_units = st.session_state.get("applovin_existing_ad_units_ios", [])
+            st.markdown("**🍎 iOS**")
+            if ios_units:
+                for unit in sorted(ios_units, key=lambda x: x.get("ad_format", "")):
+                    ad_format = unit.get("ad_format", "N/A")
+                    fmt_icon = {"REWARD": "🟢", "INTER": "🔵", "BANNER": "🟡"}.get(ad_format, "⚪")
+                    st.markdown(f"{fmt_icon} **{ad_format}** | `{unit.get('id', 'N/A')}` | {unit.get('name', 'N/A')}")
+            else:
+                st.caption("기존 Ad Unit 없음")
 
 # App match name selection (if Android and iOS have different identifiers)
 android_package = None
