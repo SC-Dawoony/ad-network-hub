@@ -1477,7 +1477,10 @@ if len(edited_df) > 0:
                 errors.append(f"{len(empty_networks)}개의 행에 Ad Network가 없습니다.")
         
         if "ad_unit_id" in df_to_process.columns:
-            empty_unit_ids = df_to_process[df_to_process["ad_unit_id"].isna() | (df_to_process["ad_unit_id"] == "")]
+            empty_unit_ids = df_to_process[
+                (df_to_process["ad_unit_id"].isna() | (df_to_process["ad_unit_id"] == ""))
+                & (df_to_process["ad_network"] != "BIDMACHINE_BIDDING")
+            ]
             if len(empty_unit_ids) > 0:
                 errors.append(f"{len(empty_unit_ids)}개의 행에 Ad Network Ad Unit ID가 없습니다.")
         
