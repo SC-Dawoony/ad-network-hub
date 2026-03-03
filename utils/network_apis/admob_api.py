@@ -274,7 +274,11 @@ class AdMobAPI(BaseNetworkAPI):
                 prompt='consent'
             )
             st.session_state['admob_oauth_state'] = state
-            st.session_state['admob_code_verifier'] = flow.code_verifier
+            # Save code_verifier to file (session_state is lost on OAuth redirect)
+            verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.code_verifier')
+            if flow.code_verifier:
+                with open(verifier_path, 'w') as f:
+                    f.write(flow.code_verifier)
             return auth_url
         except Exception as e:
             logger.error(f"[AdMob] Failed to generate auth URL: {e}")
@@ -291,7 +295,12 @@ class AdMobAPI(BaseNetworkAPI):
         flow = Flow.from_client_config(
             client_config, ADMOB_SCOPES, redirect_uri=redirect_uri
         )
-        flow.code_verifier = st.session_state.get('admob_code_verifier')
+        # Restore code_verifier from file (session_state is lost on OAuth redirect)
+        verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.code_verifier')
+        if os.path.exists(verifier_path):
+            with open(verifier_path, 'r') as f:
+                flow.code_verifier = f.read().strip()
+            os.remove(verifier_path)
         flow.fetch_token(code=code)
         creds = flow.credentials
         logger.info("[AdMob] Successfully exchanged auth code for credentials")
