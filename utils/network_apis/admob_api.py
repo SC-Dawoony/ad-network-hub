@@ -274,6 +274,7 @@ class AdMobAPI(BaseNetworkAPI):
                 prompt='consent'
             )
             st.session_state['admob_oauth_state'] = state
+            st.session_state['admob_code_verifier'] = flow.code_verifier
             return auth_url
         except Exception as e:
             logger.error(f"[AdMob] Failed to generate auth URL: {e}")
@@ -290,6 +291,7 @@ class AdMobAPI(BaseNetworkAPI):
         flow = Flow.from_client_config(
             client_config, ADMOB_SCOPES, redirect_uri=redirect_uri
         )
+        flow.code_verifier = st.session_state.get('admob_code_verifier')
         flow.fetch_token(code=code)
         creds = flow.credentials
         logger.info("[AdMob] Successfully exchanged auth code for credentials")
