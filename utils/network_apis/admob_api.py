@@ -274,9 +274,9 @@ class AdMobAPI(BaseNetworkAPI):
                 prompt='consent'
             )
             st.session_state['admob_oauth_state'] = state
-            # Save code_verifier to file (session_state is lost on OAuth redirect)
-            verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.code_verifier')
+            # Save code_verifier to file per state (session_state is lost on OAuth redirect)
             if flow.code_verifier:
+                verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), f'.code_verifier_{state}')
                 with open(verifier_path, 'w') as f:
                     f.write(flow.code_verifier)
             return auth_url
@@ -284,7 +284,7 @@ class AdMobAPI(BaseNetworkAPI):
             logger.error(f"[AdMob] Failed to generate auth URL: {e}")
             return None
 
-    def _exchange_auth_code(self, code: str):
+    def _exchange_auth_code(self, code: str, state: str = None):
         """Exchange OAuth authorization code for credentials"""
         import os
         # Allow scope changes (Google may reorder or modify returned scopes)
@@ -295,12 +295,13 @@ class AdMobAPI(BaseNetworkAPI):
         flow = Flow.from_client_config(
             client_config, ADMOB_SCOPES, redirect_uri=redirect_uri
         )
-        # Restore code_verifier from file (session_state is lost on OAuth redirect)
-        verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.code_verifier')
-        if os.path.exists(verifier_path):
-            with open(verifier_path, 'r') as f:
-                flow.code_verifier = f.read().strip()
-            os.remove(verifier_path)
+        # Restore code_verifier from file per state (session_state is lost on OAuth redirect)
+        if state:
+            verifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), f'.code_verifier_{state}')
+            if os.path.exists(verifier_path):
+                with open(verifier_path, 'r') as f:
+                    flow.code_verifier = f.read().strip()
+                os.remove(verifier_path)
         flow.fetch_token(code=code)
         creds = flow.credentials
         logger.info("[AdMob] Successfully exchanged auth code for credentials")

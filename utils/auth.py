@@ -293,7 +293,7 @@ def handle_oauth_callback() -> bool:
 
     api = AdMobAPI()
     try:
-        creds = api._exchange_auth_code(st.query_params["code"])
+        creds = api._exchange_auth_code(st.query_params["code"], st.query_params.get("state"))
         if creds and creds.valid:
             st.session_state["admob_credentials"] = json.loads(creds.to_json())
             st.session_state["authenticated"] = True
