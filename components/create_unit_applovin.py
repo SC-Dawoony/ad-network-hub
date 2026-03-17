@@ -15,36 +15,32 @@ def render_applovin_create_unit_ui():
 
     st.divider()
 
-    # Ad Unit Information - per platform from store info
+    # Ad Unit Information - per platform (manual input with store info pre-fill)
     st.markdown("**Ad Unit Information**")
 
     store_android = st.session_state.get("store_info_android")
     store_ios = st.session_state.get("store_info_ios")
 
     android_app_name = store_android.get("name", "") if store_android else ""
-    android_package_name = store_android.get("package_name", "") if store_android else ""
     ios_app_name = store_ios.get("name", "") if store_ios else ""
-    ios_bundle_id = store_ios.get("bundle_id", "") if store_ios else ""
 
-    # Show per-platform store info
-    if store_android or store_ios:
-        info_cols = st.columns(2)
-        with info_cols[0]:
-            st.markdown("**🤖 Android**")
-            if store_android:
-                st.write(f"App Name: **{android_app_name}**")
-                st.write(f"Package Name: `{android_package_name}`")
-            else:
-                st.caption("앱 정보 없음")
-        with info_cols[1]:
-            st.markdown("**🍎 iOS**")
-            if store_ios:
-                st.write(f"App Name: **{ios_app_name}**")
-                st.write(f"Bundle ID: `{ios_bundle_id}`")
-            else:
-                st.caption("앱 정보 없음")
-    else:
-        st.warning("⚠️ 위에서 '앱 정보 조회'를 먼저 실행해주세요.")
+    info_cols = st.columns(2)
+    with info_cols[0]:
+        st.markdown("**🤖 Android**")
+        android_package_name = st.text_input(
+            "Package Name",
+            value=store_android.get("package_name", "") if store_android else "",
+            placeholder="com.example.app",
+            key="applovin_android_package_name"
+        )
+    with info_cols[1]:
+        st.markdown("**🍎 iOS**")
+        ios_bundle_id = st.text_input(
+            "Bundle ID",
+            value=store_ios.get("bundle_id", "") if store_ios else "",
+            placeholder="com.example.app",
+            key="applovin_ios_bundle_id"
+        )
 
     # App Name for ad unit name generation (pre-fill from store info)
     default_app_name = android_app_name or ios_app_name
@@ -88,11 +84,6 @@ def render_applovin_create_unit_ui():
 
     for platform, platform_display, os_str, pkg_name in platforms:
         st.subheader(f"📱 {platform_display}")
-
-        if not pkg_name:
-            st.caption(f"{platform_display} 앱 정보가 없어 Ad Unit을 생성할 수 없습니다.")
-            st.divider()
-            continue
 
         # Create 3 columns for RV, IS, BN
         col1, col2, col3 = st.columns(3)
@@ -164,6 +155,8 @@ def render_applovin_create_unit_ui():
                         # Validate inputs
                         if not slot_name:
                             st.toast("❌ Ad Unit Name is required", icon="🚫")
+                        elif not pkg_name:
+                            st.toast(f"❌ {'Package Name' if platform == 'android' else 'Bundle ID'} is required", icon="🚫")
                         else:
                             # Build payload
                             payload = {
