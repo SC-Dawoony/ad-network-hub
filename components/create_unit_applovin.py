@@ -133,7 +133,6 @@ def render_applovin_create_unit_ui():
                     st.markdown(settings_html, unsafe_allow_html=True)
 
                     # Banner refresh interval (BN only)
-                    banner_refresh = None
                     if slot_key == "BN":
                         refresh_options = [0, 10, 15, 20, 30, 45, 60, 300]
                         refresh_labels = {
@@ -142,7 +141,7 @@ def render_applovin_create_unit_ui():
                             30: "30초", 45: "45초", 60: "60초",
                             300: "300초 (5분)"
                         }
-                        banner_refresh = st.selectbox(
+                        st.selectbox(
                             "Banner Refresh Interval",
                             options=refresh_options,
                             format_func=lambda x: refresh_labels.get(x, f"{x}초"),
@@ -150,39 +149,49 @@ def render_applovin_create_unit_ui():
                             key=f"applovin_banner_refresh_{platform}_{slot_key}"
                         )
 
-                    # Create button for AppLovin
-                    if st.button(f"✅ Create {slot_key} ({platform_display})", use_container_width=True, key=f"create_applovin_{platform}_{slot_key}"):
-                        # Validate inputs
-                        if not slot_name:
-                            st.toast("❌ Ad Unit Name is required", icon="🚫")
-                        elif not pkg_name:
-                            st.toast(f"❌ {'Package Name' if platform == 'android' else 'Bundle ID'} is required", icon="🚫")
-                        else:
-                            # Build payload
-                            payload = {
-                                "name": slot_name,
-                                "platform": platform,
-                                "package_name": pkg_name,
-                                "ad_format": slot_config["ad_format"]
-                            }
+        # Create All button per platform
+        if st.button(f"✅ Create All ({platform_display})", use_container_width=True, key=f"create_applovin_all_{platform}"):
+            if not pkg_name:
+                st.toast(f"❌ {'Package Name' if platform == 'android' else 'Bundle ID'} is required", icon="🚫")
+            else:
+                # Collect all slot names and validate
+                slots_to_create = []
+                has_error = False
+                for slot_key, slot_config in slot_configs_applovin.items():
+                    slot_name_key = f"applovin_slot_{platform}_{slot_key}_name"
+                    slot_name = st.session_state.get(slot_name_key, "")
+                    if not slot_name:
+                        st.toast(f"❌ {slot_key} Ad Unit Name is required", icon="🚫")
+                        has_error = True
+                        break
+                    slots_to_create.append((slot_key, slot_config, slot_name))
 
-                            # Make API call
-                            with st.spinner(f"Creating {slot_key} ad unit for {platform_display}..."):
-                                try:
-                                    network_manager = get_network_manager()
-                                    response = network_manager.create_unit("applovin", payload)
+                if not has_error:
+                    network_manager = get_network_manager()
+                    success_count = 0
+                    for slot_key, slot_config, slot_name in slots_to_create:
+                        with st.spinner(f"Creating {slot_key} ad unit for {platform_display}..."):
+                            try:
+                                payload = {
+                                    "name": slot_name,
+                                    "platform": platform,
+                                    "package_name": pkg_name,
+                                    "ad_format": slot_config["ad_format"]
+                                }
+                                response = network_manager.create_unit("applovin", payload)
 
-                                    if not response:
-                                        st.error("❌ No response from API")
-                                        SessionManager.log_error("applovin", "No response from API")
-                                    else:
-                                        result = handle_api_response(response)
+                                if not response:
+                                    st.error(f"❌ {slot_key}: No response from API")
+                                    SessionManager.log_error("applovin", f"{slot_key}: No response from API")
+                                else:
+                                    result = handle_api_response(response)
+                                    if result is not None:
+                                        ad_unit_id = result.get("id", result.get("adUnitId"))
 
-                                        if result is not None:
-                                            ad_unit_id = result.get("id", result.get("adUnitId"))
-
-                                            # Banner refresh settings (BN only)
-                                            if slot_key == "BN" and ad_unit_id and banner_refresh is not None:
+                                        # Banner refresh settings (BN only)
+                                        if slot_key == "BN" and ad_unit_id:
+                                            banner_refresh = st.session_state.get(f"applovin_banner_refresh_{platform}_BN")
+                                            if banner_refresh is not None:
                                                 from utils.applovin_manager import update_banner_refresh_settings, get_applovin_api_key
                                                 api_key = get_applovin_api_key()
                                                 if api_key:
@@ -192,23 +201,22 @@ def render_applovin_create_unit_ui():
                                                     else:
                                                         st.warning(f"⚠️ Banner refresh 설정 실패: {refresh_result}")
 
-                                            unit_data = {
-                                                "slotCode": ad_unit_id or "N/A",
-                                                "name": slot_name,
-                                                "appCode": pkg_name,
-                                                "slotType": slot_config["ad_format"],
-                                                "adType": slot_config["ad_format"],
-                                                "auctionType": "N/A"
-                                            }
-                                            SessionManager.add_created_unit("applovin", unit_data)
+                                        unit_data = {
+                                            "slotCode": ad_unit_id or "N/A",
+                                            "name": slot_name,
+                                            "appCode": pkg_name,
+                                            "slotType": slot_config["ad_format"],
+                                            "adType": slot_config["ad_format"],
+                                            "auctionType": "N/A"
+                                        }
+                                        SessionManager.add_created_unit("applovin", unit_data)
+                                        st.success(f"✅ {slot_key} ad unit ({platform_display}) created successfully!")
+                                        success_count += 1
+                            except Exception as e:
+                                st.error(f"❌ Error creating {slot_key} ad unit ({platform_display}): {str(e)}")
+                                SessionManager.log_error("applovin", str(e))
 
-                                            st.success(f"✅ {slot_key} ad unit ({platform_display}) created successfully!")
-                                            st.rerun()
-                                        else:
-                                            # handle_api_response already displayed error
-                                            pass
-                                except Exception as e:
-                                    st.error(f"❌ Error creating {slot_key} ad unit ({platform_display}): {str(e)}")
-                                    SessionManager.log_error("applovin", str(e))
+                    if success_count > 0:
+                        st.rerun()
 
         st.divider()
