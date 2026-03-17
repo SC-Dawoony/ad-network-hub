@@ -15,7 +15,7 @@ def render_applovin_create_unit_ui():
 
     st.divider()
 
-    # Ad Unit Information - per platform (manual input with store info pre-fill)
+    # Ad Unit Information
     st.markdown("**Ad Unit Information**")
 
     store_android = st.session_state.get("store_info_android")
@@ -24,25 +24,7 @@ def render_applovin_create_unit_ui():
     android_app_name = store_android.get("name", "") if store_android else ""
     ios_app_name = store_ios.get("name", "") if store_ios else ""
 
-    info_cols = st.columns(2)
-    with info_cols[0]:
-        st.markdown("**🤖 Android**")
-        android_package_name = st.text_input(
-            "Package Name",
-            value=store_android.get("package_name", "") if store_android else "",
-            placeholder="com.example.app",
-            key="applovin_android_package_name"
-        )
-    with info_cols[1]:
-        st.markdown("**🍎 iOS**")
-        ios_bundle_id = st.text_input(
-            "Bundle ID",
-            value=store_ios.get("bundle_id", "") if store_ios else "",
-            placeholder="com.example.app",
-            key="applovin_ios_bundle_id"
-        )
-
-    # App Name for ad unit name generation (pre-fill from store info)
+    # App Name (used for Ad Unit Name generation)
     default_app_name = android_app_name or ios_app_name
     # Extract name before colon (e.g., "My Supermarket: Shop Rush" → "My Supermarket")
     if default_app_name and ":" in default_app_name:
@@ -57,6 +39,23 @@ def render_applovin_create_unit_ui():
         help="App name (optional, used for Ad Unit Name generation)",
         key="applovin_app_name"
     )
+
+    # Package Name / Bundle ID (manual input with store info pre-fill)
+    info_cols = st.columns(2)
+    with info_cols[0]:
+        android_package_name = st.text_input(
+            "Android Package Name",
+            value=store_android.get("package_name", "") if store_android else "",
+            placeholder="com.example.app",
+            key="applovin_android_package_name"
+        )
+    with info_cols[1]:
+        ios_bundle_id = st.text_input(
+            "iOS Bundle ID",
+            value=store_ios.get("bundle_id", "") if store_ios else "",
+            placeholder="com.example.app",
+            key="applovin_ios_bundle_id"
+        )
 
     st.divider()
 
