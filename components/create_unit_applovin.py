@@ -95,24 +95,12 @@ def render_applovin_create_unit_ui():
                     # Slot name input
                     slot_name_key = f"applovin_slot_{platform}_{slot_key}_name"
 
-                    # Generate default name based on app_name or package_name
+                    # Generate default name: {app_name} {os_str} {adformat}
                     if app_name:
-                        # Use app_name: {app_name} {os} {adformat}
-                        adformat_map = {"RV": "RV", "IS": "IS", "BN": "BN"}
-                        adformat = adformat_map.get(slot_key, slot_key)
-                        default_name = f"{app_name} {os_str} {adformat}"
-                        st.session_state[slot_name_key] = default_name
-                    elif pkg_name:
-                        # Fallback to package name format
-                        pkg_last_part = pkg_name.split(".")[-1] if "." in pkg_name else pkg_name
-                        os_lower = "aos" if platform == "android" else "ios"
-                        adtype_map = {"RV": "rv", "IS": "is", "BN": "bn"}
-                        adtype = adtype_map.get(slot_key, slot_key.lower())
-                        default_name = f"{pkg_last_part}_{os_lower}_applovin_{adtype}_bidding"
+                        default_name = f"{app_name} {os_str} {slot_key}"
                         st.session_state[slot_name_key] = default_name
                     elif slot_name_key not in st.session_state:
-                        default_name = f"{slot_key.lower()}_{platform}_ad_unit"
-                        st.session_state[slot_name_key] = default_name
+                        st.session_state[slot_name_key] = ""
 
                     slot_name = st.text_input(
                         "Ad Unit Name*",
