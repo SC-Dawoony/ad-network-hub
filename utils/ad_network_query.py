@@ -602,11 +602,11 @@ def match_applovin_unit_to_network(
             
             # Normalize AppLovin unit name for comparison
             # Example: "Glamour Boutique iOS RV" -> "glamourboutique"
-            applovin_name_normalized = re.sub(r'\s+', '', app_name.lower())  # Remove spaces
-            # Remove platform and ad format indicators
-            applovin_name_normalized = re.sub(r'\s*(ios|android|aos)\s*', '', applovin_name_normalized, flags=re.IGNORECASE)
-            applovin_name_normalized = re.sub(r'\s*(rv|is|bn|reward|interstitial|banner)\s*', '', applovin_name_normalized, flags=re.IGNORECASE)
-            applovin_name_normalized = applovin_name_normalized.strip()
+            # Remove platform/format tokens as whole words FIRST, then strip non-alpha
+            name_lower = app_name.lower()
+            tokens_to_remove = r'\b(ios|android|aos|rv|is|bn|reward|rewarded|interstitial|banner)\b'
+            name_cleaned = re.sub(tokens_to_remove, '', name_lower, flags=re.IGNORECASE)
+            applovin_name_normalized = re.sub(r'[^a-z0-9]', '', name_cleaned).strip()
             
             logger.info(f"[Mintegral] Normalized AppLovin name: '{applovin_name_normalized}'")
             
@@ -646,42 +646,16 @@ def match_applovin_unit_to_network(
                     
                     # Normalize placement name for comparison
                     # Example: "glamourboutique_ios_mintegral_rv_bidding" -> "glamourboutique"
-                    placement_name_normalized = placement_name.lower()
-                    # Remove common suffixes/prefixes
-                    placement_name_normalized = re.sub(r'_[a-z]+_(ios|android|aos)_', '_', placement_name_normalized)
-                    placement_name_normalized = re.sub(r'_(mintegral|rv|is|bn|rewarded|interstitial|banner|bidding).*$', '', placement_name_normalized)
-                    placement_name_normalized = placement_name_normalized.strip('_')
+                    # Split by underscore, remove known tokens, rejoin
+                    parts = placement_name.lower().split('_')
+                    remove_tokens = {'ios', 'android', 'aos', 'mintegral', 'rv', 'is', 'bn',
+                                     'rewarded', 'interstitial', 'banner', 'bidding'}
+                    parts_cleaned = [p for p in parts if p not in remove_tokens]
+                    placement_name_normalized = ''.join(parts_cleaned)
                     
-                    # Compare normalized names
+                    # Compare normalized names (exact match only)
                     if applovin_name_normalized and placement_name_normalized:
-                        # Check if normalized names match (exact or contains)
-                        # Also check if one is a suffix/prefix of the other (for cases like "arrowflow" vs "rrow")
-                        is_match = False
-                        
-                        # Exact match
-                        if applovin_name_normalized == placement_name_normalized:
-                            is_match = True
-                        # Contains match (one contains the other)
-                        elif applovin_name_normalized in placement_name_normalized or \
-                             placement_name_normalized in applovin_name_normalized:
-                            is_match = True
-                        # Suffix/Prefix match: check if shorter string is a suffix or prefix of longer string
-                        else:
-                            shorter = min(applovin_name_normalized, placement_name_normalized, key=len)
-                            longer = max(applovin_name_normalized, placement_name_normalized, key=len)
-                            
-                            # Check if shorter is a suffix of longer (e.g., "rrow" is suffix of "arrowflow")
-                            if len(shorter) >= 3 and longer.endswith(shorter):
-                                is_match = True
-                            # Check if shorter is a prefix of longer
-                            elif len(shorter) >= 3 and longer.startswith(shorter):
-                                is_match = True
-                            # Check if there's significant overlap (at least 3 consecutive characters)
-                            elif len(shorter) >= 3:
-                                for i in range(len(longer) - len(shorter) + 1):
-                                    if longer[i:i+len(shorter)] == shorter:
-                                        is_match = True
-                                        break
+                        is_match = (applovin_name_normalized == placement_name_normalized)
                         
                         if is_match:
                             logger.info(f"[Mintegral] Found matching app by placement name: app_id={app_id}, placement_name='{placement_name}', normalized='{placement_name_normalized}', applovin_normalized='{applovin_name_normalized}'")
