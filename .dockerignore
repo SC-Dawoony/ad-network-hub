@@ -1,0 +1,14 @@
+.env
+.git
+.streamlit
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
+admob_token.json
+client_secrets.json
+client_secret*.json
+auth_tokens/
+frontend/node_modules/
+frontend/dist/
